@@ -1,0 +1,23 @@
+{
+  "allowedTools": [
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Glob",
+    "Grep",
+    "Task",
+    "TodoWrite",
+    "AskUserQuestion"
+  ],
+  "rules": [
+    "Always read CLAUDE.md before starting any task",
+    "Update /docs/TASK_LIST.md as you complete tasks",
+    "Use TypeScript in strict mode for all code",
+    "Validate all inputs with Zod schemas",
+    "Follow Next.js App Router best practices",
+    "Use Server Components by default, Client Components only when needed",
+    "Implement proper error handling and loading states",
+    "Test code before marking tasks complete"
+  ]
+}
