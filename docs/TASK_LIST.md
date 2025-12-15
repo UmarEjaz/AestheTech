@@ -174,23 +174,23 @@
 - [x] Add permission checks
 
 ### Staff Schedule Management
-- [ ] Design schedule calendar view
-- [ ] Create weekly schedule view
+- [x] Design schedule calendar view
+- [x] Create weekly schedule view
 - [ ] Create monthly schedule view
-- [ ] Design "Add Schedule" form
-- [ ] Implement shift creation (opening, closing, split)
-- [ ] Add staff availability tracking
-- [ ] Create schedule API route
-- [ ] Implement schedule creation
-- [ ] Implement schedule update
-- [ ] Add time-off request functionality
-- [ ] Create conflict detection for schedules
-- [ ] Add schedule templates
+- [x] Design "Add Schedule" form
+- [x] Implement shift creation (opening, closing, split)
+- [x] Add staff availability tracking
+- [x] Create schedule API route
+- [x] Implement schedule creation
+- [x] Implement schedule update
+- [x] Add time-off request functionality (toggle availability)
+- [x] Create conflict detection for schedules
+- [x] Add schedule templates (copy schedule feature)
 - [ ] Implement drag-and-drop schedule adjustment
 - [ ] Export schedule to PDF
-- [ ] Staff can view their own schedule
-- [ ] Test schedule management
-- [ ] Add permission checks
+- [x] Staff can view their own schedule
+- [x] Test schedule management
+- [x] Add permission checks
 
 ---
 
