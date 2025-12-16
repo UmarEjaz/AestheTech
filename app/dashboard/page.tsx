@@ -1,11 +1,14 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { Calendar, Users, DollarSign, Scissors, Clock, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Users, DollarSign, Clock } from "lucide-react";
-import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { DashboardWidgets } from "@/components/dashboard/dashboard-widgets";
+import { getDashboardStats } from "@/lib/actions/dashboard";
 import { Role } from "@prisma/client";
+import { hasPermission } from "@/lib/permissions";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -15,143 +18,120 @@ export default async function DashboardPage() {
   }
 
   const { user } = session;
+  const userRole = user.role as Role;
+  const canViewReports = hasPermission(userRole, "reports:view");
+
+  const statsResult = await getDashboardStats();
 
   return (
-    <DashboardLayout userRole={user.role as Role}>
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold">Welcome back, {user.firstName}!</h2>
-        <p className="text-muted-foreground mt-1">
-          Here&apos;s what&apos;s happening at your salon today.
-        </p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Today&apos;s Appointments
-            </CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">12</div>
-            <p className="text-xs text-muted-foreground">
-              3 completed, 9 remaining
+    <DashboardLayout userRole={userRole}>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold">Welcome back, {user.firstName}!</h2>
+            <p className="text-muted-foreground mt-1">
+              Here&apos;s what&apos;s happening at your salon today.
             </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Today&apos;s Revenue
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">$1,245</div>
-            <p className="text-xs text-muted-foreground">
-              +20.1% from yesterday
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">573</div>
-            <p className="text-xs text-muted-foreground">
-              +12 new this week
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg. Service Time</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">45 min</div>
-            <p className="text-xs text-muted-foreground">
-              -5 min from last week
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
-        <div className="flex flex-wrap gap-3">
-          <Button asChild>
-            <Link href="/dashboard/appointments/new">New Appointment</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/clients/new">Add Client</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/sales/new">New Sale</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/calendar">View Calendar</Link>
-          </Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href="/dashboard/appointments/new">
+                <Calendar className="h-4 w-4 mr-2" />
+                New Appointment
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/dashboard/sales/new">
+                <DollarSign className="h-4 w-4 mr-2" />
+                New Sale
+              </Link>
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {/* Navigation Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Link href="/dashboard/clients">
-          <Card className="hover:bg-accent transition-colors cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                Clients
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Manage client profiles, preferences, and history
-              </p>
+        {/* Dashboard Widgets with Real Data */}
+        {statsResult.success ? (
+          <DashboardWidgets stats={statsResult.data} />
+        ) : (
+          <Card>
+            <CardContent className="p-6 text-center">
+              <p className="text-muted-foreground">{statsResult.error}</p>
             </CardContent>
           </Card>
-        </Link>
+        )}
 
-        <Link href="/dashboard/appointments">
-          <Card className="hover:bg-accent transition-colors cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
-                Appointments
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Schedule and manage appointments
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
+        {/* Quick Actions */}
+        <div>
+          <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Link href="/dashboard/clients/new">
+              <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Users className="h-5 w-5 text-purple-600" />
+                    Add Client
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Register a new client
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
 
-        <Link href="/dashboard/sales">
-          <Card className="hover:bg-accent transition-colors cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-primary" />
-                Sales
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Process sales and view transactions
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
+            <Link href="/dashboard/services/new">
+              <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Scissors className="h-5 w-5 text-purple-600" />
+                    Add Service
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Create a new service
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/dashboard/schedules">
+              <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Clock className="h-5 w-5 text-purple-600" />
+                    Staff Schedules
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Manage working hours
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            {canViewReports && (
+              <Link href="/dashboard/reports">
+                <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <BarChart3 className="h-5 w-5 text-purple-600" />
+                      View Reports
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      Analytics & insights
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   );
