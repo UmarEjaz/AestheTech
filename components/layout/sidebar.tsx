@@ -6,6 +6,7 @@ import { Role } from "@prisma/client";
 import {
   Calendar,
   Users,
+  UserCog,
   Scissors,
   DollarSign,
   FileText,
@@ -77,7 +78,7 @@ const navItems: NavItem[] = [
   {
     title: "Staff",
     href: "/dashboard/staff",
-    icon: Users,
+    icon: UserCog,
     roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
   },
   {

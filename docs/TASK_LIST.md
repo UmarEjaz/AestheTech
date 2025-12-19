@@ -40,7 +40,7 @@
 - [x] Create auth configuration with JWT strategy
 - [x] Implement login page UI
 - [x] Create login API route
-- [ ] Implement user registration (for admins to add users)
+- [x] Implement user registration (for admins to add users)
 - [x] Create middleware for protected routes
 - [x] Implement role-based access control (RBAC)
 - [x] Create auth utilities (getServerSession, requireAuth)
