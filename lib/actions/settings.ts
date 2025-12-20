@@ -25,6 +25,10 @@ async function checkAuth(permission: Permission): Promise<{ userId: string; role
 export interface SettingsData {
   id: string;
   salonName: string;
+  salonAddress: string | null;
+  salonPhone: string | null;
+  salonEmail: string | null;
+  salonLogo: string | null;
   currency: Currency;
   currencySymbol: string;
   taxRate: number;
@@ -45,6 +49,10 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
       const defaultSettings = await prisma.settings.create({
         data: {
           salonName: "AestheTech Salon",
+          salonAddress: null,
+          salonPhone: null,
+          salonEmail: null,
+          salonLogo: null,
           currency: "USD",
           currencySymbol: "$",
           taxRate: 0,

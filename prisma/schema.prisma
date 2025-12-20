@@ -310,6 +310,10 @@ enum Currency {
 model Settings {
   id                   String   @id @default(cuid())
   salonName            String   @default("AestheTech Salon")
+  salonAddress         String?  // Full address for invoices
+  salonPhone           String?  // Contact phone for invoices
+  salonEmail           String?  // Contact email for invoices
+  salonLogo            String?  // Base64 encoded logo for invoices
   currency             Currency @default(USD)
   currencySymbol       String   @default("$")
   taxRate              Decimal  @default(0) @db.Decimal(5, 2) // percentage
