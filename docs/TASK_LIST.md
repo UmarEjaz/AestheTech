@@ -165,7 +165,7 @@
 - [x] Implement invoice status tracking (paid, pending, overdue, cancelled)
 - [x] Add invoice search functionality
 - [x] Filter invoices by date, client, status
-- [ ] Generate PDF invoice (use library like jsPDF or react-pdf)
+- [x] Generate PDF invoice (use library like jsPDF or react-pdf)
 - [ ] Email invoice to client
 - [x] Display invoice history for clients
 - [ ] Implement refund functionality

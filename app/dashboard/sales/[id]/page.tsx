@@ -7,10 +7,7 @@ import {
   ArrowLeft,
   User,
   Receipt,
-  CreditCard,
-  Star,
   Clock,
-  Printer,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -29,6 +26,8 @@ import {
 import { getSale } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
+import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 
 export default async function SaleDetailPage({
   params,
@@ -61,11 +60,54 @@ export default async function SaleDetailPage({
   const settings = settingsResult.success ? settingsResult.data : {
     currencySymbol: "$",
     salonName: "AestheTech Salon",
+    salonAddress: null,
+    salonPhone: null,
+    salonEmail: null,
+    salonLogo: null,
+    taxRate: 0,
   };
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
   };
+
+  // Prepare invoice data for PDF
+  const invoiceData: InvoicePDFData | null = sale.invoice
+    ? {
+        invoiceNumber: sale.invoice.invoiceNumber,
+        status: sale.invoice.status,
+        createdAt: sale.createdAt.toISOString(),
+        salonName: settings.salonName,
+        salonAddress: settings.salonAddress,
+        salonPhone: settings.salonPhone,
+        salonEmail: settings.salonEmail,
+        salonLogo: settings.salonLogo,
+        currencySymbol: settings.currencySymbol,
+        taxRate: settings.taxRate,
+        client: {
+          firstName: sale.client.firstName,
+          lastName: sale.client.lastName,
+          email: sale.client.email,
+          phone: sale.client.phone,
+        },
+        items: sale.items.map((item) => ({
+          id: item.id,
+          service: { name: item.service.name },
+          staff: {
+            firstName: item.staff.firstName,
+            lastName: item.staff.lastName,
+          },
+          price: Number(item.price),
+          quantity: item.quantity,
+        })),
+        subtotal: Number(sale.totalAmount),
+        discount: Number(sale.discount),
+        tax: Number(sale.invoice.tax),
+        total: Number(sale.invoice.total),
+        loyaltyPointsEarned: 0,
+        loyaltyPointsRedeemed: 0,
+      }
+    : null;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -116,11 +158,8 @@ export default async function SaleDetailPage({
             </div>
           </div>
           <div className="flex gap-2">
-            {sale.invoice && (
-              <Button variant="outline">
-                <Printer className="h-4 w-4 mr-2" />
-                Print Invoice
-              </Button>
+            {sale.invoice && invoiceData && (
+              <InvoiceDownloadButton invoiceData={invoiceData} />
             )}
           </div>
         </div>

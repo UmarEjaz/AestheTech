@@ -74,6 +74,7 @@ const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({
       invoiceNumber: true,
       status: true,
       total: true,
+      tax: true,
     },
   },
 });
