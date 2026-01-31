@@ -75,6 +75,24 @@ const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({
       status: true,
       total: true,
       tax: true,
+      refundedAt: true,
+      refunds: {
+        select: {
+          id: true,
+          amount: true,
+          reason: true,
+          pointsReversed: true,
+          createdAt: true,
+          refundedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
   },
 });

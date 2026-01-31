@@ -8,11 +8,13 @@ import {
   invoiceSearchSchema,
   addPaymentSchema,
   updateInvoiceStatusSchema,
+  createRefundSchema,
   InvoiceSearchParams,
   AddPaymentInput,
   UpdateInvoiceStatusInput,
+  CreateRefundInput,
 } from "@/lib/validations/invoice";
-import { Role, Prisma, InvoiceStatus } from "@prisma/client";
+import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -82,6 +84,23 @@ const invoiceListInclude = Prisma.validator<Prisma.InvoiceInclude>()({
       paidAt: true,
     },
     orderBy: { paidAt: "asc" },
+  },
+  refunds: {
+    select: {
+      id: true,
+      amount: true,
+      reason: true,
+      pointsReversed: true,
+      createdAt: true,
+      refundedBy: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
   },
 });
 
@@ -310,8 +329,9 @@ export async function updateInvoiceStatus(
     const validTransitions: Record<InvoiceStatus, InvoiceStatus[]> = {
       PENDING: [InvoiceStatus.PAID, InvoiceStatus.OVERDUE, InvoiceStatus.CANCELLED],
       OVERDUE: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED],
-      PAID: [], // Cannot change from paid
+      PAID: [], // Cannot change from paid (refunds are handled separately)
       CANCELLED: [], // Cannot change from cancelled
+      REFUNDED: [], // Cannot change from refunded
     };
 
     const allowedStatuses = validTransitions[invoice.status];
@@ -441,5 +461,141 @@ export async function getInvoiceStats(): Promise<ActionResult<{
   } catch (error) {
     console.error("Error fetching invoice stats:", error);
     return { success: false, error: "Failed to fetch invoice statistics" };
+  }
+}
+
+// Create refund for an invoice
+export async function createRefund(data: CreateRefundInput): Promise<ActionResult<{
+  refundId: string;
+  pointsReversed: number;
+}>> {
+  const authResult = await checkAuth("invoices:refund");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const validationResult = createRefundSchema.safeParse(data);
+  if (!validationResult.success) {
+    return { success: false, error: validationResult.error.issues[0].message };
+  }
+
+  const { invoiceId, amount, reason } = validationResult.data;
+
+  try {
+    // Get the invoice with sale and loyalty transaction info
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        sale: {
+          include: {
+            loyaltyTransactions: {
+              where: { type: LoyaltyTransactionType.EARNED },
+            },
+          },
+        },
+        refunds: true,
+      },
+    });
+
+    if (!invoice) {
+      return { success: false, error: "Invoice not found" };
+    }
+
+    if (invoice.status !== InvoiceStatus.PAID) {
+      return { success: false, error: "Only paid invoices can be refunded" };
+    }
+
+    // Calculate total already refunded
+    const totalRefunded = invoice.refunds.reduce((sum, r) => sum + Number(r.amount), 0);
+    const remainingRefundable = Number(invoice.total) - totalRefunded;
+
+    if (amount > remainingRefundable + 0.01) {
+      return {
+        success: false,
+        error: `Refund amount exceeds remaining refundable balance of ${remainingRefundable.toFixed(2)}`,
+      };
+    }
+
+    // Calculate points to reverse (proportional to refund amount)
+    const refundRatio = amount / Number(invoice.total);
+    const totalPointsEarned = invoice.sale.loyaltyTransactions.reduce(
+      (sum, t) => sum + t.points,
+      0
+    );
+    const pointsToReverse = Math.floor(totalPointsEarned * refundRatio);
+
+    // Execute transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create refund record
+      const refund = await tx.refund.create({
+        data: {
+          invoiceId,
+          amount,
+          reason,
+          refundedById: authResult.userId,
+          pointsReversed: pointsToReverse,
+        },
+      });
+
+      // Check if this is a full refund (remaining becomes 0 or negative)
+      const newTotalRefunded = totalRefunded + amount;
+      const isFullRefund = newTotalRefunded >= Number(invoice.total) - 0.01;
+
+      // Update invoice status if fully refunded
+      if (isFullRefund) {
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: {
+            status: InvoiceStatus.REFUNDED,
+            refundedAt: new Date(),
+          },
+        });
+      }
+
+      // Reverse loyalty points if any
+      if (pointsToReverse > 0) {
+        // Get current loyalty points balance
+        const loyaltyPoints = await tx.loyaltyPoints.findUnique({
+          where: { clientId: invoice.sale.clientId },
+        });
+
+        if (loyaltyPoints) {
+          const newBalance = Math.max(0, loyaltyPoints.balance - pointsToReverse);
+
+          // Update tier based on new balance
+          let newTier: "SILVER" | "GOLD" | "PLATINUM" = "SILVER";
+          if (newBalance >= 1000) newTier = "PLATINUM";
+          else if (newBalance >= 500) newTier = "GOLD";
+
+          await tx.loyaltyPoints.update({
+            where: { clientId: invoice.sale.clientId },
+            data: { balance: newBalance, tier: newTier },
+          });
+
+          // Record the adjustment transaction
+          await tx.loyaltyTransaction.create({
+            data: {
+              clientId: invoice.sale.clientId,
+              saleId: invoice.saleId,
+              points: -pointsToReverse,
+              type: LoyaltyTransactionType.ADJUSTMENT,
+              description: `Points reversed due to refund on invoice ${invoice.invoiceNumber}`,
+            },
+          });
+        }
+      }
+
+      return { refundId: refund.id, pointsReversed: pointsToReverse };
+    });
+
+    revalidatePath("/dashboard/invoices");
+    revalidatePath("/dashboard/sales");
+    revalidatePath(`/dashboard/sales/${invoice.saleId}`);
+    revalidatePath(`/dashboard/clients/${invoice.sale.clientId}`);
+
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("Error creating refund:", error);
+    return { success: false, error: "Failed to create refund" };
   }
 }
