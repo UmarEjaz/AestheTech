@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod/dist/zod.js";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -66,7 +66,7 @@ export function RefundDialog({
     },
   });
 
-  const currentAmount = watch("amount");
+  const currentAmount = watch("amount") || 0;
   const isFullRefund = currentAmount >= maxRefundable - 0.01;
 
   const onSubmit = async (data: RefundFormData) => {
