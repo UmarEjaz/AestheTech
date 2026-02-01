@@ -482,50 +482,63 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
   const { invoiceId, amount, reason } = validationResult.data;
 
   try {
-    // Get the invoice with sale and loyalty transaction info
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      include: {
-        sale: {
-          include: {
-            loyaltyTransactions: {
-              where: { type: LoyaltyTransactionType.EARNED },
+    // Execute transaction with Serializable isolation to prevent race conditions
+    const result = await prisma.$transaction(async (tx) => {
+      // Get the invoice with sale and loyalty transaction info (inside transaction)
+      const invoice = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          sale: {
+            include: {
+              loyaltyTransactions: {
+                where: { type: LoyaltyTransactionType.EARNED },
+              },
             },
           },
+          refunds: true,
         },
-        refunds: true,
-      },
-    });
+      });
 
-    if (!invoice) {
-      return { success: false, error: "Invoice not found" };
-    }
+      if (!invoice) {
+        throw new Error("Invoice not found");
+      }
 
-    if (invoice.status !== InvoiceStatus.PAID) {
-      return { success: false, error: "Only paid invoices can be refunded" };
-    }
+      if (invoice.status !== InvoiceStatus.PAID) {
+        throw new Error("Only paid invoices can be refunded");
+      }
 
-    // Calculate total already refunded
-    const totalRefunded = invoice.refunds.reduce((sum, r) => sum + Number(r.amount), 0);
-    const remainingRefundable = Number(invoice.total) - totalRefunded;
+      // Calculate total already refunded (inside transaction for atomicity)
+      const totalRefunded = invoice.refunds.reduce((sum, r) => sum + Number(r.amount), 0);
+      const remainingRefundable = Number(invoice.total) - totalRefunded;
 
-    if (amount > remainingRefundable + 0.01) {
-      return {
-        success: false,
-        error: `Refund amount exceeds remaining refundable balance of ${remainingRefundable.toFixed(2)}`,
-      };
-    }
+      if (amount > remainingRefundable + 0.01) {
+        throw new Error(`Refund amount exceeds remaining refundable balance of ${remainingRefundable.toFixed(2)}`);
+      }
 
-    // Calculate points to reverse (proportional to refund amount)
-    const refundRatio = amount / Number(invoice.total);
-    const totalPointsEarned = invoice.sale.loyaltyTransactions.reduce(
-      (sum, t) => sum + t.points,
-      0
-    );
-    const pointsToReverse = Math.floor(totalPointsEarned * refundRatio);
+      // Check if this will be a full refund (remaining becomes 0 or negative)
+      const newTotalRefunded = totalRefunded + amount;
+      const isFullRefund = newTotalRefunded >= Number(invoice.total) - 0.01;
 
-    // Execute transaction
-    const result = await prisma.$transaction(async (tx) => {
+      // Calculate points to reverse (proportional to refund amount)
+      const totalPointsEarned = invoice.sale.loyaltyTransactions.reduce(
+        (sum, t) => sum + t.points,
+        0
+      );
+      const pointsAlreadyReversed = invoice.refunds.reduce(
+        (sum, r) => sum + r.pointsReversed,
+        0
+      );
+
+      // If full refund, reverse all remaining points to avoid rounding loss
+      // Otherwise use proportional calculation
+      let pointsToReverse: number;
+      if (isFullRefund) {
+        pointsToReverse = totalPointsEarned - pointsAlreadyReversed;
+      } else {
+        const refundRatio = amount / Number(invoice.total);
+        pointsToReverse = Math.floor(totalPointsEarned * refundRatio);
+      }
+
       // Create refund record
       const refund = await tx.refund.create({
         data: {
@@ -536,10 +549,6 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
           pointsReversed: pointsToReverse,
         },
       });
-
-      // Check if this is a full refund (remaining becomes 0 or negative)
-      const newTotalRefunded = totalRefunded + amount;
-      const isFullRefund = newTotalRefunded >= Number(invoice.total) - 0.01;
 
       // Update invoice status if fully refunded
       if (isFullRefund) {
@@ -585,17 +594,28 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
         }
       }
 
-      return { refundId: refund.id, pointsReversed: pointsToReverse };
+      return {
+        refundId: refund.id,
+        pointsReversed: pointsToReverse,
+        saleId: invoice.saleId,
+        clientId: invoice.sale.clientId,
+      };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
     revalidatePath("/dashboard/invoices");
     revalidatePath("/dashboard/sales");
-    revalidatePath(`/dashboard/sales/${invoice.saleId}`);
-    revalidatePath(`/dashboard/clients/${invoice.sale.clientId}`);
+    revalidatePath(`/dashboard/sales/${result.saleId}`);
+    revalidatePath(`/dashboard/clients/${result.clientId}`);
 
-    return { success: true, data: result };
+    return { success: true, data: { refundId: result.refundId, pointsReversed: result.pointsReversed } };
   } catch (error) {
     console.error("Error creating refund:", error);
+    // Return the error message if it's a known validation error
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
     return { success: false, error: "Failed to create refund" };
   }
 }
