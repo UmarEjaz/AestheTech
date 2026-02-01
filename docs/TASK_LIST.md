@@ -216,7 +216,7 @@
 - [x] Create peak hours analysis
 - [x] Create staff performance metrics
 - [x] Add date range selector for reports
-- [ ] Implement report export (PDF, CSV)
+- [x] Implement report export (PDF, CSV)
 - [x] Add charts and visualizations (use recharts or similar)
 - [ ] Cache report data for performance
 - [x] Test all reports
