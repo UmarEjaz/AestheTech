@@ -25,6 +25,7 @@ export const permissions: Record<string, Role[]> = {
   "invoices:create": [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
   "invoices:update": [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN],
   "invoices:delete": [Role.SUPER_ADMIN, Role.OWNER],
+  "invoices:refund": [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN],
 
   // Staff Management
   "staff:view": [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],

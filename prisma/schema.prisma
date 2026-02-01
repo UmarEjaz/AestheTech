@@ -36,6 +36,7 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   CANCELLED
+  REFUNDED
 }
 
 enum PaymentMethod {
@@ -64,6 +65,7 @@ enum LoyaltyTransactionType {
   REDEEMED
   BONUS
   EXPIRED
+  ADJUSTMENT
 }
 
 // ============================================
@@ -88,6 +90,7 @@ model User {
   schedules    Schedule[]
   sales        Sale[]
   saleItems    SaleItem[]
+  refunds      Refund[]
 
   @@map("users")
 }
@@ -218,6 +221,7 @@ model Invoice {
   status        InvoiceStatus @default(PENDING)
   issuedAt      DateTime      @default(now())
   paidAt        DateTime?
+  refundedAt    DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -225,6 +229,7 @@ model Invoice {
   sale     Sale      @relation(fields: [saleId], references: [id])
   client   Client    @relation(fields: [clientId], references: [id])
   payments Payment[]
+  refunds  Refund[]
 
   @@index([clientId])
   @@index([invoiceNumber])
@@ -246,6 +251,24 @@ model Payment {
 
   @@index([invoiceId])
   @@map("payments")
+}
+
+// Refund model
+model Refund {
+  id              String        @id @default(cuid())
+  invoiceId       String
+  amount          Decimal       @db.Decimal(10, 2)
+  reason          String?
+  refundedById    String
+  pointsReversed  Int           @default(0)
+  createdAt       DateTime      @default(now())
+
+  // Relations
+  invoice    Invoice @relation(fields: [invoiceId], references: [id])
+  refundedBy User    @relation(fields: [refundedById], references: [id])
+
+  @@index([invoiceId])
+  @@map("refunds")
 }
 
 // Schedule model

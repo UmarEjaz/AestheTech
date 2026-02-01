@@ -168,7 +168,7 @@
 - [x] Generate PDF invoice (use library like jsPDF or react-pdf)
 - [ ] Email invoice to client
 - [x] Display invoice history for clients
-- [ ] Implement refund functionality
+- [x] Implement refund functionality
 - [x] Handle invoice cancellation
 - [x] Test invoice generation and management
 - [x] Add permission checks

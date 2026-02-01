@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod/dist/zod.js";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Eye, EyeOff, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";

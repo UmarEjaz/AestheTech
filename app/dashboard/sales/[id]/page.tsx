@@ -8,6 +8,7 @@ import {
   User,
   Receipt,
   Clock,
+  RotateCcw,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
+import { RefundDialog } from "@/components/sales/refund-dialog";
 
 export default async function SaleDetailPage({
   params,
@@ -119,10 +121,19 @@ export default async function SaleDetailPage({
         return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">Overdue</Badge>;
       case "CANCELLED":
         return <Badge variant="secondary">Cancelled</Badge>;
+      case "REFUNDED":
+        return <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">Refunded</Badge>;
       default:
         return <Badge variant="outline">Draft</Badge>;
     }
   };
+
+  // Calculate refund information
+  const canRefund = hasPermission(userRole, "invoices:refund");
+  const invoiceRefunds = sale.invoice?.refunds || [];
+  const totalRefunded = invoiceRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
+  const maxRefundable = sale.invoice ? Number(sale.invoice.total) - totalRefunded : 0;
+  const canIssueRefund = canRefund && sale.invoice?.status === "PAID" && maxRefundable > 0;
 
   const getPaymentMethodLabel = (method: string) => {
     switch (method) {
@@ -158,6 +169,14 @@ export default async function SaleDetailPage({
             </div>
           </div>
           <div className="flex gap-2">
+            {canIssueRefund && sale.invoice && (
+              <RefundDialog
+                invoiceId={sale.invoice.id}
+                invoiceNumber={sale.invoice.invoiceNumber}
+                maxRefundable={maxRefundable}
+                currencySymbol={settings.currencySymbol}
+              />
+            )}
             {sale.invoice && invoiceData && (
               <InvoiceDownloadButton invoiceData={invoiceData} />
             )}
@@ -230,6 +249,70 @@ export default async function SaleDetailPage({
                       {settings.currencySymbol}{Number(sale.invoice.total).toFixed(2)}
                     </span>
                   </div>
+                  {totalRefunded > 0 && (
+                    <>
+                      <Separator />
+                      <div className="flex justify-between items-center text-red-600">
+                        <span>Total Refunded</span>
+                        <span>-{settings.currencySymbol}{totalRefunded.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center font-medium">
+                        <span>Net Amount</span>
+                        <span>{settings.currencySymbol}{(Number(sale.invoice.total) - totalRefunded).toFixed(2)}</span>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Refund History (if exists) */}
+            {invoiceRefunds.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <RotateCcw className="h-5 w-5" />
+                    Refund History
+                  </CardTitle>
+                  <CardDescription>{invoiceRefunds.length} refund(s) issued</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Points Reversed</TableHead>
+                        <TableHead>Processed By</TableHead>
+                        <TableHead>Reason</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {invoiceRefunds.map((refund) => (
+                        <TableRow key={refund.id}>
+                          <TableCell>
+                            {format(new Date(refund.createdAt), "MMM d, yyyy h:mm a")}
+                          </TableCell>
+                          <TableCell className="text-red-600 font-medium">
+                            -{settings.currencySymbol}{Number(refund.amount).toFixed(2)}
+                          </TableCell>
+                          <TableCell>
+                            {refund.pointsReversed > 0 ? (
+                              <span className="text-amber-600">-{refund.pointsReversed} pts</span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {refund.refundedBy.firstName} {refund.refundedBy.lastName}
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate">
+                            {refund.reason || <span className="text-muted-foreground">No reason provided</span>}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             )}
