@@ -5,8 +5,6 @@ import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   Cell,
@@ -24,17 +22,9 @@ import {
   DollarSign,
   TrendingUp,
   Users,
-  Briefcase,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -42,6 +32,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ReportData } from "@/lib/actions/dashboard";
+import { ExportButtons } from "./export-buttons";
 
 interface ReportsChartsProps {
   initialData: ReportData;
@@ -109,8 +100,9 @@ export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsP
       {/* Date Range Selector */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex gap-2">
               <Button
                 variant={dateRange === "week" ? "default" : "outline"}
                 size="sm"
@@ -175,6 +167,10 @@ export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsP
                 </Button>
               </div>
             )}
+            </div>
+
+            {/* Export Button */}
+            <ExportButtons data={data} startDate={startDate} endDate={endDate} />
           </div>
         </CardContent>
       </Card>
