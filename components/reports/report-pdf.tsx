@@ -209,7 +209,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
               </View>
               {data.appointmentsByStatus.map((item, index) => (
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
-                  <Text style={styles.tableCell}>{item.status.replace("_", " ")}</Text>
+                  <Text style={styles.tableCell}>{item.status.replaceAll("_", " ")}</Text>
                   <Text style={styles.tableCellRight}>{item.count}</Text>
                 </View>
               ))}

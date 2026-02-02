@@ -72,7 +72,7 @@ export function ExportButtons({ data, startDate, endDate }: ExportButtonsProps) 
 
   const handleExportAppointmentsCSV = () => {
     const columns: ExportColumn<typeof data.appointmentsByStatus[0]>[] = [
-      { header: "Status", accessor: (row) => row.status.replace("_", " ") },
+      { header: "Status", accessor: (row) => row.status.replaceAll("_", " ") },
       { header: "Count", accessor: "count" },
     ];
 
