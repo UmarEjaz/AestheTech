@@ -275,7 +275,8 @@ export function AppointmentForm({
                 size="sm"
                 onClick={() => {
                   setIsWalkIn(true);
-                  setValue("clientId", "walk-in-placeholder");
+                  // Clear validation errors for clientId when in walk-in mode
+                  setValue("clientId", "", { shouldValidate: false });
                 }}
                 className="flex-1"
               >
