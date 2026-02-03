@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { format } from "date-fns";
-import { Loader2, Calendar as CalendarIcon, UserPlus, Users } from "lucide-react";
+import { format, addWeeks, addMonths } from "date-fns";
+import { Loader2, Calendar as CalendarIcon, UserPlus, Users, Repeat, Info, DollarSign, Clock, AlertTriangle, Check } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -25,17 +26,29 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   appointmentSchema,
   AppointmentFormData,
   AppointmentFormInput,
 } from "@/lib/validations/appointment";
+import { RecurrencePattern, RecurrenceEndType } from "@prisma/client";
+import { PatternSelector, getPatternSummary } from "./pattern-selector";
+import { EndConditionSelector, getEndConditionSummary } from "./end-condition-selector";
 import {
   createAppointment,
   updateAppointment,
   getAvailableSlots,
   AppointmentListItem,
 } from "@/lib/actions/appointment";
+import { createRecurringSeries, previewRecurringConflicts, ConflictPreview } from "@/lib/actions/recurring-series";
+import { ConflictResolutionUI, AlternativeSlot, SelectedAlternative } from "./conflict-resolution-ui";
 import { createWalkInClient } from "@/lib/actions/client";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +104,29 @@ export function AppointmentForm({
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
 
+  // Recurring appointment state
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>("WEEKLY");
+  const [customWeeks, setCustomWeeks] = useState<number>(3);
+  const [specificDays, setSpecificDays] = useState<number[]>([]);
+  const [nthWeek, setNthWeek] = useState<number>(1);
+  const [dayOfWeek, setDayOfWeek] = useState<number>(0);
+  const [endType, setEndType] = useState<RecurrenceEndType>("NEVER");
+  const [endAfterCount, setEndAfterCount] = useState<number>(12);
+  const [endByDate, setEndByDate] = useState<Date | undefined>();
+  const [lockedPrice, setLockedPrice] = useState<number | undefined>();
+  const [bufferMinutes, setBufferMinutes] = useState<number>(0);
+
+  // Conflict preview state
+  const [isPreviewingConflicts, setIsPreviewingConflicts] = useState(false);
+  const [conflictPreview, setConflictPreview] = useState<{
+    totalDates: number;
+    availableDates: Date[];
+    conflicts: ConflictPreview[];
+  } | null>(null);
+  const [selectedAlternatives, setSelectedAlternatives] = useState<SelectedAlternative[]>([]);
+  const [skippedDates, setSkippedDates] = useState<Date[]>([]);
+
   const {
     register,
     handleSubmit,
@@ -111,6 +147,84 @@ export function AppointmentForm({
   const watchedStaffId = watch("staffId");
   const watchedServiceId = watch("serviceId");
   const watchedStartTime = watch("startTime");
+
+  // Update dayOfWeek when selected date changes
+  useEffect(() => {
+    if (selectedDate) {
+      setDayOfWeek(selectedDate.getDay());
+      // For SPECIFIC_DAYS, ensure the selected day is included
+      if (recurrencePattern === "SPECIFIC_DAYS" && !specificDays.includes(selectedDate.getDay())) {
+        setSpecificDays([selectedDate.getDay()]);
+      }
+    }
+  }, [selectedDate, recurrencePattern, specificDays]);
+
+  // Calculate preview dates for recurring appointments
+  const previewDates = useMemo(() => {
+    if (!isRecurring || !watchedStartTime) return [];
+
+    const startDate = watchedStartTime instanceof Date ? watchedStartTime : new Date(watchedStartTime as string | number);
+    const dates: Date[] = [];
+    let currentDate = new Date(startDate);
+    const endDate = addMonths(new Date(), 3);
+    const maxCount = endType === "AFTER_COUNT" ? Math.min(endAfterCount, 6) : 6;
+
+    // Generate dates for next 3 months (show first 6 for preview)
+    let count = 0;
+    while (currentDate <= endDate && count < maxCount) {
+      // Check if we've passed the end date
+      if (endType === "BY_DATE" && endByDate && currentDate > endByDate) break;
+
+      if (currentDate >= new Date()) {
+        // For SPECIFIC_DAYS, only add if it's one of the selected days
+        if (recurrencePattern === "SPECIFIC_DAYS") {
+          if (specificDays.includes(currentDate.getDay())) {
+            dates.push(new Date(currentDate));
+            count++;
+          }
+          // Always advance by 1 day for SPECIFIC_DAYS
+          currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+        } else {
+          dates.push(new Date(currentDate));
+          count++;
+
+          switch (recurrencePattern) {
+            case "DAILY":
+              currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+              break;
+            case "WEEKLY":
+              currentDate = addWeeks(currentDate, 1);
+              break;
+            case "BIWEEKLY":
+              currentDate = addWeeks(currentDate, 2);
+              break;
+            case "MONTHLY":
+            case "NTH_WEEKDAY":
+              currentDate = addMonths(currentDate, 1);
+              break;
+            case "CUSTOM":
+              currentDate = addWeeks(currentDate, customWeeks);
+              break;
+          }
+        }
+      } else {
+        // Move to next occurrence if before today
+        if (recurrencePattern === "SPECIFIC_DAYS" || recurrencePattern === "DAILY") {
+          currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+        } else if (recurrencePattern === "WEEKLY") {
+          currentDate = addWeeks(currentDate, 1);
+        } else if (recurrencePattern === "BIWEEKLY") {
+          currentDate = addWeeks(currentDate, 2);
+        } else if (recurrencePattern === "MONTHLY" || recurrencePattern === "NTH_WEEKDAY") {
+          currentDate = addMonths(currentDate, 1);
+        } else if (recurrencePattern === "CUSTOM") {
+          currentDate = addWeeks(currentDate, customWeeks);
+        }
+      }
+    }
+
+    return dates;
+  }, [isRecurring, watchedStartTime, recurrencePattern, customWeeks, specificDays, endType, endAfterCount, endByDate]);
 
   // Fetch available slots when staff, service, or date changes
   useEffect(() => {
@@ -178,6 +292,100 @@ export function AppointmentForm({
     }
   }, [availableSlots, initialDate, mode, appointment, setValue]);
 
+  // Reset conflict preview when recurring settings change
+  useEffect(() => {
+    setConflictPreview(null);
+    setSelectedAlternatives([]);
+    setSkippedDates([]);
+  }, [recurrencePattern, customWeeks, specificDays, nthWeek, endType, endAfterCount, endByDate, watchedStartTime, watchedStaffId, watchedServiceId]);
+
+  // Handle conflict preview
+  const handlePreviewConflicts = async () => {
+    if (!watchedServiceId || !watchedStaffId || !watchedStartTime) {
+      toast.error("Please select service, staff, and time first");
+      return;
+    }
+
+    // Get client ID (handle walk-in case)
+    let clientId = watch("clientId");
+    if (isWalkIn) {
+      // For walk-in, we'll use a placeholder since we create client at submission
+      clientId = "walk-in-placeholder";
+    }
+
+    if (!clientId && !isWalkIn) {
+      toast.error("Please select a client first");
+      return;
+    }
+
+    setIsPreviewingConflicts(true);
+    try {
+      const startTime = watchedStartTime instanceof Date ? watchedStartTime : new Date(watchedStartTime as string | number);
+      const result = await previewRecurringConflicts({
+        clientId: clientId || "placeholder",
+        serviceId: watchedServiceId,
+        staffId: watchedStaffId,
+        pattern: recurrencePattern,
+        customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
+        dayOfWeek: recurrencePattern === "SPECIFIC_DAYS" ? specificDays[0] ?? startTime.getDay() : startTime.getDay(),
+        timeOfDay: format(startTime, "HH:mm"),
+        specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
+        nthWeek: recurrencePattern === "NTH_WEEKDAY" ? nthWeek : undefined,
+        endType,
+        endAfterCount: endType === "AFTER_COUNT" ? endAfterCount : undefined,
+        endByDate: endType === "BY_DATE" ? endByDate : undefined,
+        lockedPrice,
+        bufferMinutes: bufferMinutes > 0 ? bufferMinutes : undefined,
+      });
+
+      if (result.success) {
+        setConflictPreview(result.data);
+        setSelectedAlternatives([]);
+        setSkippedDates([]);
+
+        if (result.data.conflicts.length === 0) {
+          toast.success(`All ${result.data.totalDates} dates are available!`);
+        } else {
+          toast.info(`${result.data.conflicts.length} of ${result.data.totalDates} dates have conflicts`);
+        }
+      } else {
+        toast.error(result.error);
+      }
+    } finally {
+      setIsPreviewingConflicts(false);
+    }
+  };
+
+  // Handle selecting an alternative slot
+  const handleSelectAlternative = (originalDate: Date, alternative: AlternativeSlot) => {
+    setSelectedAlternatives((prev) => {
+      // Remove any existing selection for this date
+      const filtered = prev.filter(
+        (sa) => sa.originalDate.toDateString() !== originalDate.toDateString()
+      );
+      // Add the new selection
+      return [...filtered, { originalDate, alternative }];
+    });
+    // Remove from skipped dates if it was there
+    setSkippedDates((prev) =>
+      prev.filter((d) => d.toDateString() !== originalDate.toDateString())
+    );
+  };
+
+  // Handle skipping a date
+  const handleSkipDate = (date: Date) => {
+    setSkippedDates((prev) => {
+      if (prev.some((d) => d.toDateString() === date.toDateString())) {
+        return prev;
+      }
+      return [...prev, date];
+    });
+    // Remove from selected alternatives if it was there
+    setSelectedAlternatives((prev) =>
+      prev.filter((sa) => sa.originalDate.toDateString() !== date.toDateString())
+    );
+  };
+
   const onSubmit = async (data: AppointmentFormData) => {
     setIsSubmitting(true);
 
@@ -208,12 +416,48 @@ export function AppointmentForm({
       }
 
       if (mode === "create") {
-        const result = await createAppointment({ ...data, clientId });
-        if (result.success) {
-          toast.success("Appointment booked successfully");
-          router.push("/dashboard/appointments");
+        // Handle recurring appointments
+        if (isRecurring) {
+          const startTime = data.startTime instanceof Date ? data.startTime : new Date(data.startTime);
+          const result = await createRecurringSeries({
+            clientId,
+            serviceId: data.serviceId,
+            staffId: data.staffId,
+            pattern: recurrencePattern,
+            customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
+            dayOfWeek: recurrencePattern === "SPECIFIC_DAYS" ? specificDays[0] ?? startTime.getDay() : startTime.getDay(),
+            timeOfDay: format(startTime, "HH:mm"),
+            specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
+            nthWeek: recurrencePattern === "NTH_WEEKDAY" ? nthWeek : undefined,
+            endType,
+            endAfterCount: endType === "AFTER_COUNT" ? endAfterCount : undefined,
+            endByDate: endType === "BY_DATE" ? endByDate : undefined,
+            lockedPrice: lockedPrice,
+            bufferMinutes: bufferMinutes > 0 ? bufferMinutes : undefined,
+            notes: data.notes,
+          });
+
+          if (result.success) {
+            const { createdCount, skippedDates } = result.data;
+            if (skippedDates.length > 0) {
+              toast.success(
+                `Created ${createdCount} recurring appointments. ${skippedDates.length} dates skipped due to conflicts.`
+              );
+            } else {
+              toast.success(`Created ${createdCount} recurring appointments`);
+            }
+            router.push("/dashboard/appointments");
+          } else {
+            toast.error(result.error);
+          }
         } else {
-          toast.error(result.error);
+          const result = await createAppointment({ ...data, clientId });
+          if (result.success) {
+            toast.success("Appointment booked successfully");
+            router.push("/dashboard/appointments");
+          } else {
+            toast.error(result.error);
+          }
         }
       } else if (appointment) {
         const result = await updateAppointment(appointment.id, data);
@@ -487,6 +731,280 @@ export function AppointmentForm({
         </CardContent>
       </Card>
 
+      {/* Recurring Appointment Section - Only in create mode */}
+      {mode === "create" && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Repeat className="h-5 w-5" />
+                <CardTitle>Recurring Appointment</CardTitle>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="recurring-toggle" className="text-sm font-normal">
+                  Make this recurring
+                </Label>
+                <Switch
+                  id="recurring-toggle"
+                  checked={isRecurring}
+                  onCheckedChange={setIsRecurring}
+                />
+              </div>
+            </div>
+          </CardHeader>
+          {isRecurring && (
+            <CardContent className="space-y-6">
+              {/* Pattern Selector */}
+              <PatternSelector
+                pattern={recurrencePattern}
+                onPatternChange={setRecurrencePattern}
+                customWeeks={customWeeks}
+                onCustomWeeksChange={setCustomWeeks}
+                specificDays={specificDays}
+                onSpecificDaysChange={setSpecificDays}
+                dayOfWeek={dayOfWeek}
+                onDayOfWeekChange={setDayOfWeek}
+                nthWeek={nthWeek}
+                onNthWeekChange={setNthWeek}
+              />
+
+              {/* End Condition Selector */}
+              <EndConditionSelector
+                endType={endType}
+                onEndTypeChange={setEndType}
+                endAfterCount={endAfterCount}
+                onEndAfterCountChange={setEndAfterCount}
+                endByDate={endByDate}
+                onEndByDateChange={setEndByDate}
+                minDate={selectedDate || new Date()}
+              />
+
+              {/* Advanced Options */}
+              <div className="space-y-4 pt-4 border-t">
+                <Label className="text-sm font-medium">Advanced Options</Label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {/* Lock Price */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-muted-foreground" />
+                      <Label htmlFor="lockedPrice" className="text-sm">Lock Price</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Info className="h-3 w-3 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="max-w-xs">
+                              Lock the price for all appointments in this series. Leave empty to use current service price.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                      <Input
+                        id="lockedPrice"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        placeholder="Use current price"
+                        value={lockedPrice ?? ""}
+                        onChange={(e) => setLockedPrice(e.target.value ? parseFloat(e.target.value) : undefined)}
+                        className="pl-7"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Buffer Minutes */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <Label htmlFor="bufferMinutes" className="text-sm">Buffer Time</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Info className="h-3 w-3 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="max-w-xs">
+                              Add extra time after each appointment for cleanup, preparation, or breaks.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Select
+                      value={bufferMinutes.toString()}
+                      onValueChange={(value) => setBufferMinutes(parseInt(value))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="No buffer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">No buffer</SelectItem>
+                        <SelectItem value="5">5 minutes</SelectItem>
+                        <SelectItem value="10">10 minutes</SelectItem>
+                        <SelectItem value="15">15 minutes</SelectItem>
+                        <SelectItem value="30">30 minutes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Preview of generated dates */}
+              {previewDates.length > 0 && !!watchedStartTime && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label>Preview</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Info className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="max-w-xs">
+                              Appointments will be created based on the pattern and end condition.
+                              Click &quot;Check Availability&quot; to see conflicts before creating.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <div className="rounded-lg border p-3 bg-muted/50">
+                      <div className="flex flex-wrap gap-2">
+                        {previewDates.map((date, index) => (
+                          <Badge key={index} variant="secondary" className="text-xs">
+                            {format(date, "MMM d")}
+                          </Badge>
+                        ))}
+                        {previewDates.length >= 6 && endType !== "AFTER_COUNT" && (
+                          <Badge variant="outline" className="text-xs">
+                            + more
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {getPatternSummary(recurrencePattern, {
+                          customWeeks,
+                          specificDays,
+                          dayOfWeek,
+                          nthWeek,
+                        })}
+                        {" at "}
+                        {watchedStartTime instanceof Date
+                          ? format(watchedStartTime, "h:mm a")
+                          : format(new Date(watchedStartTime as string | number), "h:mm a")}
+                        {" \u2022 "}
+                        {getEndConditionSummary(endType, { endAfterCount, endByDate })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Check Availability Button */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePreviewConflicts}
+                    disabled={isPreviewingConflicts || !watchedServiceId || !watchedStaffId}
+                    className="w-full"
+                  >
+                    {isPreviewingConflicts ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Checking availability...
+                      </>
+                    ) : conflictPreview ? (
+                      <>
+                        <Check className="mr-2 h-4 w-4" />
+                        Re-check Availability
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="mr-2 h-4 w-4" />
+                        Check Availability
+                      </>
+                    )}
+                  </Button>
+
+                  {/* Conflict Preview Results */}
+                  {conflictPreview && (
+                    <div className="space-y-4">
+                      {/* Summary */}
+                      <div className="rounded-lg border p-3 bg-muted/30">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-4">
+                            <span className="flex items-center gap-1">
+                              <div className="h-2 w-2 rounded-full bg-green-500" />
+                              <span className="text-muted-foreground">Available:</span>
+                              <span className="font-medium">{conflictPreview.availableDates.length}</span>
+                            </span>
+                            {conflictPreview.conflicts.length > 0 && (
+                              <span className="flex items-center gap-1">
+                                <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                                <span className="text-muted-foreground">Conflicts:</span>
+                                <span className="font-medium">{conflictPreview.conflicts.length}</span>
+                              </span>
+                            )}
+                            {(selectedAlternatives.length > 0 || skippedDates.length > 0) && (
+                              <span className="flex items-center gap-1">
+                                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                <span className="text-muted-foreground">Resolved:</span>
+                                <span className="font-medium">{selectedAlternatives.length + skippedDates.length}</span>
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-muted-foreground">
+                            Total: {conflictPreview.totalDates}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Conflict Resolution UI */}
+                      {conflictPreview.conflicts.length > 0 && (
+                        <ConflictResolutionUI
+                          conflicts={conflictPreview.conflicts.map((c) => ({
+                            date: new Date(c.date),
+                            reason: c.reason,
+                            alternatives: c.alternatives.map((a) => ({
+                              date: new Date(c.date),
+                              startTime: new Date(a.startTime),
+                              endTime: new Date(a.endTime),
+                              staffId: a.staffId,
+                              staffName: a.staffName,
+                            })),
+                          }))}
+                          onSelectAlternative={handleSelectAlternative}
+                          onSkipDate={handleSkipDate}
+                          selectedAlternatives={selectedAlternatives}
+                          skippedDates={skippedDates}
+                          showAllDates
+                        />
+                      )}
+
+                      {/* All clear message */}
+                      {conflictPreview.conflicts.length === 0 && (
+                        <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900 p-4 text-center">
+                          <Check className="h-8 w-8 mx-auto text-green-600 mb-2" />
+                          <p className="font-medium text-green-800 dark:text-green-200">
+                            All {conflictPreview.totalDates} dates are available!
+                          </p>
+                          <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+                            No scheduling conflicts found. You can proceed to create the series.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Additional Information</CardTitle>
@@ -518,7 +1036,11 @@ export function AppointmentForm({
         </Button>
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {mode === "create" ? "Book Appointment" : "Update Appointment"}
+          {mode === "create"
+            ? isRecurring
+              ? "Create Recurring Series"
+              : "Book Appointment"
+            : "Update Appointment"}
         </Button>
       </div>
     </form>

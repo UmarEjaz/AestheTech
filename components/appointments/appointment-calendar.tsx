@@ -46,23 +46,32 @@ export function AppointmentCalendar({
   const [currentViewDates, setCurrentViewDates] = useState<{ start: Date; end: Date } | null>(null);
 
   // Convert appointments to FullCalendar events
-  const events = appointments.map((apt) => ({
-    id: apt.id,
-    title: `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}${apt.client.isWalkIn ? " (Walk-in)" : ""} - ${apt.service.name}`,
-    start: apt.startTime,
-    end: apt.endTime,
-    editable: canManage && DRAGGABLE_STATUSES.includes(apt.status),
-    extendedProps: {
-      appointment: apt,
-      status: apt.status,
-    },
-    classNames: [
-      statusColors[apt.status].bg,
-      statusColors[apt.status].text,
-      "border-l-4",
-      statusColors[apt.status].border,
-    ],
-  }));
+  const events = appointments.map((apt) => {
+    const isRecurring = apt.series?.isActive;
+    const clientName = `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}`;
+    const walkInLabel = apt.client.isWalkIn ? " (Walk-in)" : "";
+    const recurringIndicator = isRecurring ? "↻ " : "";
+
+    return {
+      id: apt.id,
+      title: `${recurringIndicator}${clientName}${walkInLabel} - ${apt.service.name}`,
+      start: apt.startTime,
+      end: apt.endTime,
+      editable: canManage && DRAGGABLE_STATUSES.includes(apt.status),
+      extendedProps: {
+        appointment: apt,
+        status: apt.status,
+        isRecurring,
+      },
+      classNames: [
+        statusColors[apt.status].bg,
+        statusColors[apt.status].text,
+        "border-l-4",
+        statusColors[apt.status].border,
+        isRecurring ? "fc-event-recurring" : "",
+      ].filter(Boolean),
+    };
+  });
 
   // Handle date range change
   const handleDatesSet = useCallback(
@@ -216,6 +225,14 @@ export function AppointmentCalendar({
 
         .dark .appointment-calendar .fc-day-today {
           background-color: hsl(var(--primary) / 0.15) !important;
+        }
+
+        .appointment-calendar .fc-event-recurring {
+          border-right: 3px solid hsl(var(--primary) / 0.6);
+        }
+
+        .appointment-calendar .fc-event-recurring .fc-event-title::before {
+          content: "";
         }
       `}</style>
 

@@ -68,6 +68,22 @@ enum LoyaltyTransactionType {
   ADJUSTMENT
 }
 
+enum RecurrencePattern {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  CUSTOM
+  SPECIFIC_DAYS   // Mon/Wed/Fri style
+  NTH_WEEKDAY     // "2nd Tuesday of month"
+}
+
+enum RecurrenceEndType {
+  NEVER           // Ongoing until cancelled
+  AFTER_COUNT     // End after N occurrences
+  BY_DATE         // End by specific date
+}
+
 // ============================================
 // MODELS
 // ============================================
@@ -86,11 +102,12 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  appointments Appointment[] @relation("StaffAppointments")
-  schedules    Schedule[]
-  sales        Sale[]
-  saleItems    SaleItem[]
-  refunds      Refund[]
+  appointments       Appointment[] @relation("StaffAppointments")
+  schedules          Schedule[]
+  sales              Sale[]
+  saleItems          SaleItem[]
+  refunds            Refund[]
+  recurringSeries    RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
 
   @@map("users")
 }
@@ -119,6 +136,7 @@ model Client {
   invoices            Invoice[]
   loyaltyPoints       LoyaltyPoints?
   loyaltyTransactions LoyaltyTransaction[]
+  recurringSeries     RecurringAppointmentSeries[]
 
   @@index([isWalkIn])
   @@map("clients")
@@ -138,33 +156,38 @@ model Service {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  appointments Appointment[]
-  saleItems    SaleItem[]
+  appointments    Appointment[]
+  saleItems       SaleItem[]
+  recurringSeries RecurringAppointmentSeries[]
 
   @@map("services")
 }
 
 // Appointment model
 model Appointment {
-  id        String            @id @default(cuid())
-  clientId  String
-  serviceId String
-  staffId   String
-  startTime DateTime
-  endTime   DateTime
-  status    AppointmentStatus @default(SCHEDULED)
-  notes     String?
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  id                   String            @id @default(cuid())
+  clientId             String
+  serviceId            String
+  staffId              String
+  startTime            DateTime
+  endTime              DateTime
+  status               AppointmentStatus @default(SCHEDULED)
+  notes                String?
+  seriesId             String?
+  isDetachedFromSeries Boolean           @default(false) // True if edited independently from series
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   // Relations
-  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  service Service @relation(fields: [serviceId], references: [id])
-  staff   User    @relation("StaffAppointments", fields: [staffId], references: [id])
+  client  Client                      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service Service                     @relation(fields: [serviceId], references: [id])
+  staff   User                        @relation("StaffAppointments", fields: [staffId], references: [id])
+  series  RecurringAppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
   @@index([clientId])
   @@index([staffId])
   @@index([startTime])
+  @@index([seriesId])
   @@map("appointments")
 }
 
@@ -323,6 +346,94 @@ model LoyaltyTransaction {
 
   @@index([clientId])
   @@map("loyalty_transactions")
+}
+
+// Recurring appointment series model
+model RecurringAppointmentSeries {
+  id          String            @id @default(cuid())
+  clientId    String
+  serviceId   String
+  staffId     String
+
+  // Recurrence config
+  pattern     RecurrencePattern
+  customWeeks Int?              // For CUSTOM: every N weeks
+  dayOfWeek   Int               // 0-6 (Sun-Sat) - primary day for WEEKLY/BIWEEKLY/MONTHLY/NTH_WEEKDAY
+  timeOfDay   String            // "HH:mm" format
+  notes       String?
+
+  // Extended pattern config
+  specificDays      Int[]             // For SPECIFIC_DAYS: [1,3,5] = Mon,Wed,Fri (0=Sun, 6=Sat)
+  nthWeek           Int?              // For NTH_WEEKDAY: 1-5 (1st, 2nd, 3rd, 4th, 5=last)
+
+  // End conditions
+  endType           RecurrenceEndType @default(NEVER)
+  endAfterCount     Int?              // For AFTER_COUNT: end after N occurrences
+  endByDate         DateTime?         // For BY_DATE: end by specific date
+  occurrencesCreated Int              @default(0) // Track how many created
+
+  // Price lock
+  lockedPrice       Decimal?          @db.Decimal(10, 2) // Lock price at series creation
+
+  // Buffer time
+  bufferMinutes     Int               @default(0) // Buffer between appointments
+
+  // Pause/Resume
+  isPaused          Boolean           @default(false)
+  pausedAt          DateTime?
+  pausedUntil       DateTime?         // Optional: auto-resume date
+
+  // Status
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relations
+  client       Client                       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service      Service                      @relation(fields: [serviceId], references: [id])
+  staff        User                         @relation("RecurringStaffAppointments", fields: [staffId], references: [id])
+  appointments Appointment[]
+  exceptions   RecurringSeriesException[]
+  auditLogs    RecurringSeriesAuditLog[]
+
+  @@index([clientId])
+  @@index([staffId])
+  @@index([isActive])
+  @@index([isPaused])
+  @@map("recurring_appointment_series")
+}
+
+// Exception dates for recurring series (skip specific dates)
+model RecurringSeriesException {
+  id        String   @id @default(cuid())
+  seriesId  String
+  date      DateTime @db.Date // The date to skip
+  reason    String?  // Optional reason (e.g., "Holiday", "Vacation")
+  createdAt DateTime @default(now())
+
+  // Relations
+  series RecurringAppointmentSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, date])
+  @@index([seriesId])
+  @@map("recurring_series_exceptions")
+}
+
+// Audit log for recurring series changes
+model RecurringSeriesAuditLog {
+  id          String   @id @default(cuid())
+  seriesId    String
+  action      String   // CREATED, UPDATED, PAUSED, RESUMED, CANCELLED, EXCEPTION_ADDED, EXCEPTION_REMOVED, etc.
+  changes     Json?    // What changed (before/after)
+  performedBy String   // User ID who made the change
+  createdAt   DateTime @default(now())
+
+  // Relations
+  series RecurringAppointmentSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@index([seriesId])
+  @@index([performedBy])
+  @@map("recurring_series_audit_logs")
 }
 
 // Currency enum

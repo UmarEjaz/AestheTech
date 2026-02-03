@@ -114,6 +114,36 @@ const clientInclude = Prisma.validator<Prisma.ClientInclude>()({
       },
     },
   },
+  recurringSeries: {
+    orderBy: { createdAt: "desc" },
+    include: {
+      service: {
+        select: { name: true, duration: true },
+      },
+      staff: {
+        select: { firstName: true, lastName: true },
+      },
+      client: {
+        select: { firstName: true, lastName: true },
+      },
+      exceptions: {
+        select: { id: true, date: true, reason: true },
+        orderBy: { date: "asc" },
+      },
+      appointments: {
+        where: {
+          startTime: { gte: new Date() },
+          status: { notIn: ["CANCELLED", "NO_SHOW"] },
+        },
+        orderBy: { startTime: "asc" },
+        select: {
+          id: true,
+          startTime: true,
+          status: true,
+        },
+      },
+    },
+  },
 });
 
 export type ClientWithRelations = Prisma.ClientGetPayload<{
