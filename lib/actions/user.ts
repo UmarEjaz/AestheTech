@@ -122,7 +122,7 @@ const userDetailSelect = Prisma.validator<Prisma.UserSelect>()({
       endTime: true,
       status: true,
       client: {
-        select: { firstName: true, lastName: true },
+        select: { firstName: true, lastName: true, isWalkIn: true },
       },
       service: {
         select: { name: true },

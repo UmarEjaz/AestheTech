@@ -13,6 +13,7 @@ import {
   RescheduleFormData,
 } from "@/lib/validations/appointment";
 import { Role, Prisma, AppointmentStatus } from "@prisma/client";
+import { getSettings } from "./settings";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -39,6 +40,7 @@ const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
       lastName: true,
       phone: true,
       email: true,
+      isWalkIn: true,
     },
   },
   service: {
@@ -520,13 +522,14 @@ export async function getAvailableSlots(params: {
   staffId: string;
   date: Date;
   serviceId: string;
+  excludeAppointmentId?: string; // Exclude this appointment from conflict check (for edit mode)
 }): Promise<ActionResult<{ startTime: Date; endTime: Date }[]>> {
   const authResult = await checkAuth("appointments:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
-  const { staffId, date, serviceId } = params;
+  const { staffId, date, serviceId, excludeAppointmentId } = params;
 
   try {
     // Get service duration
@@ -539,11 +542,31 @@ export async function getAvailableSlots(params: {
       return { success: false, error: "Service not found" };
     }
 
-    // Set business hours (9 AM to 7 PM for now - could be configurable)
+    // Get business hours from settings
+    const settingsResult = await getSettings();
+    const settings = settingsResult.success
+      ? settingsResult.data
+      : { businessHoursStart: "09:00", businessHoursEnd: "19:00" };
+
+    // Parse business hours (format: "HH:MM") with validation and fallback
+    const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
+      const parts = timeStr?.split(":");
+      if (!parts || parts.length !== 2) return [defaultHour, defaultMin];
+      const hour = parseInt(parts[0], 10);
+      const min = parseInt(parts[1], 10);
+      if (isNaN(hour) || isNaN(min) || hour < 0 || hour > 23 || min < 0 || min > 59) {
+        return [defaultHour, defaultMin];
+      }
+      return [hour, min];
+    };
+
+    const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
+    const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
+
     const dayStart = new Date(date);
-    dayStart.setHours(9, 0, 0, 0);
+    dayStart.setHours(startHour, startMin, 0, 0);
     const dayEnd = new Date(date);
-    dayEnd.setHours(19, 0, 0, 0);
+    dayEnd.setHours(endHour, endMin, 0, 0);
 
     // Get existing appointments for the staff on that day
     const existingAppointments = await prisma.appointment.findMany({
@@ -551,6 +574,7 @@ export async function getAvailableSlots(params: {
         staffId,
         startTime: { gte: dayStart, lt: dayEnd },
         status: { notIn: ["CANCELLED", "NO_SHOW"] },
+        ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
       },
       orderBy: { startTime: "asc" },
       select: { startTime: true, endTime: true },

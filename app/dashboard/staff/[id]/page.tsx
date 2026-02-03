@@ -262,7 +262,14 @@ export default async function StaffDetailPage({
                         </div>
                       </TableCell>
                       <TableCell>
-                        {appointment.client.firstName} {appointment.client.lastName}
+                        <div className="flex items-center gap-2">
+                          {appointment.client.firstName} {appointment.client.lastName}
+                          {appointment.client.isWalkIn && (
+                            <Badge variant="outline" className="text-xs">
+                              Walk-in
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>{appointment.service.name}</TableCell>
                       <TableCell>

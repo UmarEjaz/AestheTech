@@ -1,12 +1,13 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Role } from "@prisma/client";
-import { Plus, Calendar as CalendarIcon, List } from "lucide-react";
+import { Plus } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { AppointmentCalendar } from "@/components/appointments/appointment-calendar";
 import { getAppointmentsForCalendar } from "@/lib/actions/appointment";
+import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
 export default async function AppointmentsPage() {
@@ -29,12 +30,18 @@ export default async function AppointmentsPage() {
   endOfWeek.setDate(startOfWeek.getDate() + 6);
   endOfWeek.setHours(23, 59, 59, 999);
 
-  const result = await getAppointmentsForCalendar({
-    startDate: startOfWeek,
-    endDate: endOfWeek,
-  });
+  const [appointmentsResult, settingsResult] = await Promise.all([
+    getAppointmentsForCalendar({
+      startDate: startOfWeek,
+      endDate: endOfWeek,
+    }),
+    getSettings(),
+  ]);
 
-  const appointments = result.success ? result.data : [];
+  const appointments = appointmentsResult.success ? appointmentsResult.data : [];
+  const settings = settingsResult.success
+    ? settingsResult.data
+    : { businessHoursStart: "09:00", businessHoursEnd: "19:00" };
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -62,6 +69,8 @@ export default async function AppointmentsPage() {
           <AppointmentCalendar
             initialAppointments={appointments}
             canManage={canManage}
+            businessHoursStart={settings.businessHoursStart}
+            businessHoursEnd={settings.businessHoursEnd}
           />
         </div>
       </div>

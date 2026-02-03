@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+// Schema for regular client creation (full details required)
 export const clientSchema = z.object({
   firstName: z
     .string()
@@ -27,6 +28,20 @@ export const clientSchema = z.object({
   tags: z.array(z.string()).default([]),
 });
 
+// Schema for walk-in client creation (minimal details)
+export const walkInClientSchema = z.object({
+  firstName: z
+    .string()
+    .min(1, "First name is required")
+    .max(50, "First name must be less than 50 characters"),
+  phone: z
+    .string()
+    .max(20, "Phone number must be less than 20 characters")
+    .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
+    .optional()
+    .or(z.literal("")),
+});
+
 export const clientUpdateSchema = clientSchema.partial().extend({
   id: z.string().min(1, "Client ID is required"),
 });
@@ -35,6 +50,7 @@ export const clientSearchSchema = z.object({
   query: z.string().optional(),
   tags: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
+  isWalkIn: z.boolean().optional(),
   page: z.number().int().positive().optional(),
   limit: z.number().int().positive().max(100).optional(),
 });
@@ -43,3 +59,4 @@ export type ClientFormData = z.infer<typeof clientSchema>;
 export type ClientFormInput = z.input<typeof clientSchema>;
 export type ClientUpdateData = z.infer<typeof clientUpdateSchema>;
 export type ClientSearchParams = z.input<typeof clientSearchSchema>;
+export type WalkInClientData = z.infer<typeof walkInClientSchema>;

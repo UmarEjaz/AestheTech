@@ -19,9 +19,9 @@ interface ClientFormProps {
   client?: {
     id: string;
     firstName: string;
-    lastName: string;
+    lastName: string | null;
     email: string | null;
-    phone: string;
+    phone: string | null;
     birthday: Date | null;
     address: string | null;
     notes: string | null;

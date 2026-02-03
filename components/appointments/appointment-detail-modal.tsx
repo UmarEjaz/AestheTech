@@ -13,7 +13,6 @@ import {
   Mail,
   Calendar,
   DollarSign,
-  X,
   Edit,
   Trash2,
   CheckCircle,
@@ -51,6 +50,7 @@ interface AppointmentDetailModalProps {
   appointment: AppointmentListItem;
   isOpen: boolean;
   onClose: () => void;
+  onDataChange?: () => void;
   canManage?: boolean;
 }
 
@@ -70,6 +70,7 @@ export function AppointmentDetailModal({
   appointment,
   isOpen,
   onClose,
+  onDataChange,
   canManage = false,
 }: AppointmentDetailModalProps) {
   const router = useRouter();
@@ -83,6 +84,7 @@ export function AppointmentDetailModal({
       const result = await updateAppointmentStatus(appointment.id, { status: newStatus });
       if (result.success) {
         toast.success(`Appointment marked as ${statusConfig[newStatus].label}`);
+        onDataChange?.();
         router.refresh();
         onClose();
       } else {
@@ -99,6 +101,7 @@ export function AppointmentDetailModal({
       const result = await cancelAppointment(appointment.id);
       if (result.success) {
         toast.success("Appointment cancelled");
+        onDataChange?.();
         router.refresh();
         onClose();
       } else {
@@ -116,6 +119,7 @@ export function AppointmentDetailModal({
       const result = await deleteAppointment(appointment.id);
       if (result.success) {
         toast.success("Appointment deleted");
+        onDataChange?.();
         router.refresh();
         onClose();
       } else {
@@ -154,13 +158,25 @@ export function AppointmentDetailModal({
                 <User className="h-4 w-4" />
                 Client
               </h3>
-              <p className="font-medium">
-                {appointment.client.firstName} {appointment.client.lastName}
-              </p>
-              {appointment.client.phone && (
+              <div className="flex items-center gap-2">
+                <p className="font-medium">
+                  {appointment.client.firstName} {appointment.client.lastName}
+                </p>
+                {appointment.client.isWalkIn && (
+                  <Badge variant="secondary" className="text-xs">
+                    Walk-in
+                  </Badge>
+                )}
+              </div>
+              {appointment.client.phone ? (
                 <p className="text-sm text-muted-foreground flex items-center gap-2">
                   <Phone className="h-3 w-3" />
                   {appointment.client.phone}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground/60 flex items-center gap-2">
+                  <Phone className="h-3 w-3" />
+                  <span className="italic">No phone</span>
                 </p>
               )}
               {appointment.client.email && (

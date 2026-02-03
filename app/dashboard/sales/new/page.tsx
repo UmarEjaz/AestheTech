@@ -72,6 +72,7 @@ export default async function NewSalePage() {
     lastName: client.lastName,
     phone: client.phone,
     email: client.email,
+    isWalkIn: client.isWalkIn,
     loyaltyPoints: client.loyaltyPoints,
   }));
 

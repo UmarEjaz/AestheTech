@@ -69,8 +69,8 @@ export default async function SaleDetailPage({
     taxRate: 0,
   };
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
+  const getInitials = (firstName: string, lastName: string | null) => {
+    return `${firstName[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
   };
 
   // Prepare invoice data for PDF
@@ -91,6 +91,7 @@ export default async function SaleDetailPage({
           lastName: sale.client.lastName,
           email: sale.client.email,
           phone: sale.client.phone,
+          isWalkIn: sale.client.isWalkIn,
         },
         items: sale.items.map((item) => ({
           id: item.id,
@@ -134,21 +135,6 @@ export default async function SaleDetailPage({
   const totalRefunded = invoiceRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
   const maxRefundable = sale.invoice ? Number(sale.invoice.total) - totalRefunded : 0;
   const canIssueRefund = canRefund && sale.invoice?.status === "PAID" && maxRefundable > 0;
-
-  const getPaymentMethodLabel = (method: string) => {
-    switch (method) {
-      case "CASH":
-        return "Cash";
-      case "CARD":
-        return "Card";
-      case "DIGITAL_WALLET":
-        return "Digital Wallet";
-      case "LOYALTY_POINTS":
-        return "Loyalty Points";
-      default:
-        return method;
-    }
-  };
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -336,10 +322,19 @@ export default async function SaleDetailPage({
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-medium">
-                      {sale.client.firstName} {sale.client.lastName}
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">
+                        {sale.client.firstName} {sale.client.lastName}
+                      </p>
+                      {sale.client.isWalkIn && (
+                        <Badge variant="secondary" className="text-xs">
+                          Walk-in
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {sale.client.phone || <span className="italic">No phone</span>}
                     </p>
-                    <p className="text-sm text-muted-foreground">{sale.client.phone}</p>
                     {sale.client.email && (
                       <p className="text-sm text-muted-foreground">{sale.client.email}</p>
                     )}

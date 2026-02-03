@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
-import { clientSchema, clientUpdateSchema, ClientFormData, ClientSearchParams } from "@/lib/validations/client";
+import { clientSchema, clientUpdateSchema, walkInClientSchema, ClientFormData, ClientSearchParams, WalkInClientData } from "@/lib/validations/client";
 import { Role, Prisma } from "@prisma/client";
 
 export type ActionResult<T = void> =
@@ -48,7 +48,7 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
     return { success: false, error: "Unauthorized" };
   }
 
-  const { query, tags, isActive = true, page = 1, limit = 10 } = params;
+  const { query, tags, isActive = true, isWalkIn, page = 1, limit = 10 } = params;
   const skip = (page - 1) * limit;
 
   const where = {
@@ -63,6 +63,9 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
     }),
     ...(tags && tags.length > 0 && {
       tags: { hasSome: tags },
+    }),
+    ...(isWalkIn !== undefined && {
+      isWalkIn,
     }),
   };
 
@@ -173,6 +176,55 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
 
   revalidatePath("/dashboard/clients");
   return { success: true, data: { id: client.id } };
+}
+
+// Create a walk-in client with minimal information
+export async function createWalkInClient(data: WalkInClientData): Promise<ActionResult<{ id: string; firstName: string }>> {
+  const authResult = await checkAuth("clients:create");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const validationResult = walkInClientSchema.safeParse(data);
+  if (!validationResult.success) {
+    return { success: false, error: validationResult.error.issues[0].message };
+  }
+
+  const { firstName, phone } = validationResult.data;
+  const normalizedPhone = phone && phone.trim() !== "" ? phone : null;
+
+  // Check for duplicate phone number if phone is provided
+  if (normalizedPhone) {
+    const existingClient = await prisma.client.findUnique({
+      where: { phone: normalizedPhone },
+    });
+
+    if (existingClient) {
+      // Return existing client instead of creating duplicate
+      return {
+        success: true,
+        data: { id: existingClient.id, firstName: existingClient.firstName }
+      };
+    }
+  }
+
+  const client = await prisma.client.create({
+    data: {
+      firstName,
+      lastName: null,
+      phone: normalizedPhone,
+      isWalkIn: true,
+      loyaltyPoints: {
+        create: {
+          balance: 0,
+          tier: "SILVER",
+        },
+      },
+    },
+  });
+
+  revalidatePath("/dashboard/clients");
+  return { success: true, data: { id: client.id, firstName: client.firstName } };
 }
 
 export async function updateClient(data: { id: string } & Partial<ClientFormData>): Promise<ActionResult> {
