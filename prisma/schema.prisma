@@ -120,6 +120,7 @@ model Client {
   loyaltyPoints       LoyaltyPoints?
   loyaltyTransactions LoyaltyTransaction[]
 
+  @@index([isWalkIn])
   @@map("clients")
 }
 

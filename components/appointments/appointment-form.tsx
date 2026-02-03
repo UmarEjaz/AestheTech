@@ -172,6 +172,9 @@ export function AppointmentForm({
       }
 
       setValue("startTime", new Date(closestSlot.startTime));
+    } else if (mode === "edit" && appointment) {
+      // In edit mode, warn the user that their original time slot is no longer available
+      toast.warning("Original time slot is no longer available. Please select a new time.");
     }
   }, [availableSlots, initialDate, mode, appointment, setValue]);
 

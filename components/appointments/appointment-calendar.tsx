@@ -29,6 +29,9 @@ const statusColors: Record<AppointmentStatus, { bg: string; border: string; text
   NO_SHOW: { bg: "bg-orange-100 dark:bg-orange-900/30", border: "border-orange-400", text: "text-orange-600 dark:text-orange-400" },
 };
 
+// Statuses that allow dragging (defined outside component to avoid recreation on each render)
+const DRAGGABLE_STATUSES: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED"];
+
 export function AppointmentCalendar({
   initialAppointments,
   canManage = false,
@@ -42,16 +45,13 @@ export function AppointmentCalendar({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentViewDates, setCurrentViewDates] = useState<{ start: Date; end: Date } | null>(null);
 
-  // Statuses that allow dragging
-  const draggableStatuses: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED"];
-
   // Convert appointments to FullCalendar events
   const events = appointments.map((apt) => ({
     id: apt.id,
     title: `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}${apt.client.isWalkIn ? " (Walk-in)" : ""} - ${apt.service.name}`,
     start: apt.startTime,
     end: apt.endTime,
-    editable: canManage && draggableStatuses.includes(apt.status),
+    editable: canManage && DRAGGABLE_STATUSES.includes(apt.status),
     extendedProps: {
       appointment: apt,
       status: apt.status,
@@ -134,17 +134,10 @@ export function AppointmentCalendar({
       } else {
         toast.success("Appointment rescheduled successfully");
         // Refresh appointments to get updated data
-        const refreshResult = await getAppointmentsForCalendar({
-          startDate: arg.view.currentStart,
-          endDate: arg.view.currentEnd,
-          staffId: staffFilter,
-        });
-        if (refreshResult.success) {
-          setAppointments(refreshResult.data);
-        }
+        await refreshAppointments();
       }
     },
-    [staffFilter]
+    [refreshAppointments]
   );
 
   // Refresh appointments after modal closes
@@ -240,8 +233,8 @@ export function AppointmentCalendar({
         selectable={canManage}
         select={handleDateSelect}
         datesSet={handleDatesSet}
-        slotMinTime={`${businessHoursStart}:00`}
-        slotMaxTime={`${businessHoursEnd}:00`}
+        slotMinTime={businessHoursStart}
+        slotMaxTime={businessHoursEnd}
         slotDuration="00:30:00"
         allDaySlot={false}
         nowIndicator={true}

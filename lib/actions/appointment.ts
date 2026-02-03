@@ -548,9 +548,20 @@ export async function getAvailableSlots(params: {
       ? settingsResult.data
       : { businessHoursStart: "09:00", businessHoursEnd: "19:00" };
 
-    // Parse business hours (format: "HH:MM")
-    const [startHour, startMin] = settings.businessHoursStart.split(":").map(Number);
-    const [endHour, endMin] = settings.businessHoursEnd.split(":").map(Number);
+    // Parse business hours (format: "HH:MM") with validation and fallback
+    const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
+      const parts = timeStr?.split(":");
+      if (!parts || parts.length !== 2) return [defaultHour, defaultMin];
+      const hour = parseInt(parts[0], 10);
+      const min = parseInt(parts[1], 10);
+      if (isNaN(hour) || isNaN(min) || hour < 0 || hour > 23 || min < 0 || min > 59) {
+        return [defaultHour, defaultMin];
+      }
+      return [hour, min];
+    };
+
+    const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
+    const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
 
     const dayStart = new Date(date);
     dayStart.setHours(startHour, startMin, 0, 0);
