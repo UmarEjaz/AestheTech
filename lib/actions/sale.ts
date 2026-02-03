@@ -40,6 +40,7 @@ const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({
       lastName: true,
       phone: true,
       email: true,
+      isWalkIn: true,
     },
   },
   staff: {

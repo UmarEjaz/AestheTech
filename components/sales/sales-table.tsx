@@ -14,7 +14,6 @@ import {
   Calendar,
   DollarSign,
 } from "lucide-react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -138,8 +137,8 @@ export function SalesTable({
     loadSales(searchTerm, newPage);
   };
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
+  const getInitials = (firstName: string, lastName: string | null) => {
+    return `${firstName[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
   };
 
   const getStatusBadge = (sale: SaleListItem) => {
@@ -283,11 +282,18 @@ export function SalesTable({
                     </TableCell>
                     <TableCell>
                       <div>
-                        <p className="font-medium">
-                          {sale.client.firstName} {sale.client.lastName}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">
+                            {sale.client.firstName} {sale.client.lastName}
+                          </p>
+                          {sale.client.isWalkIn && (
+                            <Badge variant="outline" className="text-xs">
+                              Walk-in
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                          {sale.client.phone}
+                          {sale.client.phone || <span className="italic">No phone</span>}
                         </p>
                       </div>
                     </TableCell>

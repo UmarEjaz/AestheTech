@@ -92,7 +92,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
           <div>
             <h1 className="text-3xl font-bold">Edit Appointment</h1>
             <p className="text-muted-foreground">
-              Update appointment for {appointment.client.firstName} {appointment.client.lastName}
+              Update appointment for {appointment.client.firstName}{appointment.client.lastName ? ` ${appointment.client.lastName}` : ""}{appointment.client.isWalkIn ? " (Walk-in)" : ""}
             </p>
           </div>
         </div>

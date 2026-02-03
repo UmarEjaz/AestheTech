@@ -48,7 +48,7 @@ export default async function EditClientPage({ params }: PageProps) {
           <div>
             <h1 className="text-3xl font-bold">Edit Client</h1>
             <p className="text-muted-foreground">
-              Update {client.firstName} {client.lastName}&apos;s profile
+              Update {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}{client.isWalkIn ? " (Walk-in)" : ""}&apos;s profile
             </p>
           </div>
         </div>

@@ -42,6 +42,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ClientListItem, deleteClient } from "@/lib/actions/client";
 
 interface ClientTableProps {
@@ -56,6 +63,7 @@ interface ClientTableProps {
     query?: string;
     page?: number;
     limit?: number;
+    isWalkIn?: boolean;
   }) => Promise<{
     success: boolean;
     data?: {
@@ -84,17 +92,19 @@ export function ClientTable({
   const [page, setPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(initialTotalPages);
   const [searchTerm, setSearchTerm] = useState("");
+  const [walkInFilter, setWalkInFilter] = useState<"all" | "walkin" | "regular">("all");
   const [loading, setLoading] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const loadClients = useCallback(async (search: string, pageNum: number) => {
+  const loadClients = useCallback(async (search: string, pageNum: number, walkIn: "all" | "walkin" | "regular" = "all") => {
     setLoading(true);
     try {
       const result = await fetchClients({
         query: search || undefined,
         page: pageNum,
         limit: 15,
+        isWalkIn: walkIn === "all" ? undefined : walkIn === "walkin",
       });
 
       if (result.success && result.data) {
@@ -109,13 +119,13 @@ export function ClientTable({
   }, [fetchClients]);
 
   // Debounced search
-  const debouncedSearch = useCallback((value: string) => {
+  const debouncedSearch = useCallback((value: string, walkIn: "all" | "walkin" | "regular") => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
     debounceTimerRef.current = setTimeout(() => {
-      loadClients(value, 1);
+      loadClients(value, 1, walkIn);
     }, 400);
   }, [loadClients]);
 
@@ -128,10 +138,16 @@ export function ClientTable({
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
-      loadClients("", 1);
+      loadClients("", 1, walkInFilter);
     } else {
-      debouncedSearch(value);
+      debouncedSearch(value, walkInFilter);
     }
+  };
+
+  // Handle walk-in filter change
+  const handleWalkInFilterChange = (value: "all" | "walkin" | "regular") => {
+    setWalkInFilter(value);
+    loadClients(searchTerm, 1, value);
   };
 
   // Cleanup debounce timer
@@ -144,7 +160,7 @@ export function ClientTable({
   }, []);
 
   const handlePageChange = (newPage: number) => {
-    loadClients(searchTerm, newPage);
+    loadClients(searchTerm, newPage, walkInFilter);
   };
 
   const handleDelete = async () => {
@@ -154,14 +170,14 @@ export function ClientTable({
     if (result.success) {
       toast.success("Client deleted successfully");
       setDeleteId(null);
-      loadClients(searchTerm, page);
+      loadClients(searchTerm, page, walkInFilter);
     } else {
       toast.error(result.error);
     }
   };
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
+  const getInitials = (firstName: string, lastName: string | null) => {
+    return `${firstName[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
   };
 
   return (
@@ -181,7 +197,7 @@ export function ClientTable({
         </Card>
       </div>
 
-      {/* Search */}
+      {/* Search and Filter */}
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-4">
@@ -199,6 +215,16 @@ export function ClientTable({
                 </div>
               )}
             </div>
+            <Select value={walkInFilter} onValueChange={handleWalkInFilterChange}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Filter clients" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clients</SelectItem>
+                <SelectItem value="walkin">Walk-ins Only</SelectItem>
+                <SelectItem value="regular">Regular Only</SelectItem>
+              </SelectContent>
+            </Select>
             {canCreate && (
               <Button onClick={() => router.push("/dashboard/clients/new")}>
                 <Plus className="h-4 w-4 mr-2" />
@@ -266,9 +292,16 @@ export function ClientTable({
                     </TableCell>
                     <TableCell>
                       <div>
-                        <p className="font-medium">
-                          {client.firstName} {client.lastName}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">
+                            {client.firstName} {client.lastName}
+                          </p>
+                          {client.isWalkIn && (
+                            <Badge variant="outline" className="text-xs">
+                              Walk-in
+                            </Badge>
+                          )}
+                        </div>
                         {client.notes && (
                           <p className="text-xs text-muted-foreground truncate max-w-[200px]">
                             {client.notes}
@@ -278,10 +311,17 @@ export function ClientTable({
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
-                        <p className="text-sm flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {client.phone}
-                        </p>
+                        {client.phone ? (
+                          <p className="text-sm flex items-center gap-1">
+                            <Phone className="h-3 w-3" />
+                            {client.phone}
+                          </p>
+                        ) : (
+                          <p className="text-sm flex items-center gap-1 text-muted-foreground/60">
+                            <Phone className="h-3 w-3" />
+                            <span className="italic">No phone</span>
+                          </p>
+                        )}
                         {client.email && (
                           <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <Mail className="h-3 w-3" />

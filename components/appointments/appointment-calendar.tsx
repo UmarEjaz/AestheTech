@@ -1,21 +1,23 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import { EventClickArg, DateSelectArg, DatesSetArg } from "@fullcalendar/core";
+import { EventClickArg, DateSelectArg, DatesSetArg, EventDropArg } from "@fullcalendar/core";
 import { AppointmentStatus } from "@prisma/client";
-import { AppointmentListItem, getAppointmentsForCalendar } from "@/lib/actions/appointment";
+import { AppointmentListItem, getAppointmentsForCalendar, rescheduleAppointment } from "@/lib/actions/appointment";
+import { toast } from "sonner";
 import { AppointmentDetailModal } from "./appointment-detail-modal";
-import { cn } from "@/lib/utils";
 
 interface AppointmentCalendarProps {
   initialAppointments: AppointmentListItem[];
   canManage?: boolean;
   staffFilter?: string;
+  businessHoursStart?: string;
+  businessHoursEnd?: string;
 }
 
 const statusColors: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
@@ -31,18 +33,25 @@ export function AppointmentCalendar({
   initialAppointments,
   canManage = false,
   staffFilter,
+  businessHoursStart = "08:00",
+  businessHoursEnd = "20:00",
 }: AppointmentCalendarProps) {
   const router = useRouter();
   const [appointments, setAppointments] = useState<AppointmentListItem[]>(initialAppointments);
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentListItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentViewDates, setCurrentViewDates] = useState<{ start: Date; end: Date } | null>(null);
+
+  // Statuses that allow dragging
+  const draggableStatuses: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED"];
 
   // Convert appointments to FullCalendar events
   const events = appointments.map((apt) => ({
     id: apt.id,
-    title: `${apt.client.firstName} ${apt.client.lastName} - ${apt.service.name}`,
+    title: `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}${apt.client.isWalkIn ? " (Walk-in)" : ""} - ${apt.service.name}`,
     start: apt.startTime,
     end: apt.endTime,
+    editable: canManage && draggableStatuses.includes(apt.status),
     extendedProps: {
       appointment: apt,
       status: apt.status,
@@ -58,6 +67,8 @@ export function AppointmentCalendar({
   // Handle date range change
   const handleDatesSet = useCallback(
     async (arg: DatesSetArg) => {
+      setCurrentViewDates({ start: arg.start, end: arg.end });
+
       const result = await getAppointmentsForCalendar({
         startDate: arg.start,
         endDate: arg.end,
@@ -70,6 +81,21 @@ export function AppointmentCalendar({
     },
     [staffFilter]
   );
+
+  // Refresh appointments (called when modal makes changes)
+  const refreshAppointments = useCallback(async () => {
+    if (!currentViewDates) return;
+
+    const result = await getAppointmentsForCalendar({
+      startDate: currentViewDates.start,
+      endDate: currentViewDates.end,
+      staffId: staffFilter,
+    });
+
+    if (result.success) {
+      setAppointments(result.data);
+    }
+  }, [currentViewDates, staffFilter]);
 
   // Handle event click
   const handleEventClick = (arg: EventClickArg) => {
@@ -85,6 +111,41 @@ export function AppointmentCalendar({
       router.push(`/dashboard/appointments/new?startTime=${encodeURIComponent(startTime)}`);
     }
   };
+
+  // Handle drag and drop reschedule
+  const handleEventDrop = useCallback(
+    async (arg: EventDropArg) => {
+      const appointment = arg.event.extendedProps.appointment as AppointmentListItem;
+      const newStartTime = arg.event.start;
+
+      if (!newStartTime) {
+        arg.revert();
+        return;
+      }
+
+      // Optimistically update UI is handled by FullCalendar
+      const result = await rescheduleAppointment(appointment.id, {
+        startTime: newStartTime,
+      });
+
+      if (!result.success) {
+        arg.revert();
+        toast.error(result.error || "Failed to reschedule appointment");
+      } else {
+        toast.success("Appointment rescheduled successfully");
+        // Refresh appointments to get updated data
+        const refreshResult = await getAppointmentsForCalendar({
+          startDate: arg.view.currentStart,
+          endDate: arg.view.currentEnd,
+          staffId: staffFilter,
+        });
+        if (refreshResult.success) {
+          setAppointments(refreshResult.data);
+        }
+      }
+    },
+    [staffFilter]
+  );
 
   // Refresh appointments after modal closes
   const handleModalClose = () => {
@@ -133,6 +194,14 @@ export function AppointmentCalendar({
           border-radius: 4px;
         }
 
+        .appointment-calendar .fc-event.fc-event-draggable {
+          cursor: grab;
+        }
+
+        .appointment-calendar .fc-event.fc-event-draggable:active {
+          cursor: grabbing;
+        }
+
         .appointment-calendar .fc-timegrid-event {
           border-radius: 4px;
           padding: 4px;
@@ -167,11 +236,12 @@ export function AppointmentCalendar({
         }}
         events={events}
         eventClick={handleEventClick}
+        eventDrop={handleEventDrop}
         selectable={canManage}
         select={handleDateSelect}
         datesSet={handleDatesSet}
-        slotMinTime="08:00:00"
-        slotMaxTime="20:00:00"
+        slotMinTime={`${businessHoursStart}:00`}
+        slotMaxTime={`${businessHoursEnd}:00`}
         slotDuration="00:30:00"
         allDaySlot={false}
         nowIndicator={true}
@@ -186,6 +256,7 @@ export function AppointmentCalendar({
           appointment={selectedAppointment}
           isOpen={isModalOpen}
           onClose={handleModalClose}
+          onDataChange={refreshAppointments}
           canManage={canManage}
         />
       )}

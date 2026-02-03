@@ -73,3 +73,54 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* FullCalendar event text styling */
+.fc-event {
+  font-weight: 500;
+}
+
+.fc-event .fc-event-main {
+  color: inherit !important;
+}
+
+.fc-event .fc-event-title {
+  font-weight: 600;
+}
+
+/* Ensure text colors from Tailwind classes are applied */
+.fc-event.text-blue-800 .fc-event-main,
+.fc-event.text-blue-800 .fc-event-title { color: rgb(30 64 175) !important; }
+
+.fc-event.text-green-800 .fc-event-main,
+.fc-event.text-green-800 .fc-event-title { color: rgb(22 101 52) !important; }
+
+.fc-event.text-yellow-800 .fc-event-main,
+.fc-event.text-yellow-800 .fc-event-title { color: rgb(133 77 14) !important; }
+
+.fc-event.text-gray-600 .fc-event-main,
+.fc-event.text-gray-600 .fc-event-title { color: rgb(75 85 99) !important; }
+
+.fc-event.text-red-600 .fc-event-main,
+.fc-event.text-red-600 .fc-event-title { color: rgb(220 38 38) !important; }
+
+.fc-event.text-orange-600 .fc-event-main,
+.fc-event.text-orange-600 .fc-event-title { color: rgb(234 88 12) !important; }
+
+/* Dark mode text colors */
+.dark .fc-event.dark\:text-blue-200 .fc-event-main,
+.dark .fc-event.dark\:text-blue-200 .fc-event-title { color: rgb(191 219 254) !important; }
+
+.dark .fc-event.dark\:text-green-200 .fc-event-main,
+.dark .fc-event.dark\:text-green-200 .fc-event-title { color: rgb(187 247 208) !important; }
+
+.dark .fc-event.dark\:text-yellow-200 .fc-event-main,
+.dark .fc-event.dark\:text-yellow-200 .fc-event-title { color: rgb(254 240 138) !important; }
+
+.dark .fc-event.dark\:text-gray-400 .fc-event-main,
+.dark .fc-event.dark\:text-gray-400 .fc-event-title { color: rgb(156 163 175) !important; }
+
+.dark .fc-event.dark\:text-red-400 .fc-event-main,
+.dark .fc-event.dark\:text-red-400 .fc-event-title { color: rgb(248 113 113) !important; }
+
+.dark .fc-event.dark\:text-orange-400 .fc-event-main,
+.dark .fc-event.dark\:text-orange-400 .fc-event-title { color: rgb(251 146 60) !important; }

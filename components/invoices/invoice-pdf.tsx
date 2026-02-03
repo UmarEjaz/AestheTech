@@ -201,9 +201,10 @@ export interface InvoicePDFData {
   taxRate: number;
   client: {
     firstName: string;
-    lastName: string;
+    lastName: string | null;
     email: string | null;
-    phone: string;
+    phone: string | null;
+    isWalkIn?: boolean;
   };
   items: Array<{
     id: string;
@@ -266,9 +267,11 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
         <View style={styles.clientSection}>
           <Text style={styles.sectionTitle}>Bill To</Text>
           <Text style={styles.value}>
-            {data.client.firstName} {data.client.lastName}
+            {data.client.firstName}{data.client.lastName ? ` ${data.client.lastName}` : ""}{data.client.isWalkIn ? " (Walk-in)" : ""}
           </Text>
-          <Text style={styles.label}>{data.client.phone}</Text>
+          {data.client.phone && (
+            <Text style={styles.label}>{data.client.phone}</Text>
+          )}
           {data.client.email && (
             <Text style={styles.label}>{data.client.email}</Text>
           )}

@@ -53,7 +53,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   }
 
   const client = result.data;
-  const initials = `${client.firstName[0]}${client.lastName[0]}`.toUpperCase();
+  const initials = `${client.firstName[0]}${client.lastName?.[0] || ""}`.toUpperCase();
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -72,14 +72,28 @@ export default async function ClientDetailPage({ params }: PageProps) {
               </AvatarFallback>
             </Avatar>
             <div>
-              <h1 className="text-3xl font-bold">
-                {client.firstName} {client.lastName}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-3xl font-bold">
+                  {client.firstName} {client.lastName}
+                </h1>
+                {client.isWalkIn && (
+                  <Badge variant="secondary" className="text-xs">
+                    Walk-in
+                  </Badge>
+                )}
+              </div>
               <div className="flex items-center gap-4 text-muted-foreground mt-1">
-                <div className="flex items-center gap-1">
-                  <Phone className="h-4 w-4" />
-                  {client.phone}
-                </div>
+                {client.phone ? (
+                  <div className="flex items-center gap-1">
+                    <Phone className="h-4 w-4" />
+                    {client.phone}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 text-muted-foreground/60">
+                    <Phone className="h-4 w-4" />
+                    <span className="italic">No phone</span>
+                  </div>
+                )}
                 {client.email && (
                   <div className="flex items-center gap-1">
                     <Mail className="h-4 w-4" />

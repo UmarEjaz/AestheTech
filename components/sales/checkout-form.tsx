@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -8,6 +8,8 @@ import {
   Minus,
   Trash2,
   User,
+  UserPlus,
+  Users,
   Scissors,
   CreditCard,
   Banknote,
@@ -18,6 +20,7 @@ import {
   Percent,
 } from "lucide-react";
 import { toast } from "sonner";
+import { createWalkInClient } from "@/lib/actions/client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,9 +61,10 @@ interface CartItem {
 interface Client {
   id: string;
   firstName: string;
-  lastName: string;
-  phone: string;
+  lastName: string | null;
+  phone: string | null;
   email: string | null;
+  isWalkIn?: boolean;
   loyaltyPoints?: {
     balance: number;
     tier: string;
@@ -108,13 +112,18 @@ export function CheckoutForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<string>(staff[0]?.id || "");
 
+  // Walk-in client state
+  const [isWalkIn, setIsWalkIn] = useState(false);
+  const [walkInName, setWalkInName] = useState("");
+  const [walkInPhone, setWalkInPhone] = useState("");
+
   // Filter clients based on search
   const filteredClients = clients.filter((client) => {
     const search = clientSearch.toLowerCase();
     return (
       client.firstName.toLowerCase().includes(search) ||
-      client.lastName.toLowerCase().includes(search) ||
-      client.phone.includes(search)
+      (client.lastName?.toLowerCase().includes(search) ?? false) ||
+      (client.phone?.includes(search) ?? false)
     );
   });
 
@@ -178,11 +187,6 @@ export function CheckoutForm({
   };
 
   const handlePayment = async (method: PaymentMethod) => {
-    if (!selectedClient) {
-      toast.error("Please select a client");
-      return;
-    }
-
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
@@ -191,8 +195,40 @@ export function CheckoutForm({
     setIsSubmitting(true);
 
     try {
+      let clientId: string;
+
+      // If walk-in, create the walk-in client first
+      if (isWalkIn) {
+        if (!walkInName.trim()) {
+          toast.error("Please enter the walk-in client's name");
+          setIsSubmitting(false);
+          return;
+        }
+
+        const walkInResult = await createWalkInClient({
+          firstName: walkInName.trim(),
+          phone: walkInPhone.trim() || undefined,
+        });
+
+        if (!walkInResult.success) {
+          toast.error(walkInResult.error);
+          setIsSubmitting(false);
+          return;
+        }
+
+        clientId = walkInResult.data.id;
+        toast.success(`Walk-in client "${walkInResult.data.firstName}" created`);
+      } else {
+        if (!selectedClient) {
+          toast.error("Please select a client");
+          setIsSubmitting(false);
+          return;
+        }
+        clientId = selectedClient.id;
+      }
+
       const result = await quickSale({
-        clientId: selectedClient.id,
+        clientId,
         items: cart.map((item) => ({
           serviceId: item.serviceId,
           staffId: item.staffId,
@@ -202,7 +238,7 @@ export function CheckoutForm({
         discount,
         discountType,
         payments: [{ method, amount: total }],
-        redeemPoints,
+        redeemPoints: isWalkIn ? 0 : redeemPoints, // Walk-ins can't redeem points
       });
 
       if (result.success) {
@@ -222,8 +258,8 @@ export function CheckoutForm({
     }
   };
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
+  const getInitials = (firstName: string, lastName: string | null) => {
+    return `${firstName[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
   };
 
   // Group services by category
@@ -246,8 +282,66 @@ export function CheckoutForm({
               Select Client
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            {selectedClient ? (
+          <CardContent className="space-y-4">
+            {/* Walk-in Toggle */}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={!isWalkIn ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setIsWalkIn(false);
+                  setWalkInName("");
+                  setWalkInPhone("");
+                }}
+                className="flex-1"
+              >
+                <Users className="h-4 w-4 mr-2" />
+                Existing Client
+              </Button>
+              <Button
+                type="button"
+                variant={isWalkIn ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setIsWalkIn(true);
+                  setSelectedClient(null);
+                  setClientSearch("");
+                  setRedeemPoints(0);
+                }}
+                className="flex-1"
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                Walk-in Client
+              </Button>
+            </div>
+
+            {isWalkIn ? (
+              /* Walk-in Client Form */
+              <div className="space-y-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                <div className="space-y-2">
+                  <Label htmlFor="walkInName">Client Name *</Label>
+                  <Input
+                    id="walkInName"
+                    value={walkInName}
+                    onChange={(e) => setWalkInName(e.target.value)}
+                    placeholder="Enter client's name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="walkInPhone">Phone (Optional)</Label>
+                  <Input
+                    id="walkInPhone"
+                    value={walkInPhone}
+                    onChange={(e) => setWalkInPhone(e.target.value)}
+                    placeholder="Enter phone number"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  A new walk-in client will be created when completing the sale.
+                </p>
+              </div>
+            ) : selectedClient ? (
               <div className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
                 <div className="flex items-center gap-3">
                   <Avatar>
@@ -259,7 +353,9 @@ export function CheckoutForm({
                     <p className="font-medium">
                       {selectedClient.firstName} {selectedClient.lastName}
                     </p>
-                    <p className="text-sm text-muted-foreground">{selectedClient.phone}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedClient.phone || <span className="italic">No phone</span>}
+                    </p>
                   </div>
                   {selectedClient.loyaltyPoints && (
                     <Badge variant="secondary" className="ml-2">
@@ -304,10 +400,19 @@ export function CheckoutForm({
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
-                            <p className="font-medium text-sm">
-                              {client.firstName} {client.lastName}
+                            <div className="flex items-center gap-1">
+                              <p className="font-medium text-sm">
+                                {client.firstName} {client.lastName}
+                              </p>
+                              {client.isWalkIn && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Walk-in
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {client.phone || <span className="italic">No phone</span>}
                             </p>
-                            <p className="text-xs text-muted-foreground">{client.phone}</p>
                           </div>
                           {client.loyaltyPoints && (
                             <Badge variant="outline" className="text-xs">

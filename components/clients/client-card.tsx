@@ -30,7 +30,7 @@ const tierColors: Record<LoyaltyTier, string> = {
 };
 
 export function ClientCard({ client, onDelete, canEdit = true, canDelete = false }: ClientCardProps) {
-  const initials = `${client.firstName[0]}${client.lastName[0]}`.toUpperCase();
+  const initials = `${client.firstName[0]}${client.lastName?.[0] || ""}`.toUpperCase();
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -43,13 +43,27 @@ export function ClientCard({ client, onDelete, canEdit = true, canDelete = false
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-foreground truncate">
-                {client.firstName} {client.lastName}
-              </h3>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                <Phone className="h-3.5 w-3.5" />
-                <span>{client.phone}</span>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-foreground truncate">
+                  {client.firstName} {client.lastName}
+                </h3>
+                {client.isWalkIn && (
+                  <Badge variant="outline" className="text-xs shrink-0">
+                    Walk-in
+                  </Badge>
+                )}
               </div>
+              {client.phone ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                  <Phone className="h-3.5 w-3.5" />
+                  <span>{client.phone}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground/60 mt-1">
+                  <Phone className="h-3.5 w-3.5" />
+                  <span className="italic">No phone</span>
+                </div>
+              )}
               {client.email && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Mail className="h-3.5 w-3.5" />
