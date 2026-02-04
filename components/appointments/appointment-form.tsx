@@ -329,6 +329,7 @@ export function AppointmentForm({
         customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
         dayOfWeek: recurrencePattern === "SPECIFIC_DAYS" ? specificDays[0] ?? startTime.getDay() : startTime.getDay(),
         timeOfDay: format(startTime, "HH:mm"),
+        startDate: startTime,
         specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
         nthWeek: recurrencePattern === "NTH_WEEKDAY" ? nthWeek : undefined,
         endType,
@@ -427,6 +428,7 @@ export function AppointmentForm({
             customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
             dayOfWeek: recurrencePattern === "SPECIFIC_DAYS" ? specificDays[0] ?? startTime.getDay() : startTime.getDay(),
             timeOfDay: format(startTime, "HH:mm"),
+            startDate: startTime,
             specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
             nthWeek: recurrencePattern === "NTH_WEEKDAY" ? nthWeek : undefined,
             endType,
@@ -435,6 +437,9 @@ export function AppointmentForm({
             lockedPrice: lockedPrice,
             bufferMinutes: bufferMinutes > 0 ? bufferMinutes : undefined,
             notes: data.notes,
+            // Pass user conflict resolution choices
+            selectedAlternatives: selectedAlternatives.length > 0 ? selectedAlternatives : undefined,
+            skipDates: skippedDates.length > 0 ? skippedDates : undefined,
           });
 
           if (result.success) {

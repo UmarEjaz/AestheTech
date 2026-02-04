@@ -26,9 +26,16 @@ interface ICalRecurringEvent extends ICalEvent {
 
 /**
  * Format a date to iCal datetime format (UTC)
+ * Uses actual UTC values to ensure correct timezone handling
  */
 function formatICalDateTime(date: Date): string {
-  return format(date, "yyyyMMdd'T'HHmmss'Z'");
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(date.getUTCSeconds()).padStart(2, "0");
+  return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
 }
 
 /**
@@ -187,10 +194,8 @@ export function generateRRule(params: {
 
     case "MONTHLY":
       parts.push("FREQ=MONTHLY");
-      if (params.dayOfWeek !== undefined) {
-        // Monthly on the same weekday (e.g., first Monday)
-        parts.push(`BYDAY=${dayMap[params.dayOfWeek]}`);
-      }
+      // Monthly on the same date each month (e.g., 15th of every month)
+      // For nth weekday patterns (e.g., "first Monday"), use NTH_WEEKDAY instead
       break;
 
     case "CUSTOM":

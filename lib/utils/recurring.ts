@@ -185,13 +185,16 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
   const { hours, minutes } = parseTimeOfDay(timeOfDay);
 
   // Determine end condition
+  // Use max(startDate, now) as horizon base so future-dated series still generate dates
+  const horizonBase = isAfter(startDate, now) ? startDate : now;
+
   let shouldContinue = (currentDate: Date, count: number): boolean => {
     if (count >= maxDates) return false;
 
     switch (endType) {
       case "NEVER":
-        // Default: generate for 3 months ahead
-        return isBefore(currentDate, addMonths(now, 3));
+        // Default: generate for 3 months ahead from the later of startDate or now
+        return isBefore(currentDate, addMonths(horizonBase, 3));
       case "AFTER_COUNT":
         return count < (endAfterCount || 1);
       case "BY_DATE":
@@ -251,16 +254,21 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
     }
 
     case "MONTHLY": {
+      // MONTHLY = same day-of-month each month (e.g., 15th of every month)
+      // For shorter months, clamp to last day (e.g., Jan 31 -> Feb 28)
+      const originalDayOfMonth = startDate.getDate();
       let currentDate = new Date(startDate);
-      currentDate.setDate(Math.min(currentDate.getDate(), 28)); // Avoid month overflow issues
       let count = 0;
 
       while (shouldContinue(currentDate, count)) {
-        // Find the same day of week in this month closest to the original date
-        const targetDay = getNextDayOfWeek(dayOfWeek, startOfMonth(currentDate));
+        // Clamp to last day of month if original day doesn't exist
+        const lastDayOfMonth = endOfMonth(currentDate).getDate();
+        const targetDayOfMonth = Math.min(originalDayOfMonth, lastDayOfMonth);
+        const targetDate = new Date(currentDate);
+        targetDate.setDate(targetDayOfMonth);
 
-        if (!isBefore(targetDay, startOfDay(now)) && !isException(targetDay)) {
-          dates.push(setMinutes(setHours(targetDay, hours), minutes));
+        if (!isBefore(targetDate, startOfDay(now)) && !isException(targetDate)) {
+          dates.push(setMinutes(setHours(targetDate, hours), minutes));
           count++;
         }
         currentDate = addMonths(currentDate, 1);

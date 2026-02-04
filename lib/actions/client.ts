@@ -91,63 +91,66 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
   };
 }
 
-const clientInclude = Prisma.validator<Prisma.ClientInclude>()({
-  loyaltyPoints: true,
-  appointments: {
-    orderBy: { startTime: "desc" },
-    take: 10,
-    include: {
-      service: true,
-      staff: {
-        select: { firstName: true, lastName: true },
-      },
-    },
-  },
-  sales: {
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    include: {
-      items: {
-        include: {
-          service: true,
+// Function to get client include with fresh date filter (avoids stale date issue)
+function getClientInclude() {
+  return {
+    loyaltyPoints: true,
+    appointments: {
+      orderBy: { startTime: "desc" as const },
+      take: 10,
+      include: {
+        service: true,
+        staff: {
+          select: { firstName: true, lastName: true },
         },
       },
     },
-  },
-  recurringSeries: {
-    orderBy: { createdAt: "desc" },
-    include: {
-      service: {
-        select: { name: true, duration: true },
-      },
-      staff: {
-        select: { firstName: true, lastName: true },
-      },
-      client: {
-        select: { firstName: true, lastName: true },
-      },
-      exceptions: {
-        select: { id: true, date: true, reason: true },
-        orderBy: { date: "asc" },
-      },
-      appointments: {
-        where: {
-          startTime: { gte: new Date() },
-          status: { notIn: ["CANCELLED", "NO_SHOW"] },
-        },
-        orderBy: { startTime: "asc" },
-        select: {
-          id: true,
-          startTime: true,
-          status: true,
+    sales: {
+      orderBy: { createdAt: "desc" as const },
+      take: 10,
+      include: {
+        items: {
+          include: {
+            service: true,
+          },
         },
       },
     },
-  },
-});
+    recurringSeries: {
+      orderBy: { createdAt: "desc" as const },
+      include: {
+        service: {
+          select: { name: true, duration: true },
+        },
+        staff: {
+          select: { firstName: true, lastName: true },
+        },
+        client: {
+          select: { firstName: true, lastName: true },
+        },
+        exceptions: {
+          select: { id: true, date: true, reason: true },
+          orderBy: { date: "asc" as const },
+        },
+        appointments: {
+          where: {
+            startTime: { gte: new Date() }, // Evaluated fresh on each call
+            status: { notIn: ["CANCELLED", "NO_SHOW"] as const },
+          },
+          orderBy: { startTime: "asc" as const },
+          select: {
+            id: true,
+            startTime: true,
+            status: true,
+          },
+        },
+      },
+    },
+  } satisfies Prisma.ClientInclude;
+}
 
 export type ClientWithRelations = Prisma.ClientGetPayload<{
-  include: typeof clientInclude;
+  include: ReturnType<typeof getClientInclude>;
 }>;
 
 export async function getClient(id: string): Promise<ActionResult<ClientWithRelations | null>> {
@@ -158,7 +161,7 @@ export async function getClient(id: string): Promise<ActionResult<ClientWithRela
 
   const client = await prisma.client.findUnique({
     where: { id },
-    include: clientInclude,
+    include: getClientInclude(),
   });
 
   if (!client) {

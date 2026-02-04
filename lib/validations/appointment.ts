@@ -86,10 +86,26 @@ export const recurringAppointmentSchema = z.object({
   endAfterCount: z.number().min(1).max(365).optional(), // For AFTER_COUNT
   endByDate: z.coerce.date().optional(), // For BY_DATE
 
+  // Start date for the series (defaults to now if not provided)
+  startDate: z.coerce.date().optional(),
+
   // Optional settings
   lockedPrice: z.number().min(0).optional(), // Lock price at creation
   bufferMinutes: z.number().min(0).max(120).optional(), // Buffer between appointments
   notes: z.string().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
+
+  // Conflict resolution - user selections from ConflictResolutionUI
+  selectedAlternatives: z.array(z.object({
+    originalDate: z.coerce.date(),
+    alternative: z.object({
+      date: z.coerce.date(),
+      startTime: z.coerce.date(),
+      endTime: z.coerce.date(),
+      staffId: z.string(),
+      staffName: z.string(),
+    }),
+  })).optional(),
+  skipDates: z.array(z.coerce.date()).optional(), // Dates user explicitly wants to skip
 }).superRefine((data, ctx) => {
   // Validate pattern-specific requirements
   switch (data.pattern) {

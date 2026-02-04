@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { generateSeriesIcal, generateICalendar } from "@/lib/utils/ical";
-import { RecurrencePattern, RecurrenceEndType } from "@prisma/client";
+import { generateICalendar, generateRRule } from "@/lib/utils/ical";
+import { Role } from "@prisma/client";
+import { hasPermission } from "@/lib/permissions";
 
 export async function GET(
   request: NextRequest,
@@ -12,6 +13,11 @@ export async function GET(
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const role = session.user.role as Role;
+    if (!hasPermission(role, "clients:view")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { id: clientId } = await params;
@@ -92,8 +98,17 @@ export async function GET(
       const startTime = new Date(firstAppointment.startTime);
       const endTime = new Date(startTime.getTime() + series.service.duration * 60 * 1000);
 
-      // Generate RRULE
-      const rrule = generateRRuleForSeries(series);
+      // Generate RRULE using shared utility
+      const rrule = generateRRule({
+        pattern: series.pattern,
+        customWeeks: series.customWeeks,
+        dayOfWeek: series.dayOfWeek,
+        specificDays: series.specificDays,
+        nthWeek: series.nthWeek,
+        endType: series.endType,
+        endAfterCount: series.endAfterCount,
+        endByDate: series.endByDate,
+      });
 
       allEvents.push({
         uid: `series-${series.id}@aesthetech.app`,
@@ -144,78 +159,4 @@ export async function GET(
       { status: 500 }
     );
   }
-}
-
-/**
- * Generate RRULE string for a series
- */
-function generateRRuleForSeries(series: {
-  pattern: RecurrencePattern;
-  customWeeks: number | null;
-  dayOfWeek: number;
-  specificDays: number[];
-  nthWeek: number | null;
-  endType: RecurrenceEndType;
-  endAfterCount: number | null;
-  endByDate: Date | null;
-}): string {
-  const dayMap = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-  const parts: string[] = [];
-
-  switch (series.pattern) {
-    case "DAILY":
-      parts.push("FREQ=DAILY");
-      break;
-
-    case "WEEKLY":
-      parts.push("FREQ=WEEKLY");
-      parts.push(`BYDAY=${dayMap[series.dayOfWeek]}`);
-      break;
-
-    case "BIWEEKLY":
-      parts.push("FREQ=WEEKLY");
-      parts.push("INTERVAL=2");
-      parts.push(`BYDAY=${dayMap[series.dayOfWeek]}`);
-      break;
-
-    case "MONTHLY":
-      parts.push("FREQ=MONTHLY");
-      parts.push(`BYDAY=${dayMap[series.dayOfWeek]}`);
-      break;
-
-    case "CUSTOM":
-      parts.push("FREQ=WEEKLY");
-      if (series.customWeeks && series.customWeeks > 1) {
-        parts.push(`INTERVAL=${series.customWeeks}`);
-      }
-      parts.push(`BYDAY=${dayMap[series.dayOfWeek]}`);
-      break;
-
-    case "SPECIFIC_DAYS":
-      parts.push("FREQ=WEEKLY");
-      if (series.specificDays && series.specificDays.length > 0) {
-        const days = series.specificDays.map((d) => dayMap[d]).join(",");
-        parts.push(`BYDAY=${days}`);
-      }
-      break;
-
-    case "NTH_WEEKDAY":
-      parts.push("FREQ=MONTHLY");
-      if (series.nthWeek) {
-        const weekNum = series.nthWeek === 5 ? -1 : series.nthWeek;
-        parts.push(`BYDAY=${weekNum}${dayMap[series.dayOfWeek]}`);
-      }
-      break;
-  }
-
-  // Add end condition
-  if (series.endType === "AFTER_COUNT" && series.endAfterCount) {
-    parts.push(`COUNT=${series.endAfterCount}`);
-  } else if (series.endType === "BY_DATE" && series.endByDate) {
-    const d = new Date(series.endByDate);
-    const dateStr = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-    parts.push(`UNTIL=${dateStr}`);
-  }
-
-  return parts.join(";");
 }

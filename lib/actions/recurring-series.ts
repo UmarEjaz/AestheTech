@@ -195,10 +195,10 @@ export async function createRecurringSeries(
       },
     });
 
-    // Calculate dates based on pattern
+    // Calculate dates based on pattern (use user-provided startDate or default to now)
     const dateConfig: RecurringDateConfig = {
       pattern: validData.pattern,
-      startDate: new Date(),
+      startDate: validData.startDate ?? new Date(),
       timeOfDay: validData.timeOfDay,
       dayOfWeek: validData.dayOfWeek ?? 0,
       customWeeks: validData.customWeeks,
@@ -217,7 +217,64 @@ export async function createRecurringSeries(
     let createdCount = 0;
     const serviceDuration = service.duration + (validData.bufferMinutes ?? 0);
 
+    // Build lookup maps for user conflict resolution choices
+    const userSkipDates = new Set(
+      (validData.skipDates ?? []).map(d => startOfDay(new Date(d)).getTime())
+    );
+    const alternativesByDate = new Map(
+      (validData.selectedAlternatives ?? []).map(alt => [
+        startOfDay(new Date(alt.originalDate)).getTime(),
+        alt.alternative,
+      ])
+    );
+
     for (const date of dates) {
+      const dateKey = startOfDay(date).getTime();
+
+      // Check if user explicitly chose to skip this date
+      if (userSkipDates.has(dateKey)) {
+        skippedDates.push({
+          date: format(date, "MMM d, yyyy"),
+          reason: "Skipped by user",
+        });
+        continue;
+      }
+
+      // Check if user selected an alternative for this date
+      const alternative = alternativesByDate.get(dateKey);
+      if (alternative) {
+        // Use the alternative time/staff
+        const altStartTime = new Date(alternative.startTime);
+        const altEndTime = new Date(alternative.endTime);
+        const altStaffId = alternative.staffId;
+
+        // Verify alternative slot is still available
+        const altHasConflict = await checkConflict(altStaffId, altStartTime, altEndTime);
+        if (altHasConflict) {
+          skippedDates.push({
+            date: format(date, "MMM d, yyyy"),
+            reason: "Alternative slot no longer available",
+          });
+          continue;
+        }
+
+        await prisma.appointment.create({
+          data: {
+            clientId: validData.clientId,
+            serviceId: validData.serviceId,
+            staffId: altStaffId,
+            startTime: altStartTime,
+            endTime: altEndTime,
+            notes: validData.notes || null,
+            status: "SCHEDULED",
+            seriesId: series.id,
+          },
+        });
+        createdCount++;
+        continue;
+      }
+
+      // Normal flow - use original time
       const startTime = date;
       const endTime = new Date(startTime);
       endTime.setMinutes(endTime.getMinutes() + serviceDuration);
@@ -433,7 +490,7 @@ export async function updateSeriesAppointments(
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { staffId, timeOfDay, notes } = validationResult.data;
+  const { staffId, timeOfDay, notes, bufferMinutes } = validationResult.data;
 
   try {
     const series = await prisma.recurringAppointmentSeries.findUnique({
@@ -461,9 +518,9 @@ export async function updateSeriesAppointments(
     // Update the series record first
     await updateRecurringSeries(seriesId, data);
 
-    // Update future appointments
+    // Update future appointments (use new bufferMinutes if provided, otherwise use existing)
     let updatedCount = 0;
-    const serviceDuration = series.service.duration + series.bufferMinutes;
+    const serviceDuration = series.service.duration + (bufferMinutes ?? series.bufferMinutes);
 
     for (const appointment of series.appointments) {
       const appointmentUpdateData: Prisma.AppointmentUpdateInput = {};
@@ -760,9 +817,9 @@ export async function extendSeries(
       ? new Date(lastAppointment.startTime)
       : new Date();
 
-    // Calculate dates
+    // Calculate dates (extend from last appointment, not from "now")
     const exceptionDates = series.exceptions.map((e) => new Date(e.date));
-    const endDate = addMonths(new Date(), additionalMonths);
+    const endDate = addMonths(startFrom, additionalMonths);
 
     const dateConfig: RecurringDateConfig = {
       pattern: series.pattern,
@@ -1228,10 +1285,10 @@ export async function previewRecurringConflicts(
     const businessStart = settings?.businessHoursStart || "09:00";
     const businessEnd = settings?.businessHoursEnd || "19:00";
 
-    // Calculate dates based on pattern
+    // Calculate dates based on pattern (use user-provided startDate or default to now)
     const dateConfig: RecurringDateConfig = {
       pattern: validData.pattern,
-      startDate: new Date(),
+      startDate: validData.startDate ?? new Date(),
       timeOfDay: validData.timeOfDay,
       dayOfWeek: validData.dayOfWeek ?? 0,
       customWeeks: validData.customWeeks,

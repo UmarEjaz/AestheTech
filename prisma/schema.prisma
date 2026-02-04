@@ -397,6 +397,7 @@ model RecurringAppointmentSeries {
   auditLogs    RecurringSeriesAuditLog[]
 
   @@index([clientId])
+  @@index([serviceId])
   @@index([staffId])
   @@index([isActive])
   @@index([isPaused])

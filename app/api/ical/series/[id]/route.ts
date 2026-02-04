@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateSeriesIcal, generateMultipleAppointmentsIcal } from "@/lib/utils/ical";
-import { RecurrencePattern, RecurrenceEndType } from "@prisma/client";
+import { RecurrencePattern, RecurrenceEndType, Role } from "@prisma/client";
+import { hasPermission } from "@/lib/permissions";
 
 export async function GET(
   request: NextRequest,
@@ -12,6 +13,11 @@ export async function GET(
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const role = session.user.role as Role;
+    if (!hasPermission(role, "appointments:view")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { id: seriesId } = await params;
