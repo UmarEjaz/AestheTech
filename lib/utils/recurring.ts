@@ -318,7 +318,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
       let currentMonth = new Date(startDate);
       let count = 0;
 
-      while (shouldContinue(currentMonth, count)) {
+      while (true) {
         const nthDate = getNthWeekdayOfMonth(
           currentMonth.getFullYear(),
           currentMonth.getMonth(),
@@ -326,7 +326,10 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
           nthWeek
         );
 
-        if (nthDate && !isBefore(nthDate, startOfDay(now)) && !isException(nthDate)) {
+        if (!nthDate) break;
+        if (!shouldContinue(nthDate, count)) break;
+
+        if (!isBefore(nthDate, startOfDay(now)) && !isException(nthDate)) {
           dates.push(setMinutes(setHours(nthDate, hours), minutes));
           count++;
         }
