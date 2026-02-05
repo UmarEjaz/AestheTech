@@ -479,7 +479,7 @@ export async function updateRecurringSeries(
 export async function updateSeriesAppointments(
   seriesId: string,
   data: UpdateRecurringSeriesFormData
-): Promise<ActionResult<{ updatedCount: number }>> {
+): Promise<ActionResult<{ updatedCount: number; skippedDueToConflict: string[] }>> {
   const authResult = await checkAuth("appointments:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
@@ -520,6 +520,7 @@ export async function updateSeriesAppointments(
 
     // Update future appointments (use new bufferMinutes if provided, otherwise use existing)
     let updatedCount = 0;
+    const skippedDueToConflict: string[] = [];
     const serviceDuration = series.service.duration + (bufferMinutes ?? series.bufferMinutes);
 
     for (const appointment of series.appointments) {
@@ -548,6 +549,9 @@ export async function updateSeriesAppointments(
         if (!hasConflict) {
           appointmentUpdateData.startTime = newStartTime;
           appointmentUpdateData.endTime = newEndTime;
+        } else {
+          // Track skipped appointments so user knows which couldn't be rescheduled
+          skippedDueToConflict.push(format(new Date(appointment.startTime), "MMM d, yyyy"));
         }
       }
 
@@ -572,7 +576,7 @@ export async function updateSeriesAppointments(
     revalidatePath("/dashboard/appointments");
     revalidatePath("/dashboard/clients");
 
-    return { success: true, data: { updatedCount } };
+    return { success: true, data: { updatedCount, skippedDueToConflict } };
   } catch (error) {
     console.error("Error updating series appointments:", error);
     return { success: false, error: "Failed to update series appointments" };
@@ -1221,6 +1225,75 @@ export async function cancelFromDate(
 }
 
 // ============================================
+// PREVIEW DATES (for form preview)
+// ============================================
+
+export interface PreviewDatesParams {
+  pattern: RecurrencePattern;
+  startDate: Date;
+  timeOfDay: string;
+  dayOfWeek: number;
+  customWeeks?: number;
+  specificDays?: number[];
+  nthWeek?: number;
+  endType: RecurrenceEndType;
+  endAfterCount?: number;
+  endByDate?: Date;
+  maxPreviewCount?: number;
+}
+
+/**
+ * Get preview dates for recurring appointments using the same logic as actual creation.
+ * This ensures preview matches what will actually be created.
+ */
+export async function getRecurringPreviewDates(
+  params: PreviewDatesParams
+): Promise<ActionResult<{ dates: Date[] }>> {
+  // No auth required for preview - it's just date calculation
+  // The actual creation will have proper auth checks
+
+  const {
+    pattern,
+    startDate,
+    timeOfDay,
+    dayOfWeek,
+    customWeeks,
+    specificDays,
+    nthWeek,
+    endType,
+    endAfterCount,
+    endByDate,
+    maxPreviewCount = 6, // Show max 6 dates in preview
+  } = params;
+
+  try {
+    const dateConfig: RecurringDateConfig = {
+      pattern,
+      startDate: new Date(startDate),
+      timeOfDay,
+      dayOfWeek,
+      customWeeks,
+      specificDays,
+      nthWeek,
+      endType,
+      endAfterCount: endType === "AFTER_COUNT"
+        ? Math.min(endAfterCount || 6, maxPreviewCount)
+        : undefined,
+      endByDate: endType === "BY_DATE" ? endByDate : undefined,
+      exceptionDates: [],
+      maxDates: maxPreviewCount,
+    };
+
+    const dates = calculateRecurringDates(dateConfig);
+
+    return { success: true, data: { dates: dates.slice(0, maxPreviewCount) } };
+  } catch (error) {
+    console.error("Error calculating preview dates:", error);
+    return { success: false, error: "Failed to calculate preview dates" };
+  }
+}
+
+// ============================================
 // CONFLICT RESOLUTION
 // ============================================
 
@@ -1362,8 +1435,10 @@ async function findAlternativeSlotsForDate(
   businessStart: string,
   businessEnd: string
 ): Promise<ConflictPreview["alternatives"]> {
-  const [startHour] = businessStart.split(":").map(Number);
-  const [endHour] = businessEnd.split(":").map(Number);
+  const [startHour, startMin = 0] = businessStart.split(":").map(Number);
+  const [endHour, endMin = 0] = businessEnd.split(":").map(Number);
+  const businessStartMinutes = startHour * 60 + startMin;
+  const businessEndMinutes = endHour * 60 + endMin;
   const [preferredHour, preferredMin] = preferredTime.split(":").map(Number);
 
   // Get existing appointments for the day
@@ -1392,7 +1467,7 @@ async function findAlternativeSlotsForDate(
     preferredHour * 60 + preferredMin - 90,
     preferredHour * 60 + preferredMin + 120,
     preferredHour * 60 + preferredMin - 120,
-  ].filter((t) => t >= startHour * 60 && t + serviceDuration <= endHour * 60 && t > 0);
+  ].filter((t) => t >= businessStartMinutes && t + serviceDuration <= businessEndMinutes && t > 0);
 
   for (const timeInMinutes of checkTimes) {
     if (alternatives.length >= 4) break;
@@ -1460,8 +1535,10 @@ export async function getAlternativeSlots(params: {
     const businessStart = settings?.businessHoursStart || "09:00";
     const businessEnd = settings?.businessHoursEnd || "19:00";
 
-    const [startHour] = businessStart.split(":").map(Number);
-    const [endHour] = businessEnd.split(":").map(Number);
+    const [startHour, startMin = 0] = businessStart.split(":").map(Number);
+    const [endHour, endMin = 0] = businessEnd.split(":").map(Number);
+    const businessStartMinutes = startHour * 60 + startMin;
+    const businessEndMinutes = endHour * 60 + endMin;
     const [preferredHour, preferredMin] = preferredTime.split(":").map(Number);
 
     // Get existing appointments for the day
@@ -1493,7 +1570,7 @@ export async function getAlternativeSlots(params: {
       preferredHour * 60 + preferredMin - 90,
       preferredHour * 60 + preferredMin + 120,
       preferredHour * 60 + preferredMin - 120,
-    ].filter((t) => t >= startHour * 60 && t + slotDuration <= endHour * 60);
+    ].filter((t) => t >= businessStartMinutes && t + slotDuration <= businessEndMinutes);
 
     for (const timeInMinutes of checkTimes) {
       if (slots.length >= 5) break;

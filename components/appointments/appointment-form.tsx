@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { format, addWeeks, addMonths } from "date-fns";
+import { format } from "date-fns";
 import { Loader2, Calendar as CalendarIcon, UserPlus, Users, Repeat, Info, DollarSign, Clock, AlertTriangle, Check } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,7 +47,7 @@ import {
   getAvailableSlots,
   AppointmentListItem,
 } from "@/lib/actions/appointment";
-import { createRecurringSeries, previewRecurringConflicts, ConflictPreview } from "@/lib/actions/recurring-series";
+import { createRecurringSeries, previewRecurringConflicts, getRecurringPreviewDates, ConflictPreview } from "@/lib/actions/recurring-series";
 import { ConflictResolutionUI, AlternativeSlot, SelectedAlternative } from "./conflict-resolution-ui";
 import { createWalkInClient } from "@/lib/actions/client";
 import { cn } from "@/lib/utils";
@@ -159,72 +159,51 @@ export function AppointmentForm({
     }
   }, [selectedDate, recurrencePattern, specificDays]);
 
-  // Calculate preview dates for recurring appointments
-  const previewDates = useMemo(() => {
-    if (!isRecurring || !watchedStartTime) return [];
+  // Preview dates state (fetched from server for accuracy)
+  const [previewDates, setPreviewDates] = useState<Date[]>([]);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
-    const startDate = watchedStartTime instanceof Date ? watchedStartTime : new Date(watchedStartTime as string | number);
-    const dates: Date[] = [];
-    let currentDate = new Date(startDate);
-    const endDate = addMonths(new Date(), 3);
-    const maxCount = endType === "AFTER_COUNT" ? Math.min(endAfterCount, 6) : 6;
-
-    // Generate dates for next 3 months (show first 6 for preview)
-    let count = 0;
-    while (currentDate <= endDate && count < maxCount) {
-      // Check if we've passed the end date
-      if (endType === "BY_DATE" && endByDate && currentDate > endByDate) break;
-
-      if (currentDate >= new Date()) {
-        // For SPECIFIC_DAYS, only add if it's one of the selected days
-        if (recurrencePattern === "SPECIFIC_DAYS") {
-          if (specificDays.includes(currentDate.getDay())) {
-            dates.push(new Date(currentDate));
-            count++;
-          }
-          // Always advance by 1 day for SPECIFIC_DAYS
-          currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
-        } else {
-          dates.push(new Date(currentDate));
-          count++;
-
-          switch (recurrencePattern) {
-            case "DAILY":
-              currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
-              break;
-            case "WEEKLY":
-              currentDate = addWeeks(currentDate, 1);
-              break;
-            case "BIWEEKLY":
-              currentDate = addWeeks(currentDate, 2);
-              break;
-            case "MONTHLY":
-            case "NTH_WEEKDAY":
-              currentDate = addMonths(currentDate, 1);
-              break;
-            case "CUSTOM":
-              currentDate = addWeeks(currentDate, customWeeks);
-              break;
-          }
-        }
-      } else {
-        // Move to next occurrence if before today
-        if (recurrencePattern === "SPECIFIC_DAYS" || recurrencePattern === "DAILY") {
-          currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
-        } else if (recurrencePattern === "WEEKLY") {
-          currentDate = addWeeks(currentDate, 1);
-        } else if (recurrencePattern === "BIWEEKLY") {
-          currentDate = addWeeks(currentDate, 2);
-        } else if (recurrencePattern === "MONTHLY" || recurrencePattern === "NTH_WEEKDAY") {
-          currentDate = addMonths(currentDate, 1);
-        } else if (recurrencePattern === "CUSTOM") {
-          currentDate = addWeeks(currentDate, customWeeks);
-        }
-      }
+  // Fetch preview dates from server using the same logic as actual creation
+  useEffect(() => {
+    if (!isRecurring || !watchedStartTime) {
+      setPreviewDates([]);
+      return;
     }
 
-    return dates;
-  }, [isRecurring, watchedStartTime, recurrencePattern, customWeeks, specificDays, endType, endAfterCount, endByDate]);
+    const startDate = watchedStartTime instanceof Date ? watchedStartTime : new Date(watchedStartTime as string | number);
+
+    // Debounce the server call
+    const timeoutId = setTimeout(async () => {
+      setIsLoadingPreview(true);
+      try {
+        const result = await getRecurringPreviewDates({
+          pattern: recurrencePattern,
+          startDate,
+          timeOfDay: format(startDate, "HH:mm"),
+          dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
+            ? specificDays[0] ?? dayOfWeek
+            : dayOfWeek,
+          customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
+          specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
+          nthWeek: recurrencePattern === "NTH_WEEKDAY" ? nthWeek : undefined,
+          endType,
+          endAfterCount: endType === "AFTER_COUNT" ? endAfterCount : undefined,
+          endByDate: endType === "BY_DATE" ? endByDate : undefined,
+          maxPreviewCount: 6,
+        });
+
+        if (result.success) {
+          setPreviewDates(result.data.dates.map(d => new Date(d)));
+        }
+      } catch (error) {
+        console.error("Error fetching preview dates:", error);
+      } finally {
+        setIsLoadingPreview(false);
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [isRecurring, watchedStartTime, recurrencePattern, customWeeks, specificDays, nthWeek, dayOfWeek, endType, endAfterCount, endByDate]);
 
   // Fetch available slots when staff, service, or date changes
   useEffect(() => {
@@ -327,7 +306,9 @@ export function AppointmentForm({
         staffId: watchedStaffId,
         pattern: recurrencePattern,
         customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
-        dayOfWeek: recurrencePattern === "SPECIFIC_DAYS" ? specificDays[0] ?? startTime.getDay() : startTime.getDay(),
+        dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
+          ? specificDays[0] ?? dayOfWeek
+          : dayOfWeek,
         timeOfDay: format(startTime, "HH:mm"),
         startDate: startTime,
         specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
@@ -426,7 +407,9 @@ export function AppointmentForm({
             staffId: data.staffId,
             pattern: recurrencePattern,
             customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
-            dayOfWeek: recurrencePattern === "SPECIFIC_DAYS" ? specificDays[0] ?? startTime.getDay() : startTime.getDay(),
+            dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
+              ? specificDays[0] ?? dayOfWeek
+              : dayOfWeek,
             timeOfDay: format(startTime, "HH:mm"),
             startDate: startTime,
             specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,

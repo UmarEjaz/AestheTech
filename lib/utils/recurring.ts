@@ -54,9 +54,10 @@ export function getPatternLabel(
       return "Every 2 weeks";
     case "MONTHLY":
       return "Monthly";
-    case "CUSTOM":
+    case "CUSTOM": {
       const weeks = options?.customWeeks || 1;
       return `Every ${weeks} week${weeks > 1 ? "s" : ""}`;
+    }
     case "SPECIFIC_DAYS":
       if (options?.specificDays && options.specificDays.length > 0) {
         const dayLabels = options.specificDays
@@ -466,7 +467,7 @@ export function formatRecurrenceSummary(config: {
   let summary = `${patternLabel} at ${timeStr}`;
 
   // Add day info for relevant patterns
-  if (["WEEKLY", "BIWEEKLY", "MONTHLY", "CUSTOM"].includes(config.pattern)) {
+  if (["WEEKLY", "BIWEEKLY", "CUSTOM"].includes(config.pattern)) {
     summary += ` on ${DAY_NAMES[config.dayOfWeek]}s`;
   }
 

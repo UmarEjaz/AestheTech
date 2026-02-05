@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { startOfDay } from "date-fns";
 
 // Appointment status enum matching Prisma
 export const appointmentStatusEnum = z.enum([
@@ -189,7 +190,7 @@ export const recurringAppointmentSchema = z.object({
           message: "End date is required",
           path: ["endByDate"],
         });
-      } else if (data.endByDate < new Date()) {
+      } else if (data.endByDate < startOfDay(new Date())) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "End date must be in the future",

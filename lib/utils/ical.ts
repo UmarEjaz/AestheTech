@@ -229,7 +229,9 @@ export function generateRRule(params: {
   if (params.endType === "AFTER_COUNT" && params.endAfterCount) {
     parts.push(`COUNT=${params.endAfterCount}`);
   } else if (params.endType === "BY_DATE" && params.endByDate) {
-    parts.push(`UNTIL=${formatICalDate(params.endByDate)}`);
+    const until = new Date(params.endByDate);
+    until.setUTCHours(23, 59, 59, 0);
+    parts.push(`UNTIL=${formatICalDateTime(until)}`);
   }
 
   return parts.join(";");
