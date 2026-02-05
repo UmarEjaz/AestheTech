@@ -190,6 +190,12 @@ export const recurringAppointmentSchema = z.object({
           message: "End date is required",
           path: ["endByDate"],
         });
+      } else if (data.startDate && data.endByDate < startOfDay(data.startDate)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "End date must be on or after the start date",
+          path: ["endByDate"],
+        });
       } else if (data.endByDate < startOfDay(new Date())) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

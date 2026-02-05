@@ -154,7 +154,7 @@ export function AppointmentForm({
       setDayOfWeek(selectedDate.getDay());
       // For SPECIFIC_DAYS, ensure the selected day is included
       if (recurrencePattern === "SPECIFIC_DAYS" && !specificDays.includes(selectedDate.getDay())) {
-        setSpecificDays([selectedDate.getDay()]);
+        setSpecificDays((prev) => [...new Set([...prev, selectedDate.getDay()])]);
       }
     }
   }, [selectedDate, recurrencePattern, specificDays]);

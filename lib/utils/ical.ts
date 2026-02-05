@@ -263,7 +263,7 @@ export function generateAppointmentIcal(appointment: {
       appointment.notes ? `Notes: ${appointment.notes}` : "",
     ]
       .filter(Boolean)
-      .join("\\n"),
+      .join("\n"),
     startTime: new Date(appointment.startTime),
     endTime: new Date(appointment.endTime),
     attendee: appointment.client.email
@@ -340,7 +340,7 @@ export function generateSeriesIcal(series: {
       series.notes ? `Notes: ${series.notes}` : "",
     ]
       .filter(Boolean)
-      .join("\\n"),
+      .join("\n"),
     startTime,
     endTime,
     attendee: series.client.email
@@ -390,7 +390,7 @@ export function generateMultipleAppointmentsIcal(
         apt.notes ? `Notes: ${apt.notes}` : "",
       ]
         .filter(Boolean)
-        .join("\\n"),
+        .join("\n"),
       startTime: new Date(apt.startTime),
       endTime: new Date(apt.endTime),
       attendee: apt.client.email

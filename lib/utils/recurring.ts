@@ -60,7 +60,7 @@ export function getPatternLabel(
     }
     case "SPECIFIC_DAYS":
       if (options?.specificDays && options.specificDays.length > 0) {
-        const dayLabels = options.specificDays
+        const dayLabels = [...options.specificDays]
           .sort((a, b) => a - b)
           .map((d) => DAY_NAMES_SHORT[d]);
         return `Every ${dayLabels.join(", ")}`;
