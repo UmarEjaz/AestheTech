@@ -341,9 +341,9 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         if (!nthDate) break;
         if (!shouldContinue(nthDate, count)) break;
 
-        if (!isException(nthDate)) {
+        if (!isException(nthDate) && !isBefore(nthDate, startOfDay(startDate))) {
           count++;
-          if (!isBefore(nthDate, startOfDay(startDate)) && !isBefore(nthDate, startOfDay(now))) {
+          if (!isBefore(nthDate, startOfDay(now))) {
             dates.push(setMinutes(setHours(nthDate, hours), minutes));
           }
         }
@@ -426,6 +426,13 @@ export function validateRecurrenceConfig(config: Partial<RecurringDateConfig>): 
 
   if (config.pattern === "SPECIFIC_DAYS" && (!config.specificDays || config.specificDays.length === 0)) {
     errors.push("At least one day must be selected for specific days pattern");
+  }
+
+  if (config.pattern === "SPECIFIC_DAYS" && config.specificDays) {
+    const invalidDays = config.specificDays.filter((d) => d < 0 || d > 6);
+    if (invalidDays.length > 0) {
+      errors.push("Specific days must be between 0 and 6");
+    }
   }
 
   if (config.pattern === "NTH_WEEKDAY" && (!config.nthWeek || config.nthWeek < 1 || config.nthWeek > 5)) {
