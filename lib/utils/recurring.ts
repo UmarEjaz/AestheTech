@@ -190,7 +190,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
   const horizonBase = isAfter(startDate, now) ? startDate : now;
 
   let shouldContinue = (currentDate: Date, count: number): boolean => {
-    if (count >= maxDates) return false;
+    if (dates.length >= maxDates) return false;
 
     switch (endType) {
       case "NEVER":
@@ -217,9 +217,11 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
       let count = 0;
 
       while (shouldContinue(currentDate, count)) {
-        if (!isBefore(currentDate, startOfDay(now)) && !isException(currentDate)) {
-          dates.push(setMinutes(setHours(currentDate, hours), minutes));
+        if (!isException(currentDate)) {
           count++;
+          if (!isBefore(currentDate, startOfDay(now))) {
+            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+          }
         }
         currentDate = addDays(currentDate, 1);
       }
@@ -231,9 +233,11 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
       let count = 0;
 
       while (shouldContinue(currentDate, count)) {
-        if (!isBefore(currentDate, startOfDay(now)) && !isException(currentDate)) {
-          dates.push(setMinutes(setHours(currentDate, hours), minutes));
+        if (!isException(currentDate)) {
           count++;
+          if (!isBefore(currentDate, startOfDay(now))) {
+            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+          }
         }
         currentDate = addWeeks(currentDate, 1);
       }
@@ -245,9 +249,11 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
       let count = 0;
 
       while (shouldContinue(currentDate, count)) {
-        if (!isBefore(currentDate, startOfDay(now)) && !isException(currentDate)) {
-          dates.push(setMinutes(setHours(currentDate, hours), minutes));
+        if (!isException(currentDate)) {
           count++;
+          if (!isBefore(currentDate, startOfDay(now))) {
+            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+          }
         }
         currentDate = addWeeks(currentDate, 2);
       }
@@ -268,9 +274,11 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         const targetDate = new Date(currentDate);
         targetDate.setDate(targetDayOfMonth);
 
-        if (!isBefore(targetDate, startOfDay(now)) && !isException(targetDate)) {
-          dates.push(setMinutes(setHours(targetDate, hours), minutes));
+        if (!isException(targetDate)) {
           count++;
+          if (!isBefore(targetDate, startOfDay(now))) {
+            dates.push(setMinutes(setHours(targetDate, hours), minutes));
+          }
         }
         currentDate = addMonths(currentDate, 1);
       }
@@ -283,9 +291,11 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
       let count = 0;
 
       while (shouldContinue(currentDate, count)) {
-        if (!isBefore(currentDate, startOfDay(now)) && !isException(currentDate)) {
-          dates.push(setMinutes(setHours(currentDate, hours), minutes));
+        if (!isException(currentDate)) {
           count++;
+          if (!isBefore(currentDate, startOfDay(now))) {
+            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+          }
         }
         currentDate = addWeeks(currentDate, weeks);
       }
@@ -302,9 +312,11 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         const currentDayOfWeek = getDay(currentDate);
 
         if (specificDays.includes(currentDayOfWeek)) {
-          if (!isBefore(currentDate, startOfDay(now)) && !isException(currentDate)) {
-            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+          if (!isException(currentDate)) {
             count++;
+            if (!isBefore(currentDate, startOfDay(now))) {
+              dates.push(setMinutes(setHours(currentDate, hours), minutes));
+            }
           }
         }
         currentDate = addDays(currentDate, 1);
@@ -329,9 +341,11 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         if (!nthDate) break;
         if (!shouldContinue(nthDate, count)) break;
 
-        if (!isBefore(nthDate, startOfDay(now)) && !isException(nthDate)) {
-          dates.push(setMinutes(setHours(nthDate, hours), minutes));
+        if (!isException(nthDate)) {
           count++;
+          if (!isBefore(nthDate, startOfDay(startDate)) && !isBefore(nthDate, startOfDay(now))) {
+            dates.push(setMinutes(setHours(nthDate, hours), minutes));
+          }
         }
         currentMonth = addMonths(currentMonth, 1);
       }
