@@ -267,12 +267,14 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
       let currentDate = new Date(startDate);
       let count = 0;
 
-      while (shouldContinue(currentDate, count)) {
+      while (true) {
         // Clamp to last day of month if original day doesn't exist
         const lastDayOfMonth = endOfMonth(currentDate).getDate();
         const targetDayOfMonth = Math.min(originalDayOfMonth, lastDayOfMonth);
         const targetDate = new Date(currentDate);
         targetDate.setDate(targetDayOfMonth);
+
+        if (!shouldContinue(targetDate, count)) break;
 
         if (!isException(targetDate)) {
           count++;
@@ -497,9 +499,11 @@ export function formatRecurrenceSummary(config: {
 
   // Add end condition
   switch (config.endType) {
-    case "AFTER_COUNT":
-      summary += `, ${config.endAfterCount} occurrence${(config.endAfterCount || 1) > 1 ? "s" : ""}`;
+    case "AFTER_COUNT": {
+      const endCount = config.endAfterCount ?? 1;
+      summary += `, ${endCount} occurrence${endCount > 1 ? "s" : ""}`;
       break;
+    }
     case "BY_DATE":
       if (config.endByDate) {
         summary += `, until ${format(config.endByDate, "MMM d, yyyy")}`;
