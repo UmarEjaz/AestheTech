@@ -13,6 +13,7 @@ import {
   DollarSign,
   AlertTriangle,
   Heart,
+  Repeat,
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -24,6 +25,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { getClient } from "@/lib/actions/client";
 import { hasPermission } from "@/lib/permissions";
+import { RecurringSeriesCard } from "@/components/clients/recurring-series-card";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -191,6 +193,11 @@ export default async function ClientDetailPage({ params }: PageProps) {
             </CardContent>
           </Card>
         </div>
+
+        {/* Recurring Appointments */}
+        {client.recurringSeries && client.recurringSeries.length > 0 && (
+          <RecurringSeriesCard series={client.recurringSeries} clientId={client.id} canManage={canEdit} />
+        )}
 
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Client Information */}

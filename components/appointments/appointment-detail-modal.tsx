@@ -19,6 +19,8 @@ import {
   XCircle,
   PlayCircle,
   AlertCircle,
+  Repeat,
+  Download,
 } from "lucide-react";
 
 import {
@@ -45,6 +47,14 @@ import {
   cancelAppointment,
   deleteAppointment,
 } from "@/lib/actions/appointment";
+import {
+  cancelRecurringSeries,
+  detachOccurrence,
+  cancelFromDate,
+} from "@/lib/actions/recurring-series";
+import { RecurringSeriesBadge } from "./recurring-series-badge";
+import { EditChoiceModal, EditChoice } from "./edit-choice-modal";
+import { CancelChoiceModal, CancelScope } from "./cancel-choice-modal";
 
 interface AppointmentDetailModalProps {
   appointment: AppointmentListItem;
@@ -77,6 +87,12 @@ export function AppointmentDetailModal({
   const [isUpdating, setIsUpdating] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showCancelSeriesDialog, setShowCancelSeriesDialog] = useState(false);
+  const [showEditChoiceModal, setShowEditChoiceModal] = useState(false);
+  const [showCancelChoiceModal, setShowCancelChoiceModal] = useState(false);
+
+  // Check if this is a series appointment
+  const isSeriesAppointment = !!appointment.series && appointment.series.isActive;
 
   const handleStatusUpdate = async (newStatus: AppointmentStatus) => {
     setIsUpdating(true);
@@ -128,6 +144,124 @@ export function AppointmentDetailModal({
     } finally {
       setIsUpdating(false);
       setShowDeleteDialog(false);
+    }
+  };
+
+  const handleCancelSeries = async () => {
+    if (!appointment.series?.id) return;
+
+    setIsUpdating(true);
+    try {
+      const result = await cancelRecurringSeries(appointment.series.id);
+      if (result.success) {
+        toast.success(`Cancelled ${result.data.cancelledCount} future appointments in the series`);
+        onDataChange?.();
+        router.refresh();
+        onClose();
+      } else {
+        toast.error(result.error);
+      }
+    } finally {
+      setIsUpdating(false);
+      setShowCancelSeriesDialog(false);
+    }
+  };
+
+  // Handle edit choice for series appointments
+  const handleEditChoice = async (choice: EditChoice) => {
+    setShowEditChoiceModal(false);
+
+    if (choice === "this_only") {
+      // Detach this occurrence from the series, then navigate to edit
+      if (appointment.series?.id) {
+        setIsUpdating(true);
+        try {
+          const result = await detachOccurrence(appointment.id);
+          if (result.success) {
+            toast.success("Appointment detached from series");
+            // Navigate to edit page
+            router.push(`/dashboard/appointments/${appointment.id}/edit`);
+            onClose();
+          } else {
+            toast.error(result.error);
+          }
+        } finally {
+          setIsUpdating(false);
+        }
+      }
+    } else {
+      // For "all_future" or "all_in_series", navigate to a series edit page
+      // For now, show a message that this will be implemented
+      toast.info("Editing all occurrences - navigating to series settings");
+      // Navigate to client page where they can manage the series
+      router.push(`/dashboard/clients/${appointment.clientId}`);
+      onClose();
+    }
+  };
+
+  // Handle cancel/delete choice for series appointments
+  const handleCancelChoice = async (scope: CancelScope) => {
+    setShowCancelChoiceModal(false);
+    setIsUpdating(true);
+
+    try {
+      if (scope === "this_only") {
+        // Cancel just this appointment
+        const result = await cancelAppointment(appointment.id);
+        if (result.success) {
+          toast.success("Appointment cancelled");
+          onDataChange?.();
+          router.refresh();
+          onClose();
+        } else {
+          toast.error(result.error);
+        }
+      } else if (scope === "this_and_future" && appointment.series?.id) {
+        // Cancel this and all future appointments
+        const result = await cancelFromDate({
+          seriesId: appointment.series.id,
+          fromDate: new Date(appointment.startTime),
+        });
+        if (result.success) {
+          toast.success(`Cancelled ${result.data.cancelledCount} appointments`);
+          onDataChange?.();
+          router.refresh();
+          onClose();
+        } else {
+          toast.error(result.error);
+        }
+      } else if (scope === "entire_series" && appointment.series?.id) {
+        // Cancel entire series
+        const result = await cancelRecurringSeries(appointment.series.id);
+        if (result.success) {
+          toast.success(`Cancelled ${result.data.cancelledCount} appointments in the series`);
+          onDataChange?.();
+          router.refresh();
+          onClose();
+        } else {
+          toast.error(result.error);
+        }
+      }
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Handle clicking Edit button
+  const handleEditClick = () => {
+    if (isSeriesAppointment) {
+      setShowEditChoiceModal(true);
+    } else {
+      router.push(`/dashboard/appointments/${appointment.id}/edit`);
+    }
+  };
+
+  // Handle clicking Cancel button
+  const handleCancelClick = () => {
+    if (isSeriesAppointment) {
+      setShowCancelChoiceModal(true);
+    } else {
+      setShowCancelDialog(true);
     }
   };
 
@@ -225,6 +359,28 @@ export function AppointmentDetailModal({
               </p>
             </div>
 
+            {/* Recurring Series Info */}
+            {appointment.series && (
+              <div className="rounded-lg border p-4 space-y-2 bg-muted/30">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Repeat className="h-4 w-4" />
+                  Recurring Appointment
+                </h3>
+                <div className="flex items-center gap-2">
+                  <RecurringSeriesBadge
+                    pattern={appointment.series.pattern}
+                    customWeeks={appointment.series.customWeeks}
+                    isActive={appointment.series.isActive}
+                    showLabel
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This appointment is part of a recurring series.
+                  {!appointment.series.isActive && " The series has been cancelled."}
+                </p>
+              </div>
+            )}
+
             {/* Notes */}
             {appointment.notes && (
               <div className="rounded-lg border p-4 space-y-2">
@@ -284,29 +440,38 @@ export function AppointmentDetailModal({
                 </div>
 
                 {/* Edit/Cancel/Delete Actions */}
-                <div className="flex gap-2 pt-2 border-t">
+                <div className="flex flex-wrap gap-2 pt-2 border-t">
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() =>
-                      router.push(`/dashboard/appointments/${appointment.id}/edit`)
-                    }
+                    onClick={handleEditClick}
                     disabled={isUpdating || appointment.status === "COMPLETED"}
                   >
                     <Edit className="h-4 w-4 mr-1" />
                     Edit
+                    {isSeriesAppointment && <Repeat className="h-3 w-3 ml-1 opacity-60" />}
                   </Button>
                   {canCancel && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setShowCancelDialog(true)}
+                      onClick={handleCancelClick}
                       disabled={isUpdating}
                     >
                       <XCircle className="h-4 w-4 mr-1" />
                       Cancel
+                      {isSeriesAppointment && <Repeat className="h-3 w-3 ml-1 opacity-60" />}
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.open(`/api/ical/appointment/${appointment.id}`, "_blank")}
+                    disabled={isUpdating}
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    Export
+                  </Button>
                   <Button
                     size="sm"
                     variant="destructive"
@@ -363,6 +528,50 @@ export function AppointmentDetailModal({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Cancel Series Confirmation */}
+      <AlertDialog open={showCancelSeriesDialog} onOpenChange={setShowCancelSeriesDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Recurring Series?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will cancel all future appointments in this recurring series for{" "}
+              {appointment.client.firstName} {appointment.client.lastName}. Past and completed
+              appointments will not be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, keep series</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelSeries}
+              disabled={isUpdating}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Cancel Series
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Choice Modal for Series Appointments */}
+      <EditChoiceModal
+        isOpen={showEditChoiceModal}
+        onClose={() => setShowEditChoiceModal(false)}
+        onChoice={handleEditChoice}
+        appointmentDate={new Date(appointment.startTime)}
+        isLoading={isUpdating}
+      />
+
+      {/* Cancel Choice Modal for Series Appointments */}
+      <CancelChoiceModal
+        isOpen={showCancelChoiceModal}
+        onClose={() => setShowCancelChoiceModal(false)}
+        onChoice={handleCancelChoice}
+        appointmentDate={new Date(appointment.startTime)}
+        isLoading={isUpdating}
+        mode="cancel"
+        clientName={`${appointment.client.firstName} ${appointment.client.lastName}`}
+      />
     </>
   );
 }

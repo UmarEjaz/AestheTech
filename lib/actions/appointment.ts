@@ -13,6 +13,7 @@ import {
   RescheduleFormData,
 } from "@/lib/validations/appointment";
 import { Role, Prisma, AppointmentStatus } from "@prisma/client";
+import { format } from "date-fns";
 import { getSettings } from "./settings";
 
 export type ActionResult<T = void> =
@@ -57,6 +58,14 @@ const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
       id: true,
       firstName: true,
       lastName: true,
+    },
+  },
+  series: {
+    select: {
+      id: true,
+      pattern: true,
+      customWeeks: true,
+      isActive: true,
     },
   },
 });
@@ -682,3 +691,15 @@ export async function getAppointmentsForCalendar(params: {
     return { success: false, error: "Failed to fetch appointments" };
   }
 }
+
+// ============================================
+// RECURRING APPOINTMENT SERIES
+// ============================================
+// NOTE: Recurring series functionality has been moved to lib/actions/recurring-series.ts
+// Import directly from that file for:
+// - createRecurringSeries, getRecurringSeries, getRecurringSeriesById
+// - updateRecurringSeries, updateSeriesAppointments, cancelRecurringSeries
+// - pauseSeries, resumeSeries, extendSeries, cloneSeries
+// - addExceptionDate, removeExceptionDate, getExceptionDates
+// - detachOccurrence, cancelFromDate, getAlternativeSlots
+// - getPatternLabel, RecurringSeriesListItem (type)
