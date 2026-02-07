@@ -92,6 +92,7 @@ interface CheckoutFormProps {
   staff: Staff[];
   currencySymbol: string;
   taxRate: number;
+  pointsPerDollar: number;
 }
 
 export function CheckoutForm({
@@ -100,6 +101,7 @@ export function CheckoutForm({
   staff,
   currencySymbol,
   taxRate,
+  pointsPerDollar,
 }: CheckoutFormProps) {
   const router = useRouter();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -131,7 +133,7 @@ export function CheckoutForm({
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const discountAmount = discountType === "percentage" ? (subtotal * discount) / 100 : discount;
   const afterDiscount = Math.max(0, subtotal - discountAmount);
-  const pointsValue = redeemPoints / 100; // 100 points = $1
+  const pointsValue = redeemPoints / pointsPerDollar;
   const afterPoints = Math.max(0, afterDiscount - pointsValue);
   const taxAmount = (afterPoints * taxRate) / 100;
   const total = afterPoints + taxAmount;
@@ -358,10 +360,17 @@ export function CheckoutForm({
                     </p>
                   </div>
                   {selectedClient.loyaltyPoints && (
-                    <Badge variant="secondary" className="ml-2">
-                      <Star className="h-3 w-3 mr-1" />
-                      {selectedClient.loyaltyPoints.balance} pts
-                    </Badge>
+                    <div className="flex items-center gap-1 ml-2">
+                      <Badge variant="secondary">
+                        <Star className="h-3 w-3 mr-1" />
+                        {selectedClient.loyaltyPoints.balance} pts
+                      </Badge>
+                      {selectedClient.loyaltyPoints.tier !== "SILVER" && (
+                        <Badge variant="outline" className="text-xs">
+                          {selectedClient.loyaltyPoints.tier}
+                        </Badge>
+                      )}
+                    </div>
                   )}
                 </div>
                 <Button variant="ghost" size="sm" onClick={() => setSelectedClient(null)}>
@@ -588,7 +597,7 @@ export function CheckoutForm({
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1">
                       <Star className="h-3 w-3" />
-                      Redeem Points (100 pts = {currencySymbol}1)
+                      Redeem Points ({pointsPerDollar} pts = {currencySymbol}1)
                     </Label>
                     <div className="flex items-center gap-2">
                       <Input

@@ -119,13 +119,13 @@
 - [x] Create appointment API route (CRUD)
 - [x] Implement appointment creation server action
 - [x] Implement appointment update/reschedule
-- [ ] Add drag-and-drop rescheduling
+- [x] Add drag-and-drop rescheduling
 - [x] Implement appointment cancellation
 - [x] Add appointment status management (scheduled, confirmed, in-progress, completed, cancelled, no-show)
 - [x] Color-code appointments by status
 - [x] Create appointment detail modal
-- [ ] Add recurring appointment functionality
-- [ ] Handle walk-in clients
+- [x] Add recurring appointment functionality
+- [x] Handle walk-in clients
 - [x] Test appointment scheduling flow
 - [x] Add permission checks
 
@@ -184,7 +184,7 @@
 - [x] Implement schedule creation
 - [x] Implement schedule update
 - [x] Add time-off request functionality (toggle availability)
-- [x] Create conflict detection for schedules
+- [ ] Create conflict detection for schedules
 - [x] Add schedule templates (copy schedule feature)
 - [ ] Implement drag-and-drop schedule adjustment
 - [ ] Export schedule to PDF
@@ -223,11 +223,11 @@
 - [x] Add permission checks
 
 ### Loyalty Points System
-- [ ] Design loyalty settings page
+- [x] Design loyalty settings page
 - [x] Configure points earning rules (per $ spent)
 - [x] Configure points earning per service
-- [ ] Create loyalty tier system (Silver, Gold, Platinum)
-- [ ] Define tier benefits
+- [x] Create loyalty tier system (Silver, Gold, Platinum)
+- [x] Define tier benefits and thresholds
 - [x] Create loyalty points API route
 - [x] Implement automatic points earning on sale
 - [x] Create points transaction history
@@ -396,15 +396,15 @@
 
 ## Progress Tracking
 
-**Last Updated**: December 15, 2025
+**Last Updated**: February 6, 2026
 
-**Overall Progress**: ~70% of core features completed
+**Overall Progress**: ~85% of core features completed
 
 ### Phase Status
 - [x] Phase 1: Project Foundation (100%)
-- [x] Phase 2: Core Features Part 1 (95%)
-- [x] Phase 3: Core Features Part 2 (90%)
-- [x] Phase 4: Advanced Features (85%)
+- [x] Phase 2: Core Features Part 1 (98%)
+- [x] Phase 3: Core Features Part 2 (92%)
+- [x] Phase 4: Advanced Features (90%)
 - [ ] Phase 5: Polish & Testing (0%)
 - [ ] Phase 6: Deployment & Launch (0%)
 

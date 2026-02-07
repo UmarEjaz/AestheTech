@@ -15,6 +15,8 @@ import {
   CreateRefundInput,
 } from "@/lib/validations/invoice";
 import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
+import { getSettings } from "./settings";
+import { calculateTier } from "@/lib/utils/loyalty";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -563,18 +565,21 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
 
       // Reverse loyalty points if any
       if (pointsToReverse > 0) {
-        // Get current loyalty points balance
-        const loyaltyPoints = await tx.loyaltyPoints.findUnique({
-          where: { clientId: invoice.sale.clientId },
-        });
+        // Get current loyalty points balance and settings for tier thresholds
+        const [loyaltyPoints, settingsResult] = await Promise.all([
+          tx.loyaltyPoints.findUnique({
+            where: { clientId: invoice.sale.clientId },
+          }),
+          getSettings(),
+        ]);
+        const thresholds = {
+          goldThreshold: settingsResult.success ? settingsResult.data.goldThreshold : 500,
+          platinumThreshold: settingsResult.success ? settingsResult.data.platinumThreshold : 1000,
+        };
 
         if (loyaltyPoints) {
           const newBalance = Math.max(0, loyaltyPoints.balance - pointsToReverse);
-
-          // Update tier based on new balance
-          let newTier: "SILVER" | "GOLD" | "PLATINUM" = "SILVER";
-          if (newBalance >= 1000) newTier = "PLATINUM";
-          else if (newBalance >= 500) newTier = "GOLD";
+          const newTier = calculateTier(newBalance, thresholds);
 
           await tx.loyaltyPoints.update({
             where: { clientId: invoice.sale.clientId },

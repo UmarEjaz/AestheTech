@@ -37,6 +37,12 @@ export interface SettingsData {
   appointmentInterval: number;
   allowOnlineBooking: boolean;
   loyaltyPointsPerDollar: number;
+  goldThreshold: number;
+  platinumThreshold: number;
+  silverMultiplier: number;
+  goldMultiplier: number;
+  platinumMultiplier: number;
+  pointsPerDollar: number;
 }
 
 // Get settings (cached)
@@ -61,6 +67,12 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           appointmentInterval: 30,
           allowOnlineBooking: true,
           loyaltyPointsPerDollar: 1,
+          goldThreshold: 500,
+          platinumThreshold: 1000,
+          silverMultiplier: 1.0,
+          goldMultiplier: 1.5,
+          platinumMultiplier: 2.0,
+          pointsPerDollar: 100,
         },
       });
 
@@ -69,6 +81,9 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
         data: {
           ...defaultSettings,
           taxRate: Number(defaultSettings.taxRate),
+          silverMultiplier: Number(defaultSettings.silverMultiplier),
+          goldMultiplier: Number(defaultSettings.goldMultiplier),
+          platinumMultiplier: Number(defaultSettings.platinumMultiplier),
         },
       };
     }
@@ -78,6 +93,9 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
       data: {
         ...settings,
         taxRate: Number(settings.taxRate),
+        silverMultiplier: Number(settings.silverMultiplier),
+        goldMultiplier: Number(settings.goldMultiplier),
+        platinumMultiplier: Number(settings.platinumMultiplier),
       },
     };
   } catch (error) {
@@ -108,6 +126,21 @@ export async function updateSettings(
       currencySymbol = data.currency === "PKR" ? "Rs." : "$";
     }
 
+    // Validate tier thresholds if provided
+    const goldThreshold = data.goldThreshold ?? existingSettings.goldThreshold;
+    const platinumThreshold = data.platinumThreshold ?? existingSettings.platinumThreshold;
+    if (platinumThreshold <= goldThreshold) {
+      return { success: false, error: "Platinum threshold must be greater than Gold threshold" };
+    }
+
+    // Validate multipliers if provided
+    const silverMult = data.silverMultiplier ?? Number(existingSettings.silverMultiplier);
+    const goldMult = data.goldMultiplier ?? Number(existingSettings.goldMultiplier);
+    const platMult = data.platinumMultiplier ?? Number(existingSettings.platinumMultiplier);
+    if (silverMult > goldMult || goldMult > platMult) {
+      return { success: false, error: "Tier multipliers must be in ascending order (Silver <= Gold <= Platinum)" };
+    }
+
     const updatedSettings = await prisma.settings.update({
       where: { id: existingSettings.id },
       data: {
@@ -115,6 +148,26 @@ export async function updateSettings(
         ...(currencySymbol && { currencySymbol }),
       },
     });
+
+    // Recalculate all client tiers if thresholds changed
+    const thresholdsChanged =
+      data.goldThreshold !== undefined || data.platinumThreshold !== undefined;
+    if (thresholdsChanged) {
+      await prisma.loyaltyPoints.updateMany({
+        where: { balance: { gte: updatedSettings.platinumThreshold } },
+        data: { tier: "PLATINUM" },
+      });
+      await prisma.loyaltyPoints.updateMany({
+        where: {
+          balance: { gte: updatedSettings.goldThreshold, lt: updatedSettings.platinumThreshold },
+        },
+        data: { tier: "GOLD" },
+      });
+      await prisma.loyaltyPoints.updateMany({
+        where: { balance: { lt: updatedSettings.goldThreshold } },
+        data: { tier: "SILVER" },
+      });
+    }
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/settings");
@@ -124,6 +177,9 @@ export async function updateSettings(
       data: {
         ...updatedSettings,
         taxRate: Number(updatedSettings.taxRate),
+        silverMultiplier: Number(updatedSettings.silverMultiplier),
+        goldMultiplier: Number(updatedSettings.goldMultiplier),
+        platinumMultiplier: Number(updatedSettings.platinumMultiplier),
       },
     };
   } catch (error) {

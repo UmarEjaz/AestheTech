@@ -459,6 +459,19 @@ model Settings {
   appointmentInterval  Int      @default(30) // minutes
   allowOnlineBooking   Boolean  @default(true)
   loyaltyPointsPerDollar Int    @default(1)
+
+  // Loyalty tier thresholds
+  goldThreshold        Int      @default(500)
+  platinumThreshold    Int      @default(1000)
+
+  // Tier benefit multipliers
+  silverMultiplier     Decimal  @default(1.0) @db.Decimal(3, 2)
+  goldMultiplier       Decimal  @default(1.5) @db.Decimal(3, 2)
+  platinumMultiplier   Decimal  @default(2.0) @db.Decimal(3, 2)
+
+  // Redemption rate (points per currency unit)
+  pointsPerDollar      Int      @default(100)
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
