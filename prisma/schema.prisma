@@ -338,6 +338,7 @@ model LoyaltyTransaction {
   points      Int
   type        LoyaltyTransactionType
   description String?
+  expiresAt   DateTime?
   createdAt   DateTime               @default(now())
 
   // Relations
@@ -345,6 +346,7 @@ model LoyaltyTransaction {
   sale   Sale?  @relation(fields: [saleId], references: [id])
 
   @@index([clientId])
+  @@index([expiresAt])
   @@map("loyalty_transactions")
 }
 
@@ -472,6 +474,14 @@ model Settings {
 
   // Redemption rate (points per currency unit)
   pointsPerDollar      Int      @default(100)
+
+  // Birthday bonus
+  birthdayBonusEnabled  Boolean  @default(true)
+  birthdayBonusPoints   Int      @default(50)
+
+  // Points expiration
+  pointsExpiryEnabled   Boolean  @default(false)
+  pointsExpiryMonths    Int      @default(12)
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

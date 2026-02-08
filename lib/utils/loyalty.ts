@@ -1,4 +1,4 @@
-import { LoyaltyTier } from "@prisma/client";
+import { LoyaltyTier, LoyaltyTransactionType } from "@prisma/client";
 
 export interface TierThresholds {
   goldThreshold: number;
@@ -79,4 +79,62 @@ export function getTierProgress(
     case "PLATINUM":
       return 100;
   }
+}
+
+/**
+ * Checks if today is the client's birthday (month + day match).
+ */
+export function isBirthday(birthday: Date | null | undefined): boolean {
+  if (!birthday) return false;
+  const today = new Date();
+  const bday = new Date(birthday);
+  return today.getMonth() === bday.getMonth() && today.getDate() === bday.getDate();
+}
+
+/**
+ * Checks if a BONUS transaction with "Birthday bonus {year}" already exists this year.
+ */
+export function hasReceivedBirthdayBonusThisYear(
+  transactions: { type: LoyaltyTransactionType; description: string | null }[]
+): boolean {
+  const year = new Date().getFullYear();
+  return transactions.some(
+    (t) => t.type === "BONUS" && t.description === `Birthday bonus ${year}`
+  );
+}
+
+/**
+ * Calculates aggregate loyalty stats from transaction history.
+ */
+export function calculateLoyaltyStats(
+  transactions: { type: LoyaltyTransactionType; points: number }[]
+): {
+  totalEarned: number;
+  totalRedeemed: number;
+  totalExpired: number;
+  totalBonus: number;
+} {
+  let totalEarned = 0;
+  let totalRedeemed = 0;
+  let totalExpired = 0;
+  let totalBonus = 0;
+
+  for (const t of transactions) {
+    switch (t.type) {
+      case "EARNED":
+        totalEarned += t.points;
+        break;
+      case "REDEEMED":
+        totalRedeemed += Math.abs(t.points);
+        break;
+      case "EXPIRED":
+        totalExpired += Math.abs(t.points);
+        break;
+      case "BONUS":
+        totalBonus += t.points;
+        break;
+    }
+  }
+
+  return { totalEarned, totalRedeemed, totalExpired, totalBonus };
 }

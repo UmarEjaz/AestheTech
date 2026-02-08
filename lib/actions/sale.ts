@@ -14,7 +14,7 @@ import {
 } from "@/lib/validations/sale";
 import { Role, Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
 import { getSettings } from "./settings";
-import { calculateTier, getTierMultiplier } from "@/lib/utils/loyalty";
+import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -311,6 +311,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
   sale: SaleListItem;
   invoiceNumber: string;
   pointsEarned: number;
+  birthdayBonus: number;
 }>> {
   const authResult = await checkAuth("sales:create");
   if (!authResult) {
@@ -362,6 +363,10 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const loyaltyEnabled = settings?.loyaltyProgramEnabled ?? true;
     const loyaltyPointsPerDollar = settings?.loyaltyPointsPerDollar ?? 1;
     const pointsPerDollar = settings?.pointsPerDollar ?? 100;
+    const birthdayBonusEnabled = settings?.birthdayBonusEnabled ?? true;
+    const birthdayBonusPointsSetting = settings?.birthdayBonusPoints ?? 50;
+    const pointsExpiryEnabled = settings?.pointsExpiryEnabled ?? false;
+    const pointsExpiryMonths = settings?.pointsExpiryMonths ?? 12;
 
     // Block redemption when loyalty program is disabled
     if (!loyaltyEnabled && redeemPoints > 0) {
@@ -414,7 +419,16 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       pointsEarned = Math.floor(basePoints * tierMultiplier);
     }
 
+    // Check if birthday bonus is eligible (pre-compute flag outside transaction)
+    const isBirthdayToday = loyaltyEnabled && birthdayBonusEnabled && isBirthday(sale.client.birthday);
+
+    // Calculate expiry date for new transactions using proper calendar months
+    const expiresAt = pointsExpiryEnabled
+      ? (() => { const d = new Date(); d.setMonth(d.getMonth() + pointsExpiryMonths); return d; })()
+      : null;
+
     // Execute transaction
+    let birthdayBonusPoints = 0;
     await prisma.$transaction(async (tx) => {
       // Create invoice
       const invoice = await tx.invoice.create({
@@ -443,13 +457,30 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
       // Handle loyalty points (only when program is enabled)
       if (loyaltyEnabled) {
+        // Birthday bonus duplicate check inside transaction to prevent race condition
+        if (isBirthdayToday) {
+          const year = new Date().getFullYear();
+          const existingBirthdayBonus = await tx.loyaltyTransaction.findFirst({
+            where: {
+              clientId: sale.clientId,
+              type: "BONUS",
+              description: `Birthday bonus ${year}`,
+            },
+          });
+          if (!existingBirthdayBonus) {
+            birthdayBonusPoints = birthdayBonusPointsSetting;
+          }
+        }
+
         const existingPoints = await tx.loyaltyPoints.findUnique({
           where: { clientId: sale.clientId },
         });
 
+        const totalPointsGained = pointsEarned + birthdayBonusPoints;
+
         if (existingPoints) {
-          // Deduct redeemed points and add earned points
-          const newBalance = existingPoints.balance - redeemPoints + pointsEarned;
+          // Deduct redeemed points and add earned + birthday bonus points
+          const newBalance = existingPoints.balance - redeemPoints + totalPointsGained;
           const newTier = calculateTier(newBalance, thresholds);
 
           await tx.loyaltyPoints.update({
@@ -458,12 +489,12 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
           });
         } else {
           // Create loyalty points record
-          const tier = calculateTier(pointsEarned, thresholds);
+          const tier = calculateTier(totalPointsGained, thresholds);
 
           await tx.loyaltyPoints.create({
             data: {
               clientId: sale.clientId,
-              balance: pointsEarned,
+              balance: totalPointsGained,
               tier,
             },
           });
@@ -491,6 +522,21 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
               points: pointsEarned,
               type: "EARNED",
               description: `Earned from sale ${invoiceNumber}${multiplierNote}`,
+              expiresAt,
+            },
+          });
+        }
+
+        if (birthdayBonusPoints > 0) {
+          const year = new Date().getFullYear();
+          await tx.loyaltyTransaction.create({
+            data: {
+              clientId: sale.clientId,
+              saleId,
+              points: birthdayBonusPoints,
+              type: "BONUS",
+              description: `Birthday bonus ${year}`,
+              expiresAt,
             },
           });
         }
@@ -513,6 +559,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         sale: updatedSale!,
         invoiceNumber,
         pointsEarned,
+        birthdayBonus: birthdayBonusPoints,
       },
     };
   } catch (error) {
@@ -529,6 +576,7 @@ export async function quickSale(data: CreateSaleInput & {
   sale: SaleListItem;
   invoiceNumber: string;
   pointsEarned: number;
+  birthdayBonus: number;
 }>> {
   const authResult = await checkAuth("sales:create");
   if (!authResult) {

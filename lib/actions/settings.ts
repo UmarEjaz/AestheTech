@@ -44,6 +44,10 @@ export interface SettingsData {
   goldMultiplier: number;
   platinumMultiplier: number;
   pointsPerDollar: number;
+  birthdayBonusEnabled: boolean;
+  birthdayBonusPoints: number;
+  pointsExpiryEnabled: boolean;
+  pointsExpiryMonths: number;
 }
 
 // Get settings (cached)
@@ -75,6 +79,10 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           goldMultiplier: 1.5,
           platinumMultiplier: 2.0,
           pointsPerDollar: 100,
+          birthdayBonusEnabled: true,
+          birthdayBonusPoints: 50,
+          pointsExpiryEnabled: false,
+          pointsExpiryMonths: 12,
         },
       });
 

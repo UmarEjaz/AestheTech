@@ -116,6 +116,10 @@ function getClientInclude() {
         },
       },
     },
+    loyaltyTransactions: {
+      orderBy: { createdAt: "desc" as const },
+      take: 50,
+    },
     recurringSeries: {
       orderBy: { createdAt: "desc" as const },
       include: {
