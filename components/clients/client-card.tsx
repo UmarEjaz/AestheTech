@@ -21,6 +21,7 @@ interface ClientCardProps {
   onDelete?: (id: string) => void;
   canEdit?: boolean;
   canDelete?: boolean;
+  loyaltyEnabled?: boolean;
 }
 
 const tierColors: Record<LoyaltyTier, string> = {
@@ -29,7 +30,7 @@ const tierColors: Record<LoyaltyTier, string> = {
   PLATINUM: "bg-purple-500",
 };
 
-export function ClientCard({ client, onDelete, canEdit = true, canDelete = false }: ClientCardProps) {
+export function ClientCard({ client, onDelete, canEdit = true, canDelete = false, loyaltyEnabled = true }: ClientCardProps) {
   const initials = `${client.firstName[0]}${client.lastName?.[0] || ""}`.toUpperCase();
 
   return (
@@ -117,7 +118,7 @@ export function ClientCard({ client, onDelete, canEdit = true, canDelete = false
               <Calendar className="h-3.5 w-3.5" />
               <span>{client._count.appointments} appts</span>
             </div>
-            {client.loyaltyPoints && (
+            {loyaltyEnabled && client.loyaltyPoints && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Gift className="h-3.5 w-3.5" />
                 <span>{client.loyaltyPoints.balance} pts</span>

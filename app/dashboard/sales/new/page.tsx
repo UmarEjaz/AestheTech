@@ -63,6 +63,8 @@ export default async function NewSalePage() {
   const settings = settingsResult.success ? settingsResult.data : {
     currencySymbol: "$",
     taxRate: 0,
+    pointsPerDollar: 100,
+    loyaltyProgramEnabled: true,
   };
 
   // Transform clients to include loyalty points
@@ -102,6 +104,8 @@ export default async function NewSalePage() {
           staff={staffResult.data}
           currencySymbol={settings.currencySymbol}
           taxRate={settings.taxRate}
+          pointsPerDollar={settings.pointsPerDollar}
+          loyaltyProgramEnabled={settings.loyaltyProgramEnabled}
         />
       </div>
     </DashboardLayout>

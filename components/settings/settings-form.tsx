@@ -19,6 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
 import { Currency } from "@prisma/client";
 
@@ -32,7 +34,20 @@ const settingsSchema = z.object({
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   appointmentInterval: z.coerce.number().min(15).max(120),
+  loyaltyProgramEnabled: z.boolean(),
   loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
+  goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
+  platinumThreshold: z.coerce.number().int().min(2, "Must be at least 2"),
+  silverMultiplier: z.coerce.number().min(0.1).max(10),
+  goldMultiplier: z.coerce.number().min(0.1).max(10),
+  platinumMultiplier: z.coerce.number().min(0.1).max(10),
+  pointsPerDollar: z.coerce.number().int().min(1, "Must be at least 1"),
+}).refine((data) => data.platinumThreshold > data.goldThreshold, {
+  message: "Platinum threshold must be greater than Gold threshold",
+  path: ["platinumThreshold"],
+}).refine((data) => data.silverMultiplier <= data.goldMultiplier && data.goldMultiplier <= data.platinumMultiplier, {
+  message: "Multipliers must be in ascending order (Silver <= Gold <= Platinum)",
+  path: ["platinumMultiplier"],
 });
 
 type SettingsFormData = {
@@ -45,7 +60,14 @@ type SettingsFormData = {
   businessHoursStart: string;
   businessHoursEnd: string;
   appointmentInterval: number;
+  loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
+  goldThreshold: number;
+  platinumThreshold: number;
+  silverMultiplier: number;
+  goldMultiplier: number;
+  platinumMultiplier: number;
+  pointsPerDollar: number;
 };
 
 interface SettingsFormProps {
@@ -96,7 +118,14 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
       appointmentInterval: settings.appointmentInterval,
+      loyaltyProgramEnabled: settings.loyaltyProgramEnabled,
       loyaltyPointsPerDollar: settings.loyaltyPointsPerDollar,
+      goldThreshold: settings.goldThreshold,
+      platinumThreshold: settings.platinumThreshold,
+      silverMultiplier: settings.silverMultiplier,
+      goldMultiplier: settings.goldMultiplier,
+      platinumMultiplier: settings.platinumMultiplier,
+      pointsPerDollar: settings.pointsPerDollar,
     },
   });
 
@@ -141,7 +170,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
       {/* Salon Information */}
       <Card>
         <CardHeader>
@@ -338,10 +367,30 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             Loyalty Program
           </CardTitle>
           <CardDescription>
-            Configure loyalty points settings
+            Configure loyalty points, tier thresholds, benefits, and redemption settings
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          {/* Enable/Disable Toggle */}
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="loyaltyProgramEnabled" className="text-base font-medium">
+                Enable Loyalty Program
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Turn on to allow clients to earn and redeem loyalty points
+              </p>
+            </div>
+            <Switch
+              id="loyaltyProgramEnabled"
+              checked={watch("loyaltyProgramEnabled")}
+              onCheckedChange={(checked) => setValue("loyaltyProgramEnabled", checked, { shouldDirty: true })}
+              disabled={!canManage}
+            />
+          </div>
+
+          <div className={!watch("loyaltyProgramEnabled") ? "opacity-50 pointer-events-none" : ""}>
+          {/* Points Earning */}
           <div className="space-y-2">
             <Label htmlFor="loyaltyPointsPerDollar">Points per {watchedCurrency === "PKR" ? "100 Rs." : "$1"}</Label>
             <Input
@@ -357,8 +406,130 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               <p className="text-sm text-destructive">{errors.loyaltyPointsPerDollar.message}</p>
             )}
             <p className="text-sm text-muted-foreground">
-              Number of loyalty points earned for each {watchedCurrency === "PKR" ? "100 Rs." : "$1"} spent
+              Base loyalty points earned for each {watchedCurrency === "PKR" ? "100 Rs." : "$1"} spent
             </p>
+          </div>
+
+          <Separator />
+
+          {/* Tier Thresholds */}
+          <div className="space-y-3">
+            <Label className="text-base font-semibold">Tier Thresholds</Label>
+            <p className="text-sm text-muted-foreground">
+              Points required to reach each loyalty tier
+            </p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Silver</Label>
+                <Input value="0" disabled className="bg-muted" />
+                <p className="text-xs text-muted-foreground">Always starts at 0</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="goldThreshold">Gold</Label>
+                <Input
+                  id="goldThreshold"
+                  type="number"
+                  min="1"
+                  {...register("goldThreshold")}
+                  disabled={!canManage}
+                />
+                {errors.goldThreshold && (
+                  <p className="text-sm text-destructive">{errors.goldThreshold.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="platinumThreshold">Platinum</Label>
+                <Input
+                  id="platinumThreshold"
+                  type="number"
+                  min="2"
+                  {...register("platinumThreshold")}
+                  disabled={!canManage}
+                />
+                {errors.platinumThreshold && (
+                  <p className="text-sm text-destructive">{errors.platinumThreshold.message}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Tier Benefits (Multipliers) */}
+          <div className="space-y-3">
+            <Label className="text-base font-semibold">Tier Benefits (Point Multipliers)</Label>
+            <p className="text-sm text-muted-foreground">
+              Higher-tier members earn bonus points on every purchase. For example, with a 1.5x multiplier, a Gold member earning 100 base points will receive 150 points total.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="silverMultiplier">Silver Multiplier</Label>
+                <Input
+                  id="silverMultiplier"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="10"
+                  {...register("silverMultiplier")}
+                  disabled={!canManage}
+                />
+                {errors.silverMultiplier && (
+                  <p className="text-sm text-destructive">{errors.silverMultiplier.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="goldMultiplier">Gold Multiplier</Label>
+                <Input
+                  id="goldMultiplier"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="10"
+                  {...register("goldMultiplier")}
+                  disabled={!canManage}
+                />
+                {errors.goldMultiplier && (
+                  <p className="text-sm text-destructive">{errors.goldMultiplier.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="platinumMultiplier">Platinum Multiplier</Label>
+                <Input
+                  id="platinumMultiplier"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="10"
+                  {...register("platinumMultiplier")}
+                  disabled={!canManage}
+                />
+                {errors.platinumMultiplier && (
+                  <p className="text-sm text-destructive">{errors.platinumMultiplier.message}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Redemption Rate */}
+          <div className="space-y-2">
+            <Label htmlFor="pointsPerDollar">Redemption Rate (points per {watchedCurrency === "PKR" ? "Rs.1" : "$1"})</Label>
+            <Input
+              id="pointsPerDollar"
+              type="number"
+              min="1"
+              {...register("pointsPerDollar")}
+              disabled={!canManage}
+              className="w-full sm:w-[200px]"
+            />
+            {errors.pointsPerDollar && (
+              <p className="text-sm text-destructive">{errors.pointsPerDollar.message}</p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              How many points equal {watchedCurrency === "PKR" ? "Rs.1" : "$1"} when redeeming at checkout
+            </p>
+          </div>
           </div>
         </CardContent>
       </Card>

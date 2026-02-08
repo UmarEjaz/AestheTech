@@ -15,6 +15,8 @@ import {
   CreateRefundInput,
 } from "@/lib/validations/invoice";
 import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
+import { getSettings } from "./settings";
+import { calculateTier } from "@/lib/utils/loyalty";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -482,6 +484,13 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
   const { invoiceId, amount, reason } = validationResult.data;
 
   try {
+    // Fetch settings outside transaction since they're static configuration
+    const settingsResult = await getSettings();
+    const thresholds = {
+      goldThreshold: settingsResult.success ? settingsResult.data.goldThreshold : 500,
+      platinumThreshold: settingsResult.success ? settingsResult.data.platinumThreshold : 1000,
+    };
+
     // Execute transaction with Serializable isolation to prevent race conditions
     const result = await prisma.$transaction(async (tx) => {
       // Get the invoice with sale and loyalty transaction info (inside transaction)
@@ -570,11 +579,7 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
 
         if (loyaltyPoints) {
           const newBalance = Math.max(0, loyaltyPoints.balance - pointsToReverse);
-
-          // Update tier based on new balance
-          let newTier: "SILVER" | "GOLD" | "PLATINUM" = "SILVER";
-          if (newBalance >= 1000) newTier = "PLATINUM";
-          else if (newBalance >= 500) newTier = "GOLD";
+          const newTier = calculateTier(newBalance, thresholds);
 
           await tx.loyaltyPoints.update({
             where: { clientId: invoice.sale.clientId },

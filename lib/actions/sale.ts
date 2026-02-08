@@ -14,6 +14,7 @@ import {
 } from "@/lib/validations/sale";
 import { Role, Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
 import { getSettings } from "./settings";
+import { calculateTier, getTierMultiplier } from "@/lib/utils/loyalty";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -354,13 +355,34 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       }
     }
 
-    // Get settings for tax rate
+    // Get settings for tax rate and loyalty config
     const settingsResult = await getSettings();
-    const taxRate = settingsResult.success ? settingsResult.data.taxRate : 0;
-    const loyaltyPointsPerDollar = settingsResult.success ? settingsResult.data.loyaltyPointsPerDollar : 1;
+    const settings = settingsResult.success ? settingsResult.data : null;
+    const taxRate = settings?.taxRate ?? 0;
+    const loyaltyEnabled = settings?.loyaltyProgramEnabled ?? true;
+    const loyaltyPointsPerDollar = settings?.loyaltyPointsPerDollar ?? 1;
+    const pointsPerDollar = settings?.pointsPerDollar ?? 100;
+
+    // Block redemption when loyalty program is disabled
+    if (!loyaltyEnabled && redeemPoints > 0) {
+      return { success: false, error: "Loyalty program is currently disabled" };
+    }
+
+    if (pointsPerDollar <= 0) {
+      return { success: false, error: "Invalid loyalty redemption rate configuration" };
+    }
+    const thresholds = {
+      goldThreshold: settings?.goldThreshold ?? 500,
+      platinumThreshold: settings?.platinumThreshold ?? 1000,
+    };
+    const multipliers = {
+      silverMultiplier: settings?.silverMultiplier ?? 1.0,
+      goldMultiplier: settings?.goldMultiplier ?? 1.5,
+      platinumMultiplier: settings?.platinumMultiplier ?? 2.0,
+    };
 
     // Calculate amounts
-    const pointsValue = redeemPoints / 100; // 100 points = $1
+    const pointsValue = loyaltyEnabled ? redeemPoints / pointsPerDollar : 0;
     const amountAfterPoints = Number(sale.finalAmount) - pointsValue;
     const tax = (amountAfterPoints * taxRate) / 100;
     const totalWithTax = amountAfterPoints + tax;
@@ -378,12 +400,19 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const invoiceNumber = await generateInvoiceNumber();
 
     // Calculate points earned from this sale
+    const currentTier = sale.client.loyaltyPoints?.tier ?? "SILVER";
+    const tierMultiplier = loyaltyEnabled ? getTierMultiplier(currentTier, multipliers) : 1;
+
     let pointsEarned = 0;
-    for (const item of sale.items) {
-      pointsEarned += (item.service.points || 0) * item.quantity;
+    if (loyaltyEnabled) {
+      let basePoints = 0;
+      for (const item of sale.items) {
+        basePoints += (item.service.points || 0) * item.quantity;
+      }
+      // Also add points based on amount spent
+      basePoints += Math.floor(Number(sale.finalAmount) * loyaltyPointsPerDollar);
+      pointsEarned = Math.floor(basePoints * tierMultiplier);
     }
-    // Also add points based on amount spent
-    pointsEarned += Math.floor(Number(sale.finalAmount) * loyaltyPointsPerDollar);
 
     // Execute transaction
     await prisma.$transaction(async (tx) => {
@@ -412,63 +441,59 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         });
       }
 
-      // Handle loyalty points
-      const existingPoints = await tx.loyaltyPoints.findUnique({
-        where: { clientId: sale.clientId },
-      });
-
-      if (existingPoints) {
-        // Deduct redeemed points and add earned points
-        const newBalance = existingPoints.balance - redeemPoints + pointsEarned;
-
-        // Update tier based on new balance
-        let newTier = existingPoints.tier;
-        if (newBalance >= 1000) newTier = "PLATINUM";
-        else if (newBalance >= 500) newTier = "GOLD";
-        else newTier = "SILVER";
-
-        await tx.loyaltyPoints.update({
+      // Handle loyalty points (only when program is enabled)
+      if (loyaltyEnabled) {
+        const existingPoints = await tx.loyaltyPoints.findUnique({
           where: { clientId: sale.clientId },
-          data: { balance: newBalance, tier: newTier },
         });
-      } else {
-        // Create loyalty points record
-        let tier: "SILVER" | "GOLD" | "PLATINUM" = "SILVER";
-        if (pointsEarned >= 1000) tier = "PLATINUM";
-        else if (pointsEarned >= 500) tier = "GOLD";
 
-        await tx.loyaltyPoints.create({
-          data: {
-            clientId: sale.clientId,
-            balance: pointsEarned,
-            tier,
-          },
-        });
-      }
+        if (existingPoints) {
+          // Deduct redeemed points and add earned points
+          const newBalance = existingPoints.balance - redeemPoints + pointsEarned;
+          const newTier = calculateTier(newBalance, thresholds);
 
-      // Record loyalty transactions
-      if (redeemPoints > 0) {
-        await tx.loyaltyTransaction.create({
-          data: {
-            clientId: sale.clientId,
-            saleId,
-            points: -redeemPoints,
-            type: "REDEEMED",
-            description: `Redeemed for sale ${invoiceNumber}`,
-          },
-        });
-      }
+          await tx.loyaltyPoints.update({
+            where: { clientId: sale.clientId },
+            data: { balance: newBalance, tier: newTier },
+          });
+        } else {
+          // Create loyalty points record
+          const tier = calculateTier(pointsEarned, thresholds);
 
-      if (pointsEarned > 0) {
-        await tx.loyaltyTransaction.create({
-          data: {
-            clientId: sale.clientId,
-            saleId,
-            points: pointsEarned,
-            type: "EARNED",
-            description: `Earned from sale ${invoiceNumber}`,
-          },
-        });
+          await tx.loyaltyPoints.create({
+            data: {
+              clientId: sale.clientId,
+              balance: pointsEarned,
+              tier,
+            },
+          });
+        }
+
+        // Record loyalty transactions
+        if (redeemPoints > 0) {
+          await tx.loyaltyTransaction.create({
+            data: {
+              clientId: sale.clientId,
+              saleId,
+              points: -redeemPoints,
+              type: "REDEEMED",
+              description: `Redeemed for sale ${invoiceNumber}`,
+            },
+          });
+        }
+
+        if (pointsEarned > 0) {
+          const multiplierNote = tierMultiplier > 1 ? ` (${tierMultiplier}x ${currentTier} bonus)` : "";
+          await tx.loyaltyTransaction.create({
+            data: {
+              clientId: sale.clientId,
+              saleId,
+              points: pointsEarned,
+              type: "EARNED",
+              description: `Earned from sale ${invoiceNumber}${multiplierNote}`,
+            },
+          });
+        }
       }
     });
 

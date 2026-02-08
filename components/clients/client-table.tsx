@@ -59,6 +59,7 @@ interface ClientTableProps {
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  loyaltyEnabled?: boolean;
   fetchClients: (params: {
     query?: string;
     page?: number;
@@ -84,6 +85,7 @@ export function ClientTable({
   canCreate = false,
   canEdit = false,
   canDelete = false,
+  loyaltyEnabled = true,
   fetchClients,
 }: ClientTableProps) {
   const router = useRouter();
@@ -251,7 +253,7 @@ export function ClientTable({
                 <TableHead>Name</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Tags</TableHead>
-                <TableHead>Loyalty Points</TableHead>
+                {loyaltyEnabled && <TableHead>Loyalty Points</TableHead>}
                 <TableHead>Visits</TableHead>
                 <TableHead>Member Since</TableHead>
                 <TableHead className="w-32">Actions</TableHead>
@@ -260,7 +262,7 @@ export function ClientTable({
             <TableBody>
               {clients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12">
+                  <TableCell colSpan={loyaltyEnabled ? 8 : 7} className="text-center py-12">
                     <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No clients found</h3>
                     <p className="text-muted-foreground mb-4">
@@ -348,6 +350,7 @@ export function ClientTable({
                         )}
                       </div>
                     </TableCell>
+                    {loyaltyEnabled && (
                     <TableCell>
                       {client.loyaltyPoints ? (
                         <div className="flex items-center gap-1">
@@ -363,6 +366,7 @@ export function ClientTable({
                         <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
+                    )}
                     <TableCell>
                       <span className="text-sm">
                         {client._count.appointments} visits

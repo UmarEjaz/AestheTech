@@ -25,6 +25,7 @@ interface ClientListProps {
   total: number;
   canEdit?: boolean;
   canDelete?: boolean;
+  loyaltyEnabled?: boolean;
 }
 
 export function ClientList({
@@ -34,6 +35,7 @@ export function ClientList({
   total,
   canEdit = true,
   canDelete = false,
+  loyaltyEnabled = true,
 }: ClientListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -78,6 +80,7 @@ export function ClientList({
             onDelete={setDeleteId}
             canEdit={canEdit}
             canDelete={canDelete}
+            loyaltyEnabled={loyaltyEnabled}
           />
         ))}
       </div>
