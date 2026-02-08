@@ -76,6 +76,7 @@ const typeColors: Record<LoyaltyTransactionType, string> = {
   ADJUSTMENT: "text-gray-600",
 };
 
+/** Displays loyalty balance, tier progress, stats breakdown, and transaction history for a client. */
 export function LoyaltyDashboard({
   balance,
   tier,
@@ -171,7 +172,7 @@ export function LoyaltyDashboard({
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-2 ${stats.totalAdjustment !== 0 ? "md:grid-cols-5" : "md:grid-cols-4"} gap-4`}>
           <div className="rounded-lg border p-3 text-center">
             <p className="text-2xl font-bold text-green-600">{stats.totalEarned}</p>
             <p className="text-xs text-muted-foreground">Total Earned</p>
@@ -188,6 +189,14 @@ export function LoyaltyDashboard({
             <p className="text-2xl font-bold text-red-600">{stats.totalExpired}</p>
             <p className="text-xs text-muted-foreground">Total Expired</p>
           </div>
+          {stats.totalAdjustment !== 0 && (
+            <div className="rounded-lg border p-3 text-center">
+              <p className={`text-2xl font-bold ${stats.totalAdjustment >= 0 ? "text-gray-600" : "text-orange-600"}`}>
+                {stats.totalAdjustment >= 0 ? "+" : ""}{stats.totalAdjustment}
+              </p>
+              <p className="text-xs text-muted-foreground">Adjustments</p>
+            </div>
+          )}
         </div>
 
         {/* Transaction History Table */}

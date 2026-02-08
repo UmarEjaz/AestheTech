@@ -423,8 +423,17 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const isBirthdayToday = loyaltyEnabled && birthdayBonusEnabled && isBirthday(sale.client.birthday);
 
     // Calculate expiry date for new transactions using proper calendar months
+    // Clamp to last day of target month to avoid overflow (e.g. Jan 31 + 1 month → Feb 28, not Mar 3)
     const expiresAt = pointsExpiryEnabled
-      ? (() => { const d = new Date(); d.setMonth(d.getMonth() + pointsExpiryMonths); return d; })()
+      ? (() => {
+          const d = new Date();
+          const targetMonth = d.getMonth() + pointsExpiryMonths;
+          d.setMonth(targetMonth);
+          if (d.getMonth() !== targetMonth % 12) {
+            d.setDate(0);
+          }
+          return d;
+        })()
       : null;
 
     // Execute transaction
@@ -457,14 +466,15 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
       // Handle loyalty points (only when program is enabled)
       if (loyaltyEnabled) {
+        const currentYear = new Date().getFullYear();
+
         // Birthday bonus duplicate check inside transaction to prevent race condition
         if (isBirthdayToday) {
-          const year = new Date().getFullYear();
           const existingBirthdayBonus = await tx.loyaltyTransaction.findFirst({
             where: {
               clientId: sale.clientId,
               type: "BONUS",
-              description: `Birthday bonus ${year}`,
+              description: `Birthday bonus ${currentYear}`,
             },
           });
           if (!existingBirthdayBonus) {
@@ -528,14 +538,13 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         }
 
         if (birthdayBonusPoints > 0) {
-          const year = new Date().getFullYear();
           await tx.loyaltyTransaction.create({
             data: {
               clientId: sale.clientId,
               saleId,
               points: birthdayBonusPoints,
               type: "BONUS",
-              description: `Birthday bonus ${year}`,
+              description: `Birthday bonus ${currentYear}`,
               expiresAt,
             },
           });

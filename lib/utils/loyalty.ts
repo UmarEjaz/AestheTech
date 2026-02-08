@@ -11,12 +11,14 @@ export interface TierMultipliers {
   platinumMultiplier: number;
 }
 
+/** Returns the loyalty tier for a given point balance based on configured thresholds. */
 export function calculateTier(balance: number, thresholds: TierThresholds): LoyaltyTier {
   if (balance >= thresholds.platinumThreshold) return "PLATINUM";
   if (balance >= thresholds.goldThreshold) return "GOLD";
   return "SILVER";
 }
 
+/** Returns the points earning multiplier for the given tier. */
 export function getTierMultiplier(tier: LoyaltyTier, multipliers: TierMultipliers): number {
   switch (tier) {
     case "PLATINUM":
@@ -28,6 +30,7 @@ export function getTierMultiplier(tier: LoyaltyTier, multipliers: TierMultiplier
   }
 }
 
+/** Returns the next tier above the current one, or null if already at PLATINUM. */
 export function getNextTier(tier: LoyaltyTier): LoyaltyTier | null {
   switch (tier) {
     case "SILVER":
@@ -39,6 +42,7 @@ export function getNextTier(tier: LoyaltyTier): LoyaltyTier | null {
   }
 }
 
+/** Returns the number of points needed to reach the next tier, or null if at PLATINUM. */
 export function getPointsToNextTier(
   balance: number,
   tier: LoyaltyTier,
@@ -115,11 +119,13 @@ export function calculateLoyaltyStats(
   totalRedeemed: number;
   totalExpired: number;
   totalBonus: number;
+  totalAdjustment: number;
 } {
   let totalEarned = 0;
   let totalRedeemed = 0;
   let totalExpired = 0;
   let totalBonus = 0;
+  let totalAdjustment = 0;
 
   for (const t of transactions) {
     switch (t.type) {
@@ -135,8 +141,11 @@ export function calculateLoyaltyStats(
       case "BONUS":
         totalBonus += t.points;
         break;
+      case "ADJUSTMENT":
+        totalAdjustment += t.points;
+        break;
     }
   }
 
-  return { totalEarned, totalRedeemed, totalExpired, totalBonus };
+  return { totalEarned, totalRedeemed, totalExpired, totalBonus, totalAdjustment };
 }

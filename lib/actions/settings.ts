@@ -50,7 +50,7 @@ export interface SettingsData {
   pointsExpiryMonths: number;
 }
 
-// Get settings (cached)
+/** Fetches salon settings, creating defaults if none exist. */
 export async function getSettings(): Promise<ActionResult<SettingsData>> {
   try {
     const settings = await prisma.settings.findFirst();
@@ -114,7 +114,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
   }
 }
 
-// Update settings
+/** Updates salon settings with server-side validation for thresholds, multipliers, and loyalty fields. */
 export async function updateSettings(
   data: Partial<Omit<SettingsData, "id">>
 ): Promise<ActionResult<SettingsData>> {
@@ -215,7 +215,7 @@ export async function updateSettings(
   }
 }
 
-// Helper to get currency symbol (for use in components)
+/** Returns the configured currency symbol, defaulting to "$". */
 export async function getCurrencySymbol(): Promise<string> {
   const result = await getSettings();
   if (result.success) {
