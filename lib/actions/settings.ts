@@ -156,6 +156,18 @@ export async function updateSettings(
       return { success: false, error: "Tier multipliers must be in ascending order (Silver <= Gold <= Platinum)" };
     }
 
+    // Validate birthday bonus points if provided
+    const birthdayBonusPoints = data.birthdayBonusPoints ?? existingSettings.birthdayBonusPoints;
+    if (birthdayBonusPoints < 1) {
+      return { success: false, error: "Birthday bonus points must be at least 1" };
+    }
+
+    // Validate points expiry months if provided
+    const pointsExpiryMonths = data.pointsExpiryMonths ?? existingSettings.pointsExpiryMonths;
+    if (pointsExpiryMonths < 1) {
+      return { success: false, error: "Points expiry period must be at least 1 month" };
+    }
+
     const updatedSettings = await prisma.settings.update({
       where: { id: existingSettings.id },
       data: {

@@ -83,12 +83,14 @@ export function getTierProgress(
 
 /**
  * Checks if today is the client's birthday (month + day match).
+ * Uses UTC for both to avoid timezone inconsistencies — birthdays are
+ * stored as midnight UTC from the date picker.
  */
 export function isBirthday(birthday: Date | null | undefined): boolean {
   if (!birthday) return false;
   const today = new Date();
   const bday = new Date(birthday);
-  return today.getMonth() === bday.getMonth() && today.getDate() === bday.getDate();
+  return today.getUTCMonth() === bday.getUTCMonth() && today.getUTCDate() === bday.getUTCDate();
 }
 
 /**

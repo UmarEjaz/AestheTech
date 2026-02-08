@@ -33,8 +33,11 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
 
   try {
     const settingsResult = await getSettings();
-    const settings = settingsResult.success ? settingsResult.data : null;
-    if (!settings?.pointsExpiryEnabled) {
+    if (!settingsResult.success) {
+      return { success: false, error: "Failed to fetch settings" };
+    }
+    const settings = settingsResult.data;
+    if (!settings.pointsExpiryEnabled) {
       return { success: true, data: { clientsAffected: 0, totalPointsExpired: 0 } };
     }
 
@@ -43,42 +46,44 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
       platinumThreshold: settings.platinumThreshold,
     };
 
-    // Find all transactions that have expired
-    const expiredTransactions = await prisma.loyaltyTransaction.findMany({
-      where: {
-        expiresAt: { lt: new Date() },
-        type: { in: ["EARNED", "BONUS"] },
-      },
-      select: {
-        id: true,
-        clientId: true,
-        points: true,
-      },
-    });
-
-    if (expiredTransactions.length === 0) {
-      return { success: true, data: { clientsAffected: 0, totalPointsExpired: 0 } };
-    }
-
-    // Group by client
-    const clientExpiry = new Map<string, { transactionIds: string[]; totalPoints: number }>();
-    for (const tx of expiredTransactions) {
-      const existing = clientExpiry.get(tx.clientId);
-      if (existing) {
-        existing.transactionIds.push(tx.id);
-        existing.totalPoints += tx.points;
-      } else {
-        clientExpiry.set(tx.clientId, {
-          transactionIds: [tx.id],
-          totalPoints: tx.points,
-        });
-      }
-    }
-
     let totalPointsExpired = 0;
+    let clientsAffected = 0;
 
-    // Process each client in a transaction
+    // Process inside a transaction with advisory lock to prevent concurrent runs
     await prisma.$transaction(async (tx) => {
+      // Acquire advisory lock — blocks concurrent cron runs until this transaction commits
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(8675309)`;
+
+      // Find all transactions that have expired
+      const expiredTransactions = await tx.loyaltyTransaction.findMany({
+        where: {
+          expiresAt: { lt: new Date() },
+          type: { in: ["EARNED", "BONUS"] },
+        },
+        select: {
+          id: true,
+          clientId: true,
+          points: true,
+        },
+      });
+
+      if (expiredTransactions.length === 0) return;
+
+      // Group by client
+      const clientExpiry = new Map<string, { transactionIds: string[]; totalPoints: number }>();
+      for (const txn of expiredTransactions) {
+        const existing = clientExpiry.get(txn.clientId);
+        if (existing) {
+          existing.transactionIds.push(txn.id);
+          existing.totalPoints += txn.points;
+        } else {
+          clientExpiry.set(txn.clientId, {
+            transactionIds: [txn.id],
+            totalPoints: txn.points,
+          });
+        }
+      }
+
       for (const [clientId, data] of clientExpiry) {
         const loyaltyPoints = await tx.loyaltyPoints.findUnique({
           where: { clientId },
@@ -120,13 +125,14 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
         });
 
         totalPointsExpired += pointsToExpire;
+        clientsAffected++;
       }
     });
 
     return {
       success: true,
       data: {
-        clientsAffected: clientExpiry.size,
+        clientsAffected,
         totalPointsExpired,
       },
     };
