@@ -458,6 +458,7 @@ model Settings {
   businessHoursEnd     String   @default("19:00") // HH:mm format
   appointmentInterval  Int      @default(30) // minutes
   allowOnlineBooking   Boolean  @default(true)
+  loyaltyProgramEnabled Boolean @default(true)
   loyaltyPointsPerDollar Int    @default(1)
 
   // Loyalty tier thresholds

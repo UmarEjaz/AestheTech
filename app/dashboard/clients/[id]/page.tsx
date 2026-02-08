@@ -61,6 +61,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   }
 
   const client = result.data;
+  const loyaltyEnabled = settingsResult.success ? settingsResult.data.loyaltyProgramEnabled : true;
   const thresholds = {
     goldThreshold: settingsResult.success ? settingsResult.data.goldThreshold : 500,
     platinumThreshold: settingsResult.success ? settingsResult.data.platinumThreshold : 1000,
@@ -165,6 +166,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
             </CardContent>
           </Card>
 
+          {loyaltyEnabled && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Loyalty Points</CardTitle>
@@ -207,6 +209,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
               })()}
             </CardContent>
           </Card>
+          )}
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
 import { Currency } from "@prisma/client";
 
@@ -33,6 +34,7 @@ const settingsSchema = z.object({
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   appointmentInterval: z.coerce.number().min(15).max(120),
+  loyaltyProgramEnabled: z.boolean(),
   loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
   goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
   platinumThreshold: z.coerce.number().int().min(2, "Must be at least 2"),
@@ -58,6 +60,7 @@ type SettingsFormData = {
   businessHoursStart: string;
   businessHoursEnd: string;
   appointmentInterval: number;
+  loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
   platinumThreshold: number;
@@ -115,6 +118,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
       appointmentInterval: settings.appointmentInterval,
+      loyaltyProgramEnabled: settings.loyaltyProgramEnabled,
       loyaltyPointsPerDollar: settings.loyaltyPointsPerDollar,
       goldThreshold: settings.goldThreshold,
       platinumThreshold: settings.platinumThreshold,
@@ -367,6 +371,25 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Enable/Disable Toggle */}
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="loyaltyProgramEnabled" className="text-base font-medium">
+                Enable Loyalty Program
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Turn on to allow clients to earn and redeem loyalty points
+              </p>
+            </div>
+            <Switch
+              id="loyaltyProgramEnabled"
+              checked={watch("loyaltyProgramEnabled")}
+              onCheckedChange={(checked) => setValue("loyaltyProgramEnabled", checked, { shouldDirty: true })}
+              disabled={!canManage}
+            />
+          </div>
+
+          <div className={!watch("loyaltyProgramEnabled") ? "opacity-50 pointer-events-none" : ""}>
           {/* Points Earning */}
           <div className="space-y-2">
             <Label htmlFor="loyaltyPointsPerDollar">Points per {watchedCurrency === "PKR" ? "100 Rs." : "$1"}</Label>
@@ -506,6 +529,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             <p className="text-sm text-muted-foreground">
               How many points equal {watchedCurrency === "PKR" ? "Rs.1" : "$1"} when redeeming at checkout
             </p>
+          </div>
           </div>
         </CardContent>
       </Card>

@@ -64,6 +64,7 @@ export default async function NewSalePage() {
     currencySymbol: "$",
     taxRate: 0,
     pointsPerDollar: 100,
+    loyaltyProgramEnabled: true,
   };
 
   // Transform clients to include loyalty points
@@ -104,6 +105,7 @@ export default async function NewSalePage() {
           currencySymbol={settings.currencySymbol}
           taxRate={settings.taxRate}
           pointsPerDollar={settings.pointsPerDollar}
+          loyaltyProgramEnabled={settings.loyaltyProgramEnabled}
         />
       </div>
     </DashboardLayout>

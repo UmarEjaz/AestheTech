@@ -359,8 +359,15 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const settingsResult = await getSettings();
     const settings = settingsResult.success ? settingsResult.data : null;
     const taxRate = settings?.taxRate ?? 0;
+    const loyaltyEnabled = settings?.loyaltyProgramEnabled ?? true;
     const loyaltyPointsPerDollar = settings?.loyaltyPointsPerDollar ?? 1;
     const pointsPerDollar = settings?.pointsPerDollar ?? 100;
+
+    // Block redemption when loyalty program is disabled
+    if (!loyaltyEnabled && redeemPoints > 0) {
+      return { success: false, error: "Loyalty program is currently disabled" };
+    }
+
     if (pointsPerDollar <= 0) {
       return { success: false, error: "Invalid loyalty redemption rate configuration" };
     }
@@ -375,7 +382,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     };
 
     // Calculate amounts
-    const pointsValue = redeemPoints / pointsPerDollar;
+    const pointsValue = loyaltyEnabled ? redeemPoints / pointsPerDollar : 0;
     const amountAfterPoints = Number(sale.finalAmount) - pointsValue;
     const tax = (amountAfterPoints * taxRate) / 100;
     const totalWithTax = amountAfterPoints + tax;
@@ -394,15 +401,18 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
     // Calculate points earned from this sale
     const currentTier = sale.client.loyaltyPoints?.tier ?? "SILVER";
-    const tierMultiplier = getTierMultiplier(currentTier, multipliers);
+    const tierMultiplier = loyaltyEnabled ? getTierMultiplier(currentTier, multipliers) : 1;
 
-    let basePoints = 0;
-    for (const item of sale.items) {
-      basePoints += (item.service.points || 0) * item.quantity;
+    let pointsEarned = 0;
+    if (loyaltyEnabled) {
+      let basePoints = 0;
+      for (const item of sale.items) {
+        basePoints += (item.service.points || 0) * item.quantity;
+      }
+      // Also add points based on amount spent
+      basePoints += Math.floor(Number(sale.finalAmount) * loyaltyPointsPerDollar);
+      pointsEarned = Math.floor(basePoints * tierMultiplier);
     }
-    // Also add points based on amount spent
-    basePoints += Math.floor(Number(sale.finalAmount) * loyaltyPointsPerDollar);
-    const pointsEarned = Math.floor(basePoints * tierMultiplier);
 
     // Execute transaction
     await prisma.$transaction(async (tx) => {
@@ -431,57 +441,59 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         });
       }
 
-      // Handle loyalty points
-      const existingPoints = await tx.loyaltyPoints.findUnique({
-        where: { clientId: sale.clientId },
-      });
-
-      if (existingPoints) {
-        // Deduct redeemed points and add earned points
-        const newBalance = existingPoints.balance - redeemPoints + pointsEarned;
-        const newTier = calculateTier(newBalance, thresholds);
-
-        await tx.loyaltyPoints.update({
+      // Handle loyalty points (only when program is enabled)
+      if (loyaltyEnabled) {
+        const existingPoints = await tx.loyaltyPoints.findUnique({
           where: { clientId: sale.clientId },
-          data: { balance: newBalance, tier: newTier },
         });
-      } else {
-        // Create loyalty points record
-        const tier = calculateTier(pointsEarned, thresholds);
 
-        await tx.loyaltyPoints.create({
-          data: {
-            clientId: sale.clientId,
-            balance: pointsEarned,
-            tier,
-          },
-        });
-      }
+        if (existingPoints) {
+          // Deduct redeemed points and add earned points
+          const newBalance = existingPoints.balance - redeemPoints + pointsEarned;
+          const newTier = calculateTier(newBalance, thresholds);
 
-      // Record loyalty transactions
-      if (redeemPoints > 0) {
-        await tx.loyaltyTransaction.create({
-          data: {
-            clientId: sale.clientId,
-            saleId,
-            points: -redeemPoints,
-            type: "REDEEMED",
-            description: `Redeemed for sale ${invoiceNumber}`,
-          },
-        });
-      }
+          await tx.loyaltyPoints.update({
+            where: { clientId: sale.clientId },
+            data: { balance: newBalance, tier: newTier },
+          });
+        } else {
+          // Create loyalty points record
+          const tier = calculateTier(pointsEarned, thresholds);
 
-      if (pointsEarned > 0) {
-        const multiplierNote = tierMultiplier > 1 ? ` (${tierMultiplier}x ${currentTier} bonus)` : "";
-        await tx.loyaltyTransaction.create({
-          data: {
-            clientId: sale.clientId,
-            saleId,
-            points: pointsEarned,
-            type: "EARNED",
-            description: `Earned from sale ${invoiceNumber}${multiplierNote}`,
-          },
-        });
+          await tx.loyaltyPoints.create({
+            data: {
+              clientId: sale.clientId,
+              balance: pointsEarned,
+              tier,
+            },
+          });
+        }
+
+        // Record loyalty transactions
+        if (redeemPoints > 0) {
+          await tx.loyaltyTransaction.create({
+            data: {
+              clientId: sale.clientId,
+              saleId,
+              points: -redeemPoints,
+              type: "REDEEMED",
+              description: `Redeemed for sale ${invoiceNumber}`,
+            },
+          });
+        }
+
+        if (pointsEarned > 0) {
+          const multiplierNote = tierMultiplier > 1 ? ` (${tierMultiplier}x ${currentTier} bonus)` : "";
+          await tx.loyaltyTransaction.create({
+            data: {
+              clientId: sale.clientId,
+              saleId,
+              points: pointsEarned,
+              type: "EARNED",
+              description: `Earned from sale ${invoiceNumber}${multiplierNote}`,
+            },
+          });
+        }
       }
     });
 

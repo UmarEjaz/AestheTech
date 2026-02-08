@@ -36,6 +36,7 @@ export interface SettingsData {
   businessHoursEnd: string;
   appointmentInterval: number;
   allowOnlineBooking: boolean;
+  loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
   platinumThreshold: number;
@@ -66,6 +67,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           businessHoursEnd: "19:00",
           appointmentInterval: 30,
           allowOnlineBooking: true,
+          loyaltyProgramEnabled: true,
           loyaltyPointsPerDollar: 1,
           goldThreshold: 500,
           platinumThreshold: 1000,

@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ClientTable } from "@/components/clients/client-table";
 import { getClients } from "@/lib/actions/client";
+import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
 export default async function ClientsPage() {
@@ -18,7 +19,11 @@ export default async function ClientsPage() {
   const canEdit = hasPermission(userRole, "clients:update");
   const canDelete = hasPermission(userRole, "clients:delete");
 
-  const clientsResult = await getClients({ page: 1, limit: 15 });
+  const [clientsResult, settingsResult] = await Promise.all([
+    getClients({ page: 1, limit: 15 }),
+    getSettings(),
+  ]);
+  const loyaltyEnabled = settingsResult.success ? settingsResult.data.loyaltyProgramEnabled : true;
 
   if (!clientsResult.success) {
     return (
@@ -52,6 +57,7 @@ export default async function ClientsPage() {
           canCreate={canCreate}
           canEdit={canEdit}
           canDelete={canDelete}
+          loyaltyEnabled={loyaltyEnabled}
           fetchClients={getClients}
         />
       </div>

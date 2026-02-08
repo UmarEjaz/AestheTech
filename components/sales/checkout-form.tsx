@@ -93,6 +93,7 @@ interface CheckoutFormProps {
   currencySymbol: string;
   taxRate: number;
   pointsPerDollar: number;
+  loyaltyProgramEnabled?: boolean;
 }
 
 export function CheckoutForm({
@@ -102,6 +103,7 @@ export function CheckoutForm({
   currencySymbol,
   taxRate,
   pointsPerDollar,
+  loyaltyProgramEnabled = true,
 }: CheckoutFormProps) {
   const router = useRouter();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -359,7 +361,7 @@ export function CheckoutForm({
                       {selectedClient.phone || <span className="italic">No phone</span>}
                     </p>
                   </div>
-                  {selectedClient.loyaltyPoints && (
+                  {loyaltyProgramEnabled && selectedClient.loyaltyPoints && (
                     <div className="flex items-center gap-1 ml-2">
                       <Badge variant="secondary">
                         <Star className="h-3 w-3 mr-1" />
@@ -423,7 +425,7 @@ export function CheckoutForm({
                               {client.phone || <span className="italic">No phone</span>}
                             </p>
                           </div>
-                          {client.loyaltyPoints && (
+                          {loyaltyProgramEnabled && client.loyaltyPoints && (
                             <Badge variant="outline" className="text-xs">
                               {client.loyaltyPoints.balance} pts
                             </Badge>
@@ -593,7 +595,7 @@ export function CheckoutForm({
                 </div>
 
                 {/* Loyalty Points Redemption */}
-                {selectedClient?.loyaltyPoints && selectedClient.loyaltyPoints.balance > 0 && (
+                {loyaltyProgramEnabled && selectedClient?.loyaltyPoints && selectedClient.loyaltyPoints.balance > 0 && (
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1">
                       <Star className="h-3 w-3" />
@@ -636,7 +638,7 @@ export function CheckoutForm({
                       <span>-{currencySymbol}{discountAmount.toFixed(2)}</span>
                     </div>
                   )}
-                  {redeemPoints > 0 && (
+                  {loyaltyProgramEnabled && redeemPoints > 0 && (
                     <div className="flex justify-between text-amber-600">
                       <span>Points Redeemed ({redeemPoints})</span>
                       <span>-{currencySymbol}{pointsValue.toFixed(2)}</span>
@@ -653,7 +655,7 @@ export function CheckoutForm({
                     <span>Total</span>
                     <span className="text-purple-600">{currencySymbol}{total.toFixed(2)}</span>
                   </div>
-                  {pointsToEarn > 0 && (
+                  {loyaltyProgramEnabled && pointsToEarn > 0 && (
                     <div className="flex justify-between text-xs text-amber-600">
                       <span>Points to earn</span>
                       <span>+{pointsToEarn} pts</span>
