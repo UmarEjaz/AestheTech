@@ -34,12 +34,12 @@ const settingsSchema = z.object({
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   appointmentInterval: z.coerce.number().min(15).max(120),
   loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
-  goldThreshold: z.coerce.number().min(1, "Must be at least 1"),
-  platinumThreshold: z.coerce.number().min(2, "Must be at least 2"),
+  goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
+  platinumThreshold: z.coerce.number().int().min(2, "Must be at least 2"),
   silverMultiplier: z.coerce.number().min(0.1).max(10),
   goldMultiplier: z.coerce.number().min(0.1).max(10),
   platinumMultiplier: z.coerce.number().min(0.1).max(10),
-  pointsPerDollar: z.coerce.number().min(1, "Must be at least 1"),
+  pointsPerDollar: z.coerce.number().int().min(1, "Must be at least 1"),
 }).refine((data) => data.platinumThreshold > data.goldThreshold, {
   message: "Platinum threshold must be greater than Gold threshold",
   path: ["platinumThreshold"],
@@ -166,7 +166,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
       {/* Salon Information */}
       <Card>
         <CardHeader>

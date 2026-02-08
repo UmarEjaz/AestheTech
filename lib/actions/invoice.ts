@@ -484,6 +484,13 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
   const { invoiceId, amount, reason } = validationResult.data;
 
   try {
+    // Fetch settings outside transaction since they're static configuration
+    const settingsResult = await getSettings();
+    const thresholds = {
+      goldThreshold: settingsResult.success ? settingsResult.data.goldThreshold : 500,
+      platinumThreshold: settingsResult.success ? settingsResult.data.platinumThreshold : 1000,
+    };
+
     // Execute transaction with Serializable isolation to prevent race conditions
     const result = await prisma.$transaction(async (tx) => {
       // Get the invoice with sale and loyalty transaction info (inside transaction)
@@ -565,17 +572,10 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
 
       // Reverse loyalty points if any
       if (pointsToReverse > 0) {
-        // Get current loyalty points balance and settings for tier thresholds
-        const [loyaltyPoints, settingsResult] = await Promise.all([
-          tx.loyaltyPoints.findUnique({
-            where: { clientId: invoice.sale.clientId },
-          }),
-          getSettings(),
-        ]);
-        const thresholds = {
-          goldThreshold: settingsResult.success ? settingsResult.data.goldThreshold : 500,
-          platinumThreshold: settingsResult.success ? settingsResult.data.platinumThreshold : 1000,
-        };
+        // Get current loyalty points balance
+        const loyaltyPoints = await tx.loyaltyPoints.findUnique({
+          where: { clientId: invoice.sale.clientId },
+        });
 
         if (loyaltyPoints) {
           const newBalance = Math.max(0, loyaltyPoints.balance - pointsToReverse);

@@ -46,9 +46,9 @@ export function getPointsToNextTier(
 ): number | null {
   switch (tier) {
     case "SILVER":
-      return thresholds.goldThreshold - balance;
+      return Math.max(0, thresholds.goldThreshold - balance);
     case "GOLD":
-      return thresholds.platinumThreshold - balance;
+      return Math.max(0, thresholds.platinumThreshold - balance);
     case "PLATINUM":
       return null;
   }

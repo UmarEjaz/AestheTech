@@ -26,7 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { getClient } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
-import { getNextTier, getPointsToNextTier, getTierProgress } from "@/lib/utils/loyalty";
+import { calculateTier, getNextTier, getPointsToNextTier, getTierProgress } from "@/lib/utils/loyalty";
 import { Progress } from "@/components/ui/progress";
 import { RecurringSeriesCard } from "@/components/clients/recurring-series-card";
 
@@ -171,42 +171,38 @@ export default async function ClientDetailPage({ params }: PageProps) {
               <Gift className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold">
-                  {client.loyaltyPoints?.balance || 0}
-                </span>
-                {client.loyaltyPoints && (
-                  <span
-                    className={`h-3 w-3 rounded-full ${tierColors[client.loyaltyPoints.tier]}`}
-                    title={client.loyaltyPoints.tier}
-                  />
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mb-2">
-                {client.loyaltyPoints?.tier || "SILVER"} tier
-              </p>
               {(() => {
-                const tier = client.loyaltyPoints?.tier || "SILVER";
                 const balance = client.loyaltyPoints?.balance || 0;
+                const tier = calculateTier(balance, thresholds);
                 const nextTier = getNextTier(tier);
                 const progress = getTierProgress(balance, tier, thresholds);
                 const pointsNeeded = getPointsToNextTier(balance, tier, thresholds);
 
-                if (!nextTier) {
-                  return (
-                    <Badge variant="secondary" className="text-xs">
-                      Highest Tier Achieved!
-                    </Badge>
-                  );
-                }
-
                 return (
-                  <div className="space-y-1">
-                    <Progress value={progress} className="h-2" />
-                    <p className="text-xs text-muted-foreground">
-                      {pointsNeeded} points to {nextTier}
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl font-bold">{balance}</span>
+                      <span
+                        className={`h-3 w-3 rounded-full ${tierColors[tier]}`}
+                        title={tier}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      {tier} tier
                     </p>
-                  </div>
+                    {!nextTier ? (
+                      <Badge variant="secondary" className="text-xs">
+                        Highest Tier Achieved!
+                      </Badge>
+                    ) : (
+                      <div className="space-y-1">
+                        <Progress value={progress} className="h-2" />
+                        <p className="text-xs text-muted-foreground">
+                          {pointsNeeded} points to {nextTier}
+                        </p>
+                      </div>
+                    )}
+                  </>
                 );
               })()}
             </CardContent>

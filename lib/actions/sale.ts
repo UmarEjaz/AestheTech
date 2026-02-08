@@ -361,6 +361,9 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const taxRate = settings?.taxRate ?? 0;
     const loyaltyPointsPerDollar = settings?.loyaltyPointsPerDollar ?? 1;
     const pointsPerDollar = settings?.pointsPerDollar ?? 100;
+    if (pointsPerDollar <= 0) {
+      return { success: false, error: "Invalid loyalty redemption rate configuration" };
+    }
     const thresholds = {
       goldThreshold: settings?.goldThreshold ?? 500,
       platinumThreshold: settings?.platinumThreshold ?? 1000,

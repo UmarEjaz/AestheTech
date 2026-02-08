@@ -465,9 +465,9 @@ model Settings {
   platinumThreshold    Int      @default(1000)
 
   // Tier benefit multipliers
-  silverMultiplier     Decimal  @default(1.0) @db.Decimal(3, 2)
-  goldMultiplier       Decimal  @default(1.5) @db.Decimal(3, 2)
-  platinumMultiplier   Decimal  @default(2.0) @db.Decimal(3, 2)
+  silverMultiplier     Decimal  @default(1.0) @db.Decimal(4, 2)
+  goldMultiplier       Decimal  @default(1.5) @db.Decimal(4, 2)
+  platinumMultiplier   Decimal  @default(2.0) @db.Decimal(4, 2)
 
   // Redemption rate (points per currency unit)
   pointsPerDollar      Int      @default(100)

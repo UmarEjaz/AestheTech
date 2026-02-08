@@ -133,6 +133,11 @@ export async function updateSettings(
       return { success: false, error: "Platinum threshold must be greater than Gold threshold" };
     }
 
+    const pointsPerDollar = data.pointsPerDollar ?? existingSettings.pointsPerDollar;
+    if (pointsPerDollar < 1) {
+      return { success: false, error: "Redemption rate must be at least 1 point per currency unit" };
+    }
+
     // Validate multipliers if provided
     const silverMult = data.silverMultiplier ?? Number(existingSettings.silverMultiplier);
     const goldMult = data.goldMultiplier ?? Number(existingSettings.goldMultiplier);
