@@ -90,15 +90,15 @@ export function LoyaltyDashboard({
   const birthdayBonusReceived = hasReceivedBirthdayBonusThisYear(transactions);
   const currentYear = new Date().getFullYear();
 
-  // Points expiring within 30 days
-  const now = new Date();
-  const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  // Points expiring within 30 days (use UTC timestamps for consistency with DB dates)
+  const nowMs = Date.now();
+  const thirtyDaysMs = nowMs + 30 * 24 * 60 * 60 * 1000;
   const expiringPoints = transactions
     .filter(
       (t) =>
         t.expiresAt &&
-        new Date(t.expiresAt) <= thirtyDaysFromNow &&
-        new Date(t.expiresAt) > now &&
+        new Date(t.expiresAt).getTime() <= thirtyDaysMs &&
+        new Date(t.expiresAt).getTime() > nowMs &&
         (t.type === "EARNED" || t.type === "BONUS")
     )
     .reduce((sum, t) => sum + t.points, 0);
