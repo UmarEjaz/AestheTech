@@ -44,9 +44,13 @@ export interface SettingsData {
   goldMultiplier: number;
   platinumMultiplier: number;
   pointsPerDollar: number;
+  birthdayBonusEnabled: boolean;
+  birthdayBonusPoints: number;
+  pointsExpiryEnabled: boolean;
+  pointsExpiryMonths: number;
 }
 
-// Get settings (cached)
+/** Fetches salon settings, creating defaults if none exist. */
 export async function getSettings(): Promise<ActionResult<SettingsData>> {
   try {
     const settings = await prisma.settings.findFirst();
@@ -75,6 +79,10 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           goldMultiplier: 1.5,
           platinumMultiplier: 2.0,
           pointsPerDollar: 100,
+          birthdayBonusEnabled: true,
+          birthdayBonusPoints: 50,
+          pointsExpiryEnabled: false,
+          pointsExpiryMonths: 12,
         },
       });
 
@@ -106,7 +114,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
   }
 }
 
-// Update settings
+/** Updates salon settings with server-side validation for thresholds, multipliers, and loyalty fields. */
 export async function updateSettings(
   data: Partial<Omit<SettingsData, "id">>
 ): Promise<ActionResult<SettingsData>> {
@@ -146,6 +154,18 @@ export async function updateSettings(
     const platMult = data.platinumMultiplier ?? Number(existingSettings.platinumMultiplier);
     if (silverMult > goldMult || goldMult > platMult) {
       return { success: false, error: "Tier multipliers must be in ascending order (Silver <= Gold <= Platinum)" };
+    }
+
+    // Validate birthday bonus points if provided
+    const birthdayBonusPoints = data.birthdayBonusPoints ?? existingSettings.birthdayBonusPoints;
+    if (birthdayBonusPoints < 1) {
+      return { success: false, error: "Birthday bonus points must be at least 1" };
+    }
+
+    // Validate points expiry months if provided
+    const pointsExpiryMonths = data.pointsExpiryMonths ?? existingSettings.pointsExpiryMonths;
+    if (pointsExpiryMonths < 1) {
+      return { success: false, error: "Points expiry period must be at least 1 month" };
     }
 
     const updatedSettings = await prisma.settings.update({
@@ -195,7 +215,7 @@ export async function updateSettings(
   }
 }
 
-// Helper to get currency symbol (for use in components)
+/** Returns the configured currency symbol, defaulting to "$". */
 export async function getCurrencySymbol(): Promise<string> {
   const result = await getSettings();
   if (result.success) {

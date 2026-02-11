@@ -42,6 +42,10 @@ const settingsSchema = z.object({
   goldMultiplier: z.coerce.number().min(0.1).max(10),
   platinumMultiplier: z.coerce.number().min(0.1).max(10),
   pointsPerDollar: z.coerce.number().int().min(1, "Must be at least 1"),
+  birthdayBonusEnabled: z.boolean(),
+  birthdayBonusPoints: z.coerce.number().int().min(1, "Must be at least 1"),
+  pointsExpiryEnabled: z.boolean(),
+  pointsExpiryMonths: z.coerce.number().int().min(1, "Must be at least 1 month").max(120, "Maximum 120 months"),
 }).refine((data) => data.platinumThreshold > data.goldThreshold, {
   message: "Platinum threshold must be greater than Gold threshold",
   path: ["platinumThreshold"],
@@ -68,6 +72,10 @@ type SettingsFormData = {
   goldMultiplier: number;
   platinumMultiplier: number;
   pointsPerDollar: number;
+  birthdayBonusEnabled: boolean;
+  birthdayBonusPoints: number;
+  pointsExpiryEnabled: boolean;
+  pointsExpiryMonths: number;
 };
 
 interface SettingsFormProps {
@@ -126,6 +134,10 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       goldMultiplier: settings.goldMultiplier,
       platinumMultiplier: settings.platinumMultiplier,
       pointsPerDollar: settings.pointsPerDollar,
+      birthdayBonusEnabled: settings.birthdayBonusEnabled,
+      birthdayBonusPoints: settings.birthdayBonusPoints,
+      pointsExpiryEnabled: settings.pointsExpiryEnabled,
+      pointsExpiryMonths: settings.pointsExpiryMonths,
     },
   });
 
@@ -529,6 +541,89 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             <p className="text-sm text-muted-foreground">
               How many points equal {watchedCurrency === "PKR" ? "Rs.1" : "$1"} when redeeming at checkout
             </p>
+          </div>
+
+          <Separator />
+
+          {/* Birthday Bonus */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="birthdayBonusEnabled" className="text-base font-semibold">
+                  Birthday Bonus
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Award bonus points when a sale is completed on a client&apos;s birthday
+                </p>
+              </div>
+              <Switch
+                id="birthdayBonusEnabled"
+                checked={watch("birthdayBonusEnabled")}
+                onCheckedChange={(checked) => setValue("birthdayBonusEnabled", checked, { shouldDirty: true })}
+                disabled={!canManage}
+              />
+            </div>
+            <div className={!watch("birthdayBonusEnabled") ? "opacity-50 pointer-events-none" : ""}>
+              <div className="space-y-2">
+                <Label htmlFor="birthdayBonusPoints">Birthday Bonus Points</Label>
+                <Input
+                  id="birthdayBonusPoints"
+                  type="number"
+                  min="1"
+                  {...register("birthdayBonusPoints")}
+                  disabled={!canManage}
+                  className="w-full sm:w-[200px]"
+                />
+                {errors.birthdayBonusPoints && (
+                  <p className="text-sm text-destructive">{errors.birthdayBonusPoints.message}</p>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Points awarded once per year on the client&apos;s birthday
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Points Expiration */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="pointsExpiryEnabled" className="text-base font-semibold">
+                  Points Expiration
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Points earned after enabling this will expire after the configured period. Not retroactive.
+                </p>
+              </div>
+              <Switch
+                id="pointsExpiryEnabled"
+                checked={watch("pointsExpiryEnabled")}
+                onCheckedChange={(checked) => setValue("pointsExpiryEnabled", checked, { shouldDirty: true })}
+                disabled={!canManage}
+              />
+            </div>
+            <div className={!watch("pointsExpiryEnabled") ? "opacity-50 pointer-events-none" : ""}>
+              <div className="space-y-2">
+                <Label htmlFor="pointsExpiryMonths">Expiry Period (months)</Label>
+                <Input
+                  id="pointsExpiryMonths"
+                  type="number"
+                  min="1"
+                  max="120"
+                  {...register("pointsExpiryMonths")}
+                  disabled={!canManage}
+                  className="w-full sm:w-[200px]"
+                />
+                {errors.pointsExpiryMonths && (
+                  <p className="text-sm text-destructive">{errors.pointsExpiryMonths.message}</p>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Number of months before earned points expire
+                </p>
+              </div>
+            </div>
           </div>
           </div>
         </CardContent>

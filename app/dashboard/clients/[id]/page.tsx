@@ -13,7 +13,6 @@ import {
   DollarSign,
   AlertTriangle,
   Heart,
-  Repeat,
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -29,6 +28,7 @@ import { hasPermission } from "@/lib/permissions";
 import { calculateTier, getNextTier, getPointsToNextTier, getTierProgress } from "@/lib/utils/loyalty";
 import { Progress } from "@/components/ui/progress";
 import { RecurringSeriesCard } from "@/components/clients/recurring-series-card";
+import { LoyaltyDashboard } from "@/components/clients/loyalty-dashboard";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -61,10 +61,11 @@ export default async function ClientDetailPage({ params }: PageProps) {
   }
 
   const client = result.data;
-  const loyaltyEnabled = settingsResult.success ? settingsResult.data.loyaltyProgramEnabled : true;
+  const settings = settingsResult.success ? settingsResult.data : null;
+  const loyaltyEnabled = settings?.loyaltyProgramEnabled ?? true;
   const thresholds = {
-    goldThreshold: settingsResult.success ? settingsResult.data.goldThreshold : 500,
-    platinumThreshold: settingsResult.success ? settingsResult.data.platinumThreshold : 1000,
+    goldThreshold: settings?.goldThreshold ?? 500,
+    platinumThreshold: settings?.platinumThreshold ?? 1000,
   };
   const initials = `${client.firstName[0]}${client.lastName?.[0] || ""}`.toUpperCase();
 
@@ -226,6 +227,16 @@ export default async function ClientDetailPage({ params }: PageProps) {
             </CardContent>
           </Card>
         </div>
+
+        {/* Loyalty Dashboard */}
+        {loyaltyEnabled && client.loyaltyTransactions && client.loyaltyTransactions.length > 0 && (
+          <LoyaltyDashboard
+            balance={client.loyaltyPoints?.balance ?? 0}
+            tier={client.loyaltyPoints?.tier ?? "SILVER"}
+            transactions={client.loyaltyTransactions}
+            thresholds={thresholds}
+          />
+        )}
 
         {/* Recurring Appointments */}
         {client.recurringSeries && client.recurringSeries.length > 0 && (

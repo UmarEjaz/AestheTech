@@ -1,4 +1,4 @@
-import { LoyaltyTier } from "@prisma/client";
+import { LoyaltyTier, LoyaltyTransactionType } from "@prisma/client";
 
 export interface TierThresholds {
   goldThreshold: number;
@@ -11,12 +11,14 @@ export interface TierMultipliers {
   platinumMultiplier: number;
 }
 
+/** Returns the loyalty tier for a given point balance based on configured thresholds. */
 export function calculateTier(balance: number, thresholds: TierThresholds): LoyaltyTier {
   if (balance >= thresholds.platinumThreshold) return "PLATINUM";
   if (balance >= thresholds.goldThreshold) return "GOLD";
   return "SILVER";
 }
 
+/** Returns the points earning multiplier for the given tier. */
 export function getTierMultiplier(tier: LoyaltyTier, multipliers: TierMultipliers): number {
   switch (tier) {
     case "PLATINUM":
@@ -28,6 +30,7 @@ export function getTierMultiplier(tier: LoyaltyTier, multipliers: TierMultiplier
   }
 }
 
+/** Returns the next tier above the current one, or null if already at PLATINUM. */
 export function getNextTier(tier: LoyaltyTier): LoyaltyTier | null {
   switch (tier) {
     case "SILVER":
@@ -39,6 +42,7 @@ export function getNextTier(tier: LoyaltyTier): LoyaltyTier | null {
   }
 }
 
+/** Returns the number of points needed to reach the next tier, or null if at PLATINUM. */
 export function getPointsToNextTier(
   balance: number,
   tier: LoyaltyTier,
@@ -79,4 +83,69 @@ export function getTierProgress(
     case "PLATINUM":
       return 100;
   }
+}
+
+/**
+ * Checks if today is the client's birthday (month + day match).
+ * Uses UTC for both to avoid timezone inconsistencies — birthdays are
+ * stored as midnight UTC from the date picker.
+ */
+export function isBirthday(birthday: Date | null | undefined): boolean {
+  if (!birthday) return false;
+  const today = new Date();
+  const bday = new Date(birthday);
+  return today.getUTCMonth() === bday.getUTCMonth() && today.getUTCDate() === bday.getUTCDate();
+}
+
+/**
+ * Checks if a BONUS transaction with "Birthday bonus {year}" already exists this year.
+ */
+export function hasReceivedBirthdayBonusThisYear(
+  transactions: { type: LoyaltyTransactionType; description: string | null }[]
+): boolean {
+  const year = new Date().getFullYear();
+  return transactions.some(
+    (t) => t.type === "BONUS" && t.description === `Birthday bonus ${year}`
+  );
+}
+
+/**
+ * Calculates aggregate loyalty stats from transaction history.
+ */
+export function calculateLoyaltyStats(
+  transactions: { type: LoyaltyTransactionType; points: number }[]
+): {
+  totalEarned: number;
+  totalRedeemed: number;
+  totalExpired: number;
+  totalBonus: number;
+  totalAdjustment: number;
+} {
+  let totalEarned = 0;
+  let totalRedeemed = 0;
+  let totalExpired = 0;
+  let totalBonus = 0;
+  let totalAdjustment = 0;
+
+  for (const t of transactions) {
+    switch (t.type) {
+      case "EARNED":
+        totalEarned += t.points;
+        break;
+      case "REDEEMED":
+        totalRedeemed += Math.abs(t.points);
+        break;
+      case "EXPIRED":
+        totalExpired += Math.abs(t.points);
+        break;
+      case "BONUS":
+        totalBonus += t.points;
+        break;
+      case "ADJUSTMENT":
+        totalAdjustment += t.points;
+        break;
+    }
+  }
+
+  return { totalEarned, totalRedeemed, totalExpired, totalBonus, totalAdjustment };
 }

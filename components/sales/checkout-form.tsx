@@ -250,6 +250,9 @@ export function CheckoutForm({
         if (result.data.pointsEarned > 0) {
           toast.info(`Client earned ${result.data.pointsEarned} loyalty points!`);
         }
+        if (result.data.birthdayBonus > 0) {
+          toast.success(`Happy Birthday! ${result.data.birthdayBonus} bonus points awarded!`);
+        }
         setIsPaymentOpen(false);
         router.push(`/dashboard/sales`);
       } else {
