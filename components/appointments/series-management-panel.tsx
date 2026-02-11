@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { format, addMonths } from "date-fns";
+import { addMonths } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import { toast } from "sonner";
 import {
   Repeat,
@@ -114,6 +115,7 @@ interface SeriesManagementPanelProps {
   series: SeriesDetails;
   onDataChange?: () => void;
   compact?: boolean;
+  timezone: string;
 }
 
 const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -122,6 +124,7 @@ export function SeriesManagementPanel({
   series,
   onDataChange,
   compact = false,
+  timezone,
 }: SeriesManagementPanelProps) {
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(!compact);
@@ -152,7 +155,7 @@ export function SeriesManagementPanel({
       if (result.success) {
         toast.success(
           pauseUntil
-            ? `Series paused until ${format(pauseUntil, "PPP")}`
+            ? `Series paused until ${formatInTz(pauseUntil, "PPP", timezone)}`
             : "Series paused indefinitely"
         );
         onDataChange?.();
@@ -357,7 +360,7 @@ export function SeriesManagementPanel({
                   <div className="flex flex-wrap gap-1">
                     {upcomingAppointments.slice(0, 3).map((apt) => (
                       <Badge key={apt.id} variant="outline" className="text-xs">
-                        {format(new Date(apt.startTime), "MMM d")}
+                        {formatInTz(apt.startTime, "MMM d", timezone)}
                       </Badge>
                     ))}
                     {upcomingAppointments.length > 3 && (
@@ -434,7 +437,7 @@ export function SeriesManagementPanel({
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span>
-                  {format(new Date(`2000-01-01T${series.timeOfDay}`), "h:mm a")}
+                  {formatInTz(new Date(`2000-01-01T${series.timeOfDay}`), "h:mm a", "UTC")}
                 </span>
               </div>
             </div>
@@ -448,7 +451,7 @@ export function SeriesManagementPanel({
                   <span className="text-yellow-600 font-medium">
                     Paused
                     {series.pausedUntil &&
-                      ` until ${format(new Date(series.pausedUntil), "MMM d, yyyy")}`}
+                      ` until ${formatInTz(series.pausedUntil, "MMM d, yyyy", timezone)}`}
                   </span>
                 ) : (
                   <span className="text-green-600 font-medium">Active</span>
@@ -469,7 +472,7 @@ export function SeriesManagementPanel({
                     <span>After {series.endAfterCount} occurrences</span>
                   )}
                   {series.endType === "BY_DATE" && series.endByDate && (
-                    <span>{format(new Date(series.endByDate), "MMM d, yyyy")}</span>
+                    <span>{formatInTz(series.endByDate, "MMM d, yyyy", timezone)}</span>
                   )}
                 </div>
               )}
@@ -562,10 +565,10 @@ export function SeriesManagementPanel({
                     className="text-sm p-2 rounded-md bg-muted/50"
                   >
                     <p className="font-medium">
-                      {format(new Date(apt.startTime), "EEEE, MMM d")}
+                      {formatInTz(apt.startTime, "EEEE, MMM d", timezone)}
                     </p>
                     <p className="text-muted-foreground">
-                      {format(new Date(apt.startTime), "h:mm a")}
+                      {formatInTz(apt.startTime, "h:mm a", timezone)}
                     </p>
                   </div>
                 ))}
@@ -611,7 +614,7 @@ export function SeriesManagementPanel({
                   >
                     <Calendar className="mr-2 h-4 w-4" />
                     {pauseUntil
-                      ? format(pauseUntil, "PPP")
+                      ? formatInTz(pauseUntil, "PPP", timezone)
                       : "No auto-resume date"}
                   </Button>
                 </PopoverTrigger>

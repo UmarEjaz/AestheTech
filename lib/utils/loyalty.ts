@@ -1,4 +1,5 @@
 import { LoyaltyTier, LoyaltyTransactionType } from "@prisma/client";
+import { getNow } from "@/lib/utils/timezone";
 
 export interface TierThresholds {
   goldThreshold: number;
@@ -87,23 +88,25 @@ export function getTierProgress(
 
 /**
  * Checks if today is the client's birthday (month + day match).
- * Uses UTC for both to avoid timezone inconsistencies — birthdays are
- * stored as midnight UTC from the date picker.
+ * Uses the salon timezone so the birthday check aligns with the salon's
+ * local date. Birthday is stored as midnight UTC from the date picker,
+ * so we read month/day from UTC.
  */
-export function isBirthday(birthday: Date | null | undefined): boolean {
+export function isBirthday(birthday: Date | null | undefined, timezone?: string): boolean {
   if (!birthday) return false;
-  const today = new Date();
+  const today = timezone ? getNow(timezone) : new Date();
   const bday = new Date(birthday);
-  return today.getUTCMonth() === bday.getUTCMonth() && today.getUTCDate() === bday.getUTCDate();
+  return today.getMonth() === bday.getUTCMonth() && today.getDate() === bday.getUTCDate();
 }
 
 /**
  * Checks if a BONUS transaction with "Birthday bonus {year}" already exists this year.
  */
 export function hasReceivedBirthdayBonusThisYear(
-  transactions: { type: LoyaltyTransactionType; description: string | null }[]
+  transactions: { type: LoyaltyTransactionType; description: string | null }[],
+  timezone?: string
 ): boolean {
-  const year = new Date().getFullYear();
+  const year = timezone ? getNow(timezone).getFullYear() : new Date().getFullYear();
   return transactions.some(
     (t) => t.type === "BONUS" && t.description === `Birthday bonus ${year}`
   );

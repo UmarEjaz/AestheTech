@@ -29,6 +29,7 @@ export interface SettingsData {
   salonPhone: string | null;
   salonEmail: string | null;
   salonLogo: string | null;
+  timezone: string;
   currency: Currency;
   currencySymbol: string;
   taxRate: number;
@@ -64,6 +65,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           salonPhone: null,
           salonEmail: null,
           salonLogo: null,
+          timezone: "UTC",
           currency: "USD",
           currencySymbol: "$",
           taxRate: 0,
@@ -128,6 +130,14 @@ export async function updateSettings(
 
     if (!existingSettings) {
       return { success: false, error: "Settings not found" };
+    }
+
+    // Validate timezone if provided
+    if (data.timezone !== undefined) {
+      const validTimezones = Intl.supportedValuesOf("timeZone");
+      if (!validTimezones.includes(data.timezone)) {
+        return { success: false, error: "Invalid timezone" };
+      }
     }
 
     // If currency is being changed, update the symbol
@@ -222,4 +232,13 @@ export async function getCurrencySymbol(): Promise<string> {
     return result.data.currencySymbol;
   }
   return "$";
+}
+
+/** Returns the configured IANA timezone, defaulting to "UTC". */
+export async function getTimezone(): Promise<string> {
+  const result = await getSettings();
+  if (result.success) {
+    return result.data.timezone;
+  }
+  return "UTC";
 }

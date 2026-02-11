@@ -5,6 +5,7 @@ import { hasPermission } from "@/lib/permissions";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { getReportData } from "@/lib/actions/dashboard";
+import { getTimezone } from "@/lib/actions/settings";
 import { startOfMonth, endOfMonth } from "date-fns";
 
 export default async function ReportsPage() {
@@ -26,7 +27,10 @@ export default async function ReportsPage() {
   const startDate = startOfMonth(new Date());
   const endDate = endOfMonth(new Date());
 
-  const reportResult = await getReportData({ startDate, endDate });
+  const [reportResult, tz] = await Promise.all([
+    getReportData({ startDate, endDate }),
+    getTimezone(),
+  ]);
 
   if (!reportResult.success) {
     return (
@@ -65,6 +69,7 @@ export default async function ReportsPage() {
         <ReportsCharts
           initialData={reportResult.data}
           onDateRangeChange={handleDateRangeChange}
+          timezone={tz}
         />
       </div>
     </DashboardLayout>

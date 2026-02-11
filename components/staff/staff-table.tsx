@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import {
   Search,
   Plus,
@@ -62,6 +62,7 @@ interface StaffTableProps {
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  timezone: string;
   fetchUsers: (params: {
     query?: string;
     role?: Role;
@@ -104,6 +105,7 @@ export function StaffTable({
   canCreate = false,
   canEdit = false,
   canDelete = false,
+  timezone,
   fetchUsers,
 }: StaffTableProps) {
   const router = useRouter();
@@ -430,7 +432,7 @@ export function StaffTable({
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">
-                        {format(new Date(user.createdAt), "MMM d, yyyy")}
+                        {formatInTz(user.createdAt, "MMM d, yyyy", timezone)}
                       </span>
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>

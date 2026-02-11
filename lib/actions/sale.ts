@@ -15,6 +15,7 @@ import {
 import { Role, Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
+import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -104,20 +105,19 @@ export type SaleListItem = Prisma.SaleGetPayload<{
 }>;
 
 // Generate invoice number
-async function generateInvoiceNumber(): Promise<string> {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
+async function generateInvoiceNumber(timezone: string): Promise<string> {
+  const now = getNow(timezone);
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
 
-  // Get count of invoices this month
-  const startOfMonth = new Date(year, today.getMonth(), 1);
-  const endOfMonth = new Date(year, today.getMonth() + 1, 0, 23, 59, 59, 999);
+  // Get count of invoices this month (timezone-aware boundaries)
+  const { start, end } = getMonthRange(timezone);
 
   const count = await prisma.invoice.count({
     where: {
       createdAt: {
-        gte: startOfMonth,
-        lte: endOfMonth,
+        gte: start,
+        lte: end,
       },
     },
   });
@@ -359,6 +359,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     // Get settings for tax rate and loyalty config
     const settingsResult = await getSettings();
     const settings = settingsResult.success ? settingsResult.data : null;
+    const tz = settings?.timezone ?? "UTC";
     const taxRate = settings?.taxRate ?? 0;
     const loyaltyEnabled = settings?.loyaltyProgramEnabled ?? true;
     const loyaltyPointsPerDollar = settings?.loyaltyPointsPerDollar ?? 1;
@@ -402,7 +403,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     }
 
     // Generate invoice number
-    const invoiceNumber = await generateInvoiceNumber();
+    const invoiceNumber = await generateInvoiceNumber(tz);
 
     // Calculate points earned from this sale
     const currentTier = sale.client.loyaltyPoints?.tier ?? "SILVER";
@@ -420,13 +421,14 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     }
 
     // Check if birthday bonus is eligible (pre-compute flag outside transaction)
-    const isBirthdayToday = loyaltyEnabled && birthdayBonusEnabled && isBirthday(sale.client.birthday);
+    const isBirthdayToday = loyaltyEnabled && birthdayBonusEnabled && isBirthday(sale.client.birthday, tz);
 
     // Calculate expiry date for new transactions using proper calendar months
     // Clamp to last day of target month to avoid overflow (e.g. Jan 31 + 1 month → Feb 28, not Mar 3)
     const expiresAt = pointsExpiryEnabled
       ? (() => {
-          const d = new Date();
+          const now = getNow(tz);
+          const d = new Date(now.toISOString());
           const targetMonth = d.getMonth() + pointsExpiryMonths;
           d.setMonth(targetMonth);
           if (d.getMonth() !== targetMonth % 12) {
@@ -466,7 +468,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
       // Handle loyalty points (only when program is enabled)
       if (loyaltyEnabled) {
-        const currentYear = new Date().getFullYear();
+        const currentYear = getNow(tz).getFullYear();
 
         // Birthday bonus duplicate check inside transaction to prevent race condition
         if (isBirthdayToday) {
@@ -649,10 +651,9 @@ export async function getTodaysSalesSummary(): Promise<ActionResult<{
   }
 
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const settingsResult = await getSettings();
+    const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
+    const { start: today, end: tomorrow } = getTodayRange(tz);
 
     const sales = await prisma.sale.findMany({
       where: {

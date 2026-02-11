@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import { AppointmentStatus } from "@prisma/client";
 import { toast } from "sonner";
 import {
@@ -62,6 +62,7 @@ interface AppointmentDetailModalProps {
   onClose: () => void;
   onDataChange?: () => void;
   canManage?: boolean;
+  timezone: string;
 }
 
 const statusConfig: Record<
@@ -82,6 +83,7 @@ export function AppointmentDetailModal({
   onClose,
   onDataChange,
   canManage = false,
+  timezone,
 }: AppointmentDetailModalProps) {
   const router = useRouter();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -347,11 +349,11 @@ export function AppointmentDetailModal({
                 Schedule
               </h3>
               <p className="font-medium">
-                {format(new Date(appointment.startTime), "EEEE, MMMM d, yyyy")}
+                {formatInTz(appointment.startTime, "EEEE, MMMM d, yyyy", timezone)}
               </p>
               <p className="text-sm text-muted-foreground">
-                {format(new Date(appointment.startTime), "h:mm a")} -{" "}
-                {format(new Date(appointment.endTime), "h:mm a")}
+                {formatInTz(appointment.startTime, "h:mm a", timezone)} -{" "}
+                {formatInTz(appointment.endTime, "h:mm a", timezone)}
               </p>
               <p className="text-sm">
                 <span className="text-muted-foreground">Staff:</span>{" "}

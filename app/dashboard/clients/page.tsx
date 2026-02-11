@@ -24,6 +24,7 @@ export default async function ClientsPage() {
     getSettings(),
   ]);
   const loyaltyEnabled = settingsResult.success ? settingsResult.data.loyaltyProgramEnabled : true;
+  const timezone = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
   if (!clientsResult.success) {
     return (
@@ -58,6 +59,7 @@ export default async function ClientsPage() {
           canEdit={canEdit}
           canDelete={canDelete}
           loyaltyEnabled={loyaltyEnabled}
+          timezone={timezone}
           fetchClients={getClients}
         />
       </div>

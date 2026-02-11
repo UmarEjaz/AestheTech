@@ -41,7 +41,7 @@ export default async function AppointmentsPage() {
   const appointments = appointmentsResult.success ? appointmentsResult.data : [];
   const settings = settingsResult.success
     ? settingsResult.data
-    : { businessHoursStart: "09:00", businessHoursEnd: "19:00" };
+    : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC" };
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -71,6 +71,7 @@ export default async function AppointmentsPage() {
             canManage={canManage}
             businessHoursStart={settings.businessHoursStart}
             businessHoursEnd={settings.businessHoursEnd}
+            timezone={settings.timezone}
           />
         </div>
       </div>

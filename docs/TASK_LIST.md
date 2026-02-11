@@ -235,9 +235,9 @@
 - [x] Add points redemption at checkout
 - [x] Display points balance on client profile
 - [x] Display points on invoice
-- [ ] Add birthday bonus points
-- [ ] Implement points expiration (optional)
-- [ ] Create loyalty dashboard for clients
+- [x] Add birthday bonus points
+- [x] Implement points expiration (optional)
+- [x] Create loyalty dashboard for clients
 - [x] Test loyalty points flow
 - [x] Add permission checks
 
@@ -358,6 +358,12 @@
 ---
 
 ## Future Enhancements (Post-MVP)
+
+### Timezone Support
+- [x] Add salon timezone setting to Settings model (e.g. "Asia/Karachi", "America/New_York")
+- [x] Add timezone selector in settings form
+- [x] Use salon timezone for all date/time display across the app
+- [x] Use salon timezone in birthday comparison and loyalty operations
 
 ### Phase 2 Features
 - [ ] Inventory management for products

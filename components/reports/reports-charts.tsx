@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
+import { subDays, startOfMonth, endOfMonth } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import {
   BarChart,
   Bar,
@@ -37,6 +38,7 @@ import { ExportButtons } from "./export-buttons";
 interface ReportsChartsProps {
   initialData: ReportData;
   onDateRangeChange: (startDate: Date, endDate: Date) => Promise<ReportData | null>;
+  timezone: string;
 }
 
 const COLORS = ["#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#ec4899"];
@@ -50,7 +52,7 @@ const STATUS_COLORS: Record<string, string> = {
   IN_PROGRESS: "#3b82f6",
 };
 
-export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsProps) {
+export function ReportsCharts({ initialData, onDateRangeChange, timezone }: ReportsChartsProps) {
   const [data, setData] = useState<ReportData>(initialData);
   const [dateRange, setDateRange] = useState<"week" | "month" | "custom">("month");
   const [startDate, setStartDate] = useState<Date>(startOfMonth(new Date()));
@@ -135,7 +137,7 @@ export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsP
                   <PopoverTrigger asChild>
                     <Button variant="outline" size="sm">
                       <CalendarIcon className="h-4 w-4 mr-2" />
-                      {format(startDate, "MMM d, yyyy")}
+                      {formatInTz(startDate, "MMM d, yyyy", timezone)}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
@@ -151,7 +153,7 @@ export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsP
                   <PopoverTrigger asChild>
                     <Button variant="outline" size="sm">
                       <CalendarIcon className="h-4 w-4 mr-2" />
-                      {format(endDate, "MMM d, yyyy")}
+                      {formatInTz(endDate, "MMM d, yyyy", timezone)}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
@@ -170,7 +172,7 @@ export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsP
             </div>
 
             {/* Export Button */}
-            <ExportButtons data={data} startDate={startDate} endDate={endDate} />
+            <ExportButtons data={data} startDate={startDate} endDate={endDate} timezone={timezone} />
           </div>
         </CardContent>
       </Card>
@@ -252,7 +254,7 @@ export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsP
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={(value) => format(new Date(value), "MMM d")}
+                    tickFormatter={(value) => formatInTz(value, "MMM d", timezone)}
                     className="text-xs"
                   />
                   <YAxis
@@ -261,7 +263,7 @@ export function ReportsCharts({ initialData, onDateRangeChange }: ReportsChartsP
                   />
                   <Tooltip
                     formatter={(value) => [formatCurrency(value as number), "Revenue"]}
-                    labelFormatter={(label) => format(new Date(label as string), "MMM d, yyyy")}
+                    labelFormatter={(label) => formatInTz(label as string, "MMM d, yyyy", timezone)}
                   />
                   <Area
                     type="monotone"

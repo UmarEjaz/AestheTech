@@ -18,6 +18,7 @@ interface AppointmentCalendarProps {
   staffFilter?: string;
   businessHoursStart?: string;
   businessHoursEnd?: string;
+  timezone: string;
 }
 
 const statusColors: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
@@ -38,6 +39,7 @@ export function AppointmentCalendar({
   staffFilter,
   businessHoursStart = "08:00",
   businessHoursEnd = "20:00",
+  timezone,
 }: AppointmentCalendarProps) {
   const router = useRouter();
   const [appointments, setAppointments] = useState<AppointmentListItem[]>(initialAppointments);
@@ -268,6 +270,7 @@ export function AppointmentCalendar({
           onClose={handleModalClose}
           onDataChange={refreshAppointments}
           canManage={canManage}
+          timezone={timezone}
         />
       )}
     </div>

@@ -13,7 +13,6 @@ import {
   RescheduleFormData,
 } from "@/lib/validations/appointment";
 import { Role, Prisma, AppointmentStatus } from "@prisma/client";
-import { format } from "date-fns";
 import { getSettings } from "./settings";
 
 export type ActionResult<T = void> =

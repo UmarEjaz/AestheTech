@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import {
   Search,
   Plus,
@@ -37,6 +37,7 @@ interface SalesTableProps {
   initialTotalPages: number;
   canCreate?: boolean;
   currencySymbol: string;
+  timezone: string;
   fetchSales: (params: {
     query?: string;
     page?: number;
@@ -60,6 +61,7 @@ export function SalesTable({
   initialTotalPages,
   canCreate = false,
   currencySymbol,
+  timezone,
   fetchSales,
 }: SalesTableProps) {
   const router = useRouter();
@@ -72,10 +74,9 @@ export function SalesTable({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Calculate today's stats
+  const todayStr = formatInTz(new Date(), "yyyy-MM-dd", timezone);
   const todaysSales = sales.filter((sale) => {
-    const saleDate = new Date(sale.createdAt);
-    const today = new Date();
-    return saleDate.toDateString() === today.toDateString();
+    return formatInTz(sale.createdAt, "yyyy-MM-dd", timezone) === todayStr;
   });
   const todaysRevenue = todaysSales.reduce((sum, sale) => sum + Number(sale.finalAmount), 0);
 
@@ -338,10 +339,10 @@ export function SalesTable({
                     <TableCell>{getStatusBadge(sale)}</TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">
-                        {format(new Date(sale.createdAt), "MMM d, yyyy")}
+                        {formatInTz(sale.createdAt, "MMM d, yyyy", timezone)}
                       </span>
                       <p className="text-xs text-muted-foreground">
-                        {format(new Date(sale.createdAt), "h:mm a")}
+                        {formatInTz(sale.createdAt, "h:mm a", timezone)}
                       </p>
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>

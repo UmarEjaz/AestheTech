@@ -22,6 +22,8 @@ import {
 } from "@/lib/validations/appointment";
 import { Role, Prisma, RecurrencePattern, RecurrenceEndType } from "@prisma/client";
 import { format, startOfDay, isBefore, addMonths } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
+import { getTimezone } from "@/lib/actions/settings";
 import {
   calculateRecurringDates,
   RecurringDateConfig,
@@ -491,6 +493,7 @@ export async function updateSeriesAppointments(
   }
 
   const { staffId, timeOfDay, notes, bufferMinutes } = validationResult.data;
+  const tz = await getTimezone();
 
   try {
     const series = await prisma.recurringAppointmentSeries.findUnique({
@@ -551,7 +554,7 @@ export async function updateSeriesAppointments(
           appointmentUpdateData.endTime = newEndTime;
         } else {
           // Track skipped appointments so user knows which couldn't be rescheduled
-          skippedDueToConflict.push(format(new Date(appointment.startTime), "MMM d, yyyy"));
+          skippedDueToConflict.push(formatInTz(appointment.startTime, "MMM d, yyyy", tz));
         }
       }
 
