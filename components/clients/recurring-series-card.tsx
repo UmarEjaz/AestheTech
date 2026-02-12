@@ -186,7 +186,7 @@ export function RecurringSeriesCard({ series, clientId, canManage = false, timez
                 <div className="text-sm text-muted-foreground space-y-1">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    {dayNames[s.dayOfWeek]}s at {formatInTz(new Date(`2000-01-01T${s.timeOfDay}`), "h:mm a", "UTC")}
+                    {dayNames[s.dayOfWeek]}s at {formatInTz(new Date(`2000-01-01T${s.timeOfDay}:00Z`), "h:mm a", "UTC")}
                   </div>
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4" />

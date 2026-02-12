@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { getReportData } from "@/lib/actions/dashboard";
 import { getTimezone } from "@/lib/actions/settings";
-import { startOfMonth, endOfMonth } from "date-fns";
+import { getMonthRange } from "@/lib/utils/timezone";
 
 export default async function ReportsPage() {
   const session = await auth();
@@ -23,14 +23,10 @@ export default async function ReportsPage() {
     redirect("/dashboard");
   }
 
-  // Get initial report data for current month
-  const startDate = startOfMonth(new Date());
-  const endDate = endOfMonth(new Date());
-
-  const [reportResult, tz] = await Promise.all([
-    getReportData({ startDate, endDate }),
-    getTimezone(),
-  ]);
+  // Get timezone first, then compute month range for initial report data
+  const tz = await getTimezone();
+  const { start: startDate, end: endDate } = getMonthRange(tz);
+  const reportResult = await getReportData({ startDate, endDate });
 
   if (!reportResult.success) {
     return (

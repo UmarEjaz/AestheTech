@@ -38,6 +38,8 @@ interface SalesTableProps {
   canCreate?: boolean;
   currencySymbol: string;
   timezone: string;
+  todaysSalesCount: number;
+  todaysRevenue: number;
   fetchSales: (params: {
     query?: string;
     page?: number;
@@ -62,6 +64,8 @@ export function SalesTable({
   canCreate = false,
   currencySymbol,
   timezone,
+  todaysSalesCount,
+  todaysRevenue,
   fetchSales,
 }: SalesTableProps) {
   const router = useRouter();
@@ -73,12 +77,7 @@ export function SalesTable({
   const [loading, setLoading] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Calculate today's stats
-  const todayStr = formatInTz(new Date(), "yyyy-MM-dd", timezone);
-  const todaysSales = sales.filter((sale) => {
-    return formatInTz(sale.createdAt, "yyyy-MM-dd", timezone) === todayStr;
-  });
-  const todaysRevenue = todaysSales.reduce((sum, sale) => sum + Number(sale.finalAmount), 0);
+  // Today's stats come from server-side aggregation (props) for accuracy across all pages
 
   const loadSales = useCallback(async (search: string, pageNum: number) => {
     setLoading(true);
@@ -179,7 +178,7 @@ export function SalesTable({
               <Calendar className="h-5 w-5 text-blue-600" />
               <div>
                 <p className="text-sm font-medium">Today&apos;s Sales</p>
-                <p className="text-2xl font-bold">{todaysSales.length}</p>
+                <p className="text-2xl font-bold">{todaysSalesCount}</p>
               </div>
             </div>
           </CardContent>
@@ -191,6 +190,7 @@ export function SalesTable({
               <div>
                 <p className="text-sm font-medium">Today&apos;s Revenue</p>
                 <p className="text-2xl font-bold">{currencySymbol}{todaysRevenue.toFixed(2)}</p>
+
               </div>
             </div>
           </CardContent>

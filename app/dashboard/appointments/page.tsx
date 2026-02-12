@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { AppointmentCalendar } from "@/components/appointments/appointment-calendar";
 import { getAppointmentsForCalendar } from "@/lib/actions/appointment";
 import { getSettings } from "@/lib/actions/settings";
+import { getWeekRange } from "@/lib/utils/timezone";
 import { hasPermission } from "@/lib/permissions";
 
 export default async function AppointmentsPage() {
@@ -20,28 +21,20 @@ export default async function AppointmentsPage() {
   const userRole = session.user.role as Role;
   const canManage = hasPermission(userRole, "appointments:create");
 
-  // Get appointments for current week
-  const today = new Date();
-  const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - today.getDay());
-  startOfWeek.setHours(0, 0, 0, 0);
-
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 6);
-  endOfWeek.setHours(23, 59, 59, 999);
-
-  const [appointmentsResult, settingsResult] = await Promise.all([
-    getAppointmentsForCalendar({
-      startDate: startOfWeek,
-      endDate: endOfWeek,
-    }),
-    getSettings(),
-  ]);
-
-  const appointments = appointmentsResult.success ? appointmentsResult.data : [];
+  // Get settings first to determine timezone, then compute week range
+  const settingsResult = await getSettings();
   const settings = settingsResult.success
     ? settingsResult.data
     : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC" };
+
+  const { start: weekStart, end: weekEnd } = getWeekRange(settings.timezone);
+
+  const appointmentsResult = await getAppointmentsForCalendar({
+    startDate: weekStart,
+    endDate: weekEnd,
+  });
+
+  const appointments = appointmentsResult.success ? appointmentsResult.data : [];
 
   return (
     <DashboardLayout userRole={userRole}>

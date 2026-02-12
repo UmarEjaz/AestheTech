@@ -239,6 +239,7 @@ export function AppointmentCalendar({
       `}</style>
 
       <FullCalendar
+        timeZone={timezone}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
         initialView="timeGridWeek"
         headerToolbar={{

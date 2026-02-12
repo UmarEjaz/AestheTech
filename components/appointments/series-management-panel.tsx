@@ -437,7 +437,7 @@ export function SeriesManagementPanel({
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span>
-                  {formatInTz(new Date(`2000-01-01T${series.timeOfDay}`), "h:mm a", "UTC")}
+                  {formatInTz(new Date(`2000-01-01T${series.timeOfDay}:00Z`), "h:mm a", "UTC")}
                 </span>
               </div>
             </div>

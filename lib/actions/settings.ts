@@ -238,7 +238,13 @@ export async function getCurrencySymbol(): Promise<string> {
 export async function getTimezone(): Promise<string> {
   const result = await getSettings();
   if (result.success) {
-    return result.data.timezone;
+    const tz = result.data.timezone;
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: tz });
+      return tz;
+    } catch {
+      return "UTC";
+    }
   }
   return "UTC";
 }

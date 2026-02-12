@@ -1,5 +1,6 @@
 "use server";
 
+import { addMonths } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -428,13 +429,8 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const expiresAt = pointsExpiryEnabled
       ? (() => {
           const now = getNow(tz);
-          const d = new Date(now.toISOString());
-          const targetMonth = d.getMonth() + pointsExpiryMonths;
-          d.setMonth(targetMonth);
-          if (d.getMonth() !== targetMonth % 12) {
-            d.setDate(0);
-          }
-          return d;
+          const expiry = addMonths(now, pointsExpiryMonths);
+          return new Date(expiry.toISOString());
         })()
       : null;
 

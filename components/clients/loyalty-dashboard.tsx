@@ -1,6 +1,6 @@
 "use client";
 
-import { formatInTz } from "@/lib/utils/timezone";
+import { formatInTz, getNow } from "@/lib/utils/timezone";
 import {
   Gift,
   TrendingUp,
@@ -90,7 +90,7 @@ export function LoyaltyDashboard({
   const progress = getTierProgress(balance, tier, thresholds);
   const pointsNeeded = getPointsToNextTier(balance, tier, thresholds);
   const birthdayBonusReceived = hasReceivedBirthdayBonusThisYear(transactions, timezone);
-  const currentYear = new Date().getFullYear();
+  const currentYear = getNow(timezone).getFullYear();
 
   // Points expiring within 30 days (use UTC timestamps for consistency with DB dates)
   const nowMs = Date.now();

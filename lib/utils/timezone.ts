@@ -31,8 +31,8 @@ export function getTodayRange(tz: string): { start: Date; end: Date } {
 /** Returns this week's start/end as UTC Dates for Prisma queries. */
 export function getWeekRange(tz: string): { start: Date; end: Date } {
   const now = getNow(tz);
-  const start = startOfWeek(now, { weekStartsOn: 0 });
-  const end = endOfWeek(now, { weekStartsOn: 0 });
+  const start = startOfWeek(now, { weekStartsOn: 1 });
+  const end = endOfWeek(now, { weekStartsOn: 1 });
   return { start: new Date(start.toISOString()), end: new Date(end.toISOString()) };
 }
 

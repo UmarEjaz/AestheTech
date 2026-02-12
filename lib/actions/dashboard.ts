@@ -3,9 +3,11 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 import { Role, AppointmentStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import {
+  getNow,
   getTodayRange,
   getWeekRange,
   getMonthRange,
@@ -86,10 +88,10 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     const { start: weekStart } = getWeekRange(tz);
     const { start: monthStart } = getMonthRange(tz);
 
-    // Yesterday's range for comparison
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    const yesterdayEnd = new Date(todayStart);
+    // Yesterday's range for comparison (timezone-aware to handle DST transitions)
+    const yesterdayInTz = subDays(getNow(tz), 1);
+    const yesterdayStart = new Date(startOfDay(yesterdayInTz).toISOString());
+    const yesterdayEnd = new Date(endOfDay(yesterdayInTz).toISOString());
 
     // Fetch all stats in parallel
     const [
