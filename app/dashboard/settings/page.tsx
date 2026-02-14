@@ -18,7 +18,7 @@ export default async function SettingsPage() {
   const canManage = hasPermission(userRole, "settings:manage");
 
   if (!canView) {
-    redirect("/dashboard");
+    redirect("/dashboard/access-denied");
   }
 
   const result = await getSettings();

@@ -18,7 +18,7 @@ export default async function StaffPage() {
 
   // Check if user can view staff
   if (!hasPermission(userRole, "staff:view")) {
-    redirect("/dashboard");
+    redirect("/dashboard/access-denied");
   }
 
   const canCreate = hasPermission(userRole, "staff:create");

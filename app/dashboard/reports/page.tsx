@@ -20,7 +20,7 @@ export default async function ReportsPage() {
 
   // Check permission to view reports
   if (!hasPermission(userRole, "reports:view")) {
-    redirect("/dashboard");
+    redirect("/dashboard/access-denied");
   }
 
   // Get timezone first, then compute month range for initial report data

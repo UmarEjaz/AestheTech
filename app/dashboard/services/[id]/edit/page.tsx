@@ -25,7 +25,7 @@ export default async function EditServicePage({ params }: PageProps) {
   const canManage = hasPermission(userRole, "services:manage");
 
   if (!canManage) {
-    redirect("/dashboard/services");
+    redirect("/dashboard/access-denied");
   }
 
   const [serviceResult, categoriesResult] = await Promise.all([

@@ -20,7 +20,7 @@ export default async function NewServicePage() {
   const canManage = hasPermission(userRole, "services:manage");
 
   if (!canManage) {
-    redirect("/dashboard/services");
+    redirect("/dashboard/access-denied");
   }
 
   const categoriesResult = await getAllCategories();

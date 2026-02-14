@@ -18,7 +18,7 @@ export default async function NewStaffPage() {
   const userRole = session.user.role as Role;
 
   if (!hasPermission(userRole, "staff:create")) {
-    redirect("/dashboard/staff");
+    redirect("/dashboard/access-denied");
   }
 
   return (
