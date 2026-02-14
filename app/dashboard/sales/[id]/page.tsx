@@ -45,7 +45,7 @@ export default async function SaleDetailPage({
   const userRole = session.user.role as Role;
 
   if (!hasPermission(userRole, "sales:view")) {
-    redirect("/dashboard");
+    redirect("/dashboard/access-denied");
   }
 
   const { id } = await params;

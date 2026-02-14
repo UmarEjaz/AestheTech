@@ -24,7 +24,7 @@ export default async function EditStaffPage({
   const userRole = session.user.role as Role;
 
   if (!hasPermission(userRole, "staff:update")) {
-    redirect("/dashboard/staff");
+    redirect("/dashboard/access-denied");
   }
 
   const result = await getUserById(id);

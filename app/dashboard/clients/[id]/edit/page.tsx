@@ -25,7 +25,7 @@ export default async function EditClientPage({ params }: PageProps) {
   const canEdit = hasPermission(userRole, "clients:update");
 
   if (!canEdit) {
-    redirect(`/dashboard/clients/${id}`);
+    redirect("/dashboard/access-denied");
   }
 
   const result = await getClient(id);

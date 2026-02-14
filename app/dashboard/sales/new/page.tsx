@@ -19,7 +19,7 @@ export default async function NewSalePage() {
   const userRole = session.user.role as Role;
 
   if (!hasPermission(userRole, "sales:create")) {
-    redirect("/dashboard");
+    redirect("/dashboard/access-denied");
   }
 
   // Fetch all required data in parallel

@@ -25,7 +25,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
   const canCreate = hasPermission(userRole, "appointments:create");
 
   if (!canCreate) {
-    redirect("/dashboard/appointments");
+    redirect("/dashboard/access-denied");
   }
 
   // Fetch clients, services, and staff for the form

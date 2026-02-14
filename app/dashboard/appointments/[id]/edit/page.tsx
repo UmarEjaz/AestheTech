@@ -26,7 +26,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   const canUpdate = hasPermission(userRole, "appointments:update");
 
   if (!canUpdate) {
-    redirect("/dashboard/appointments");
+    redirect("/dashboard/access-denied");
   }
 
   // Fetch appointment

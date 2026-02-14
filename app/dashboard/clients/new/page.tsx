@@ -19,7 +19,7 @@ export default async function NewClientPage() {
   const canCreate = hasPermission(userRole, "clients:create");
 
   if (!canCreate) {
-    redirect("/dashboard/clients");
+    redirect("/dashboard/access-denied");
   }
 
   return (

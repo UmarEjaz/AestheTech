@@ -75,7 +75,7 @@ export default async function StaffDetailPage({
   const userRole = session.user.role as Role;
 
   if (!hasPermission(userRole, "staff:view")) {
-    redirect("/dashboard");
+    redirect("/dashboard/access-denied");
   }
 
   const canEdit = hasPermission(userRole, "staff:update");
