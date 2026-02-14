@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import {
   Search,
   Plus,
@@ -37,6 +37,9 @@ interface SalesTableProps {
   initialTotalPages: number;
   canCreate?: boolean;
   currencySymbol: string;
+  timezone: string;
+  todaysSalesCount: number;
+  todaysRevenue: number;
   fetchSales: (params: {
     query?: string;
     page?: number;
@@ -60,6 +63,9 @@ export function SalesTable({
   initialTotalPages,
   canCreate = false,
   currencySymbol,
+  timezone,
+  todaysSalesCount,
+  todaysRevenue,
   fetchSales,
 }: SalesTableProps) {
   const router = useRouter();
@@ -71,13 +77,7 @@ export function SalesTable({
   const [loading, setLoading] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Calculate today's stats
-  const todaysSales = sales.filter((sale) => {
-    const saleDate = new Date(sale.createdAt);
-    const today = new Date();
-    return saleDate.toDateString() === today.toDateString();
-  });
-  const todaysRevenue = todaysSales.reduce((sum, sale) => sum + Number(sale.finalAmount), 0);
+  // Today's stats come from server-side aggregation (props) for accuracy across all pages
 
   const loadSales = useCallback(async (search: string, pageNum: number) => {
     setLoading(true);
@@ -178,7 +178,7 @@ export function SalesTable({
               <Calendar className="h-5 w-5 text-blue-600" />
               <div>
                 <p className="text-sm font-medium">Today&apos;s Sales</p>
-                <p className="text-2xl font-bold">{todaysSales.length}</p>
+                <p className="text-2xl font-bold">{todaysSalesCount}</p>
               </div>
             </div>
           </CardContent>
@@ -190,6 +190,7 @@ export function SalesTable({
               <div>
                 <p className="text-sm font-medium">Today&apos;s Revenue</p>
                 <p className="text-2xl font-bold">{currencySymbol}{todaysRevenue.toFixed(2)}</p>
+
               </div>
             </div>
           </CardContent>
@@ -338,10 +339,10 @@ export function SalesTable({
                     <TableCell>{getStatusBadge(sale)}</TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">
-                        {format(new Date(sale.createdAt), "MMM d, yyyy")}
+                        {formatInTz(sale.createdAt, "MMM d, yyyy", timezone)}
                       </span>
                       <p className="text-xs text-muted-foreground">
-                        {format(new Date(sale.createdAt), "h:mm a")}
+                        {formatInTz(sale.createdAt, "h:mm a", timezone)}
                       </p>
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>

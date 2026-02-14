@@ -15,7 +15,7 @@ import {
   Heart,
 } from "lucide-react";
 import Link from "next/link";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,6 +63,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const client = result.data;
   const settings = settingsResult.success ? settingsResult.data : null;
   const loyaltyEnabled = settings?.loyaltyProgramEnabled ?? true;
+  const tz = settings?.timezone ?? "UTC";
   const thresholds = {
     goldThreshold: settings?.goldThreshold ?? 500,
     platinumThreshold: settings?.platinumThreshold ?? 1000,
@@ -219,10 +220,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {format(new Date(client.createdAt), "MMM yyyy")}
+                {formatInTz(client.createdAt, "MMM yyyy", tz)}
               </div>
               <p className="text-xs text-muted-foreground">
-                {format(new Date(client.createdAt), "PP")}
+                {formatInTz(client.createdAt, "PP", tz)}
               </p>
             </CardContent>
           </Card>
@@ -235,12 +236,13 @@ export default async function ClientDetailPage({ params }: PageProps) {
             tier={client.loyaltyPoints?.tier ?? "SILVER"}
             transactions={client.loyaltyTransactions}
             thresholds={thresholds}
+            timezone={tz}
           />
         )}
 
         {/* Recurring Appointments */}
         {client.recurringSeries && client.recurringSeries.length > 0 && (
-          <RecurringSeriesCard series={client.recurringSeries} clientId={client.id} canManage={canEdit} />
+          <RecurringSeriesCard series={client.recurringSeries} clientId={client.id} canManage={canEdit} timezone={tz} />
         )}
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -256,7 +258,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
                   <div>
                     <p className="text-sm font-medium">Birthday</p>
                     <p className="text-sm text-muted-foreground">
-                      {format(new Date(client.birthday), "MMMM d, yyyy")}
+                      {formatInTz(client.birthday, "MMMM d, yyyy", tz)}
                     </p>
                   </div>
                 </div>
@@ -341,10 +343,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium">
-                          {format(new Date(appointment.startTime), "MMM d, yyyy")}
+                          {formatInTz(appointment.startTime, "MMM d, yyyy", tz)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {format(new Date(appointment.startTime), "h:mm a")}
+                          {formatInTz(appointment.startTime, "h:mm a", tz)}
                         </p>
                         <Badge
                           variant={
@@ -387,7 +389,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
                         {sale.items.map((item) => item.service.name).join(", ")}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {format(new Date(sale.createdAt), "MMM d, yyyy")}
+                        {formatInTz(sale.createdAt, "MMM d, yyyy", tz)}
                       </p>
                     </div>
                     <div className="text-right">

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { DashboardWidgets } from "@/components/dashboard/dashboard-widgets";
 import { getDashboardStats } from "@/lib/actions/dashboard";
+import { getTimezone } from "@/lib/actions/settings";
 import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
 
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
   const userRole = user.role as Role;
   const canViewReports = hasPermission(userRole, "reports:view");
 
-  const statsResult = await getDashboardStats();
+  const [statsResult, tz] = await Promise.all([getDashboardStats(), getTimezone()]);
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -52,7 +53,7 @@ export default async function DashboardPage() {
 
         {/* Dashboard Widgets with Real Data */}
         {statsResult.success ? (
-          <DashboardWidgets stats={statsResult.data} />
+          <DashboardWidgets stats={statsResult.data} timezone={tz} />
         ) : (
           <Card>
             <CardContent className="p-6 text-center">

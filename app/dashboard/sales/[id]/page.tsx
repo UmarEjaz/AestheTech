@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { Role } from "@prisma/client";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -67,7 +67,9 @@ export default async function SaleDetailPage({
     salonEmail: null,
     salonLogo: null,
     taxRate: 0,
+    timezone: "UTC",
   };
+  const tz = settings.timezone;
 
   const getInitials = (firstName: string, lastName: string | null) => {
     return `${firstName[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
@@ -86,6 +88,7 @@ export default async function SaleDetailPage({
         salonLogo: settings.salonLogo,
         currencySymbol: settings.currencySymbol,
         taxRate: settings.taxRate,
+        timezone: tz,
         client: {
           firstName: sale.client.firstName,
           lastName: sale.client.lastName,
@@ -277,7 +280,7 @@ export default async function SaleDetailPage({
                       {invoiceRefunds.map((refund) => (
                         <TableRow key={refund.id}>
                           <TableCell>
-                            {format(new Date(refund.createdAt), "MMM d, yyyy h:mm a")}
+                            {formatInTz(refund.createdAt, "MMM d, yyyy h:mm a", tz)}
                           </TableCell>
                           <TableCell className="text-red-600 font-medium">
                             -{settings.currencySymbol}{Number(refund.amount).toFixed(2)}
@@ -387,11 +390,11 @@ export default async function SaleDetailPage({
               <CardContent className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Date</span>
-                  <span>{format(new Date(sale.createdAt), "MMM d, yyyy")}</span>
+                  <span>{formatInTz(sale.createdAt, "MMM d, yyyy", tz)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Time</span>
-                  <span>{format(new Date(sale.createdAt), "h:mm a")}</span>
+                  <span>{formatInTz(sale.createdAt, "h:mm a", tz)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Staff</span>

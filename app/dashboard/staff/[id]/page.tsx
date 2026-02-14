@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
+import { getTimezone } from "@/lib/actions/settings";
 import {
   ArrowLeft,
   Mail,
@@ -79,7 +80,7 @@ export default async function StaffDetailPage({
 
   const canEdit = hasPermission(userRole, "staff:update");
 
-  const result = await getUserById(id);
+  const [result, tz] = await Promise.all([getUserById(id), getTimezone()]);
 
   if (!result.success) {
     notFound();
@@ -165,7 +166,7 @@ export default async function StaffDetailPage({
               )}
               <div className="flex items-center gap-2 text-sm">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span>Joined {format(new Date(user.createdAt), "MMMM d, yyyy")}</span>
+                <span>Joined {formatInTz(user.createdAt, "MMMM d, yyyy", tz)}</span>
               </div>
             </CardContent>
           </Card>
@@ -253,11 +254,11 @@ export default async function StaffDetailPage({
                       <TableCell>
                         <div>
                           <p className="font-medium">
-                            {format(new Date(appointment.startTime), "MMM d, yyyy")}
+                            {formatInTz(appointment.startTime, "MMM d, yyyy", tz)}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {format(new Date(appointment.startTime), "h:mm a")} -{" "}
-                            {format(new Date(appointment.endTime), "h:mm a")}
+                            {formatInTz(appointment.startTime, "h:mm a", tz)} -{" "}
+                            {formatInTz(appointment.endTime, "h:mm a", tz)}
                           </p>
                         </div>
                       </TableCell>

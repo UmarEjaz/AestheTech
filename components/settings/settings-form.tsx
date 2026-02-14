@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Building2, Clock, DollarSign, Star } from "lucide-react";
+import { useMemo } from "react";
+import { Loader2, Building2, Clock, DollarSign, Star, Globe } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const settingsSchema = z.object({
   salonAddress: z.string().max(200).optional().nullable(),
   salonPhone: z.string().max(20).optional().nullable(),
   salonEmail: z.string().email().optional().or(z.literal("")).nullable(),
+  timezone: z.string().min(1, "Timezone is required"),
   currency: z.nativeEnum(Currency),
   taxRate: z.coerce.number().min(0).max(100),
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
@@ -59,6 +61,7 @@ type SettingsFormData = {
   salonAddress?: string | null;
   salonPhone?: string | null;
   salonEmail?: string | null;
+  timezone: string;
   currency: Currency;
   taxRate: number;
   businessHoursStart: string;
@@ -104,6 +107,20 @@ function generateTimeOptions() {
 
 const timeOptions = generateTimeOptions();
 
+function getTimezoneOptions() {
+  const timezones = Intl.supportedValuesOf("timeZone");
+  return timezones.map((tz) => {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      timeZoneName: "shortOffset",
+    });
+    const parts = formatter.formatToParts(now);
+    const offset = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+    return { value: tz, label: `(${offset}) ${tz.replace(/_/g, " ")}` };
+  });
+}
+
 export function SettingsForm({ settings, canManage }: SettingsFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -121,6 +138,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       salonAddress: settings.salonAddress || "",
       salonPhone: settings.salonPhone || "",
       salonEmail: settings.salonEmail || "",
+      timezone: settings.timezone,
       currency: settings.currency,
       taxRate: settings.taxRate,
       businessHoursStart: settings.businessHoursStart,
@@ -142,8 +160,11 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
   });
 
   const watchedCurrency = watch("currency");
+  const watchedTimezone = watch("timezone");
   const watchedBusinessHoursStart = watch("businessHoursStart");
   const watchedBusinessHoursEnd = watch("businessHoursEnd");
+
+  const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
   const onSubmit = async (data: SettingsFormData) => {
     if (!canManage) {
@@ -238,6 +259,34 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               placeholder="123 Main St, City, State 12345"
               disabled={!canManage}
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="timezone" className="flex items-center gap-1.5">
+              <Globe className="h-4 w-4" />
+              Timezone
+            </Label>
+            <Select
+              value={watchedTimezone}
+              onValueChange={(value) => setValue("timezone", value, { shouldDirty: true })}
+              disabled={!canManage}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select timezone" />
+              </SelectTrigger>
+              <SelectContent>
+                {timezoneOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.timezone && (
+              <p className="text-sm text-destructive">{errors.timezone.message}</p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              All dates and times in the app will be shown in this timezone
+            </p>
           </div>
         </CardContent>
       </Card>

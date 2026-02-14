@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffTable } from "@/components/staff/staff-table";
 import { getUsers } from "@/lib/actions/user";
+import { getTimezone } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
 export default async function StaffPage() {
@@ -24,7 +25,10 @@ export default async function StaffPage() {
   const canEdit = hasPermission(userRole, "staff:update");
   const canDelete = hasPermission(userRole, "staff:delete");
 
-  const usersResult = await getUsers({ page: 1, limit: 15 });
+  const [usersResult, tz] = await Promise.all([
+    getUsers({ page: 1, limit: 15 }),
+    getTimezone(),
+  ]);
 
   if (!usersResult.success) {
     return (
@@ -58,6 +62,7 @@ export default async function StaffPage() {
           canCreate={canCreate}
           canEdit={canEdit}
           canDelete={canDelete}
+          timezone={tz}
           fetchUsers={getUsers}
         />
       </div>

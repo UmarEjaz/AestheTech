@@ -13,21 +13,22 @@ import { toast } from "sonner";
 import { ReportData } from "@/lib/actions/dashboard";
 import { downloadCSV, ExportColumn, formatCurrencyForExport } from "@/lib/export-utils";
 import { downloadReportPDF } from "./report-pdf";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 
 interface ExportButtonsProps {
   data: ReportData;
   startDate: Date;
   endDate: Date;
+  timezone: string;
 }
 
-export function ExportButtons({ data, startDate, endDate }: ExportButtonsProps) {
+export function ExportButtons({ data, startDate, endDate, timezone }: ExportButtonsProps) {
   const [isExporting, setIsExporting] = useState(false);
 
   const handleExportPDF = async () => {
     setIsExporting(true);
     try {
-      await downloadReportPDF(data, startDate, endDate);
+      await downloadReportPDF(data, startDate, endDate, undefined, timezone);
       toast.success("PDF report downloaded successfully");
     } catch (error) {
       console.error("Error exporting PDF:", error);
@@ -39,12 +40,12 @@ export function ExportButtons({ data, startDate, endDate }: ExportButtonsProps) 
 
   const handleExportRevenueCSV = () => {
     const columns: ExportColumn<typeof data.revenueByDay[0]>[] = [
-      { header: "Date", accessor: (row) => format(new Date(row.date), "MMM d, yyyy") },
+      { header: "Date", accessor: (row) => formatInTz(row.date, "MMM d, yyyy", timezone) },
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencySymbol) },
       { header: "Sales Count", accessor: "salesCount" },
     ];
 
-    downloadCSV(data.revenueByDay, columns, `revenue-by-day-${format(startDate, "yyyy-MM-dd")}`);
+    downloadCSV(data.revenueByDay, columns, `revenue-by-day-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
     toast.success("Revenue data exported to CSV");
   };
 
@@ -55,7 +56,7 @@ export function ExportButtons({ data, startDate, endDate }: ExportButtonsProps) 
       { header: "Percentage", accessor: (row) => `${row.percentage}%` },
     ];
 
-    downloadCSV(data.revenueByService, columns, `revenue-by-service-${format(startDate, "yyyy-MM-dd")}`);
+    downloadCSV(data.revenueByService, columns, `revenue-by-service-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
     toast.success("Services data exported to CSV");
   };
 
@@ -66,7 +67,7 @@ export function ExportButtons({ data, startDate, endDate }: ExportButtonsProps) 
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencySymbol) },
     ];
 
-    downloadCSV(data.revenueByStaff, columns, `staff-performance-${format(startDate, "yyyy-MM-dd")}`);
+    downloadCSV(data.revenueByStaff, columns, `staff-performance-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
     toast.success("Staff performance data exported to CSV");
   };
 
@@ -76,7 +77,7 @@ export function ExportButtons({ data, startDate, endDate }: ExportButtonsProps) 
       { header: "Count", accessor: "count" },
     ];
 
-    downloadCSV(data.appointmentsByStatus, columns, `appointments-by-status-${format(startDate, "yyyy-MM-dd")}`);
+    downloadCSV(data.appointmentsByStatus, columns, `appointments-by-status-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
     toast.success("Appointments data exported to CSV");
   };
 
@@ -86,18 +87,18 @@ export function ExportButtons({ data, startDate, endDate }: ExportButtonsProps) 
       { header: "Appointments", accessor: "count" },
     ];
 
-    downloadCSV(data.peakHours, columns, `peak-hours-${format(startDate, "yyyy-MM-dd")}`);
+    downloadCSV(data.peakHours, columns, `peak-hours-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
     toast.success("Peak hours data exported to CSV");
   };
 
   const handleExportClientGrowthCSV = () => {
     const columns: ExportColumn<typeof data.clientGrowth[0]>[] = [
-      { header: "Date", accessor: (row) => format(new Date(row.date), "MMM d, yyyy") },
+      { header: "Date", accessor: (row) => formatInTz(row.date, "MMM d, yyyy", timezone) },
       { header: "New Clients", accessor: "newClients" },
       { header: "Total Clients", accessor: "totalClients" },
     ];
 
-    downloadCSV(data.clientGrowth, columns, `client-growth-${format(startDate, "yyyy-MM-dd")}`);
+    downloadCSV(data.clientGrowth, columns, `client-growth-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
     toast.success("Client growth data exported to CSV");
   };
 

@@ -3,8 +3,17 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 import { Role, AppointmentStatus } from "@prisma/client";
 import { getSettings } from "./settings";
+import {
+  getNow,
+  getTodayRange,
+  getWeekRange,
+  getMonthRange,
+  toSalonTz,
+  formatInTz,
+} from "@/lib/utils/timezone";
 
 export type ActionResult<T = void> =
   | { success: true; data: T }
@@ -14,35 +23,6 @@ async function checkAuth(): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
   if (!session?.user) return null;
   return { userId: session.user.id, role: session.user.role as Role };
-}
-
-// Get today's date range
-function getTodayRange() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return { start: today, end: tomorrow };
-}
-
-// Get this week's date range
-function getWeekRange() {
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - dayOfWeek);
-  startOfWeek.setHours(0, 0, 0, 0);
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 7);
-  return { start: startOfWeek, end: endOfWeek };
-}
-
-// Get this month's date range
-function getMonthRange() {
-  const today = new Date();
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
-  return { start: startOfMonth, end: endOfMonth };
 }
 
 // Dashboard stats
@@ -99,18 +79,19 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
   }
 
   try {
-    const { start: todayStart, end: todayEnd } = getTodayRange();
-    const { start: weekStart } = getWeekRange();
-    const { start: monthStart } = getMonthRange();
-
-    // Yesterday's range for comparison
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    const yesterdayEnd = new Date(todayStart);
-
-    // Get settings for currency
+    // Get settings for currency and timezone
     const settingsResult = await getSettings();
     const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+    const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
+
+    const { start: todayStart, end: todayEnd } = getTodayRange(tz);
+    const { start: weekStart } = getWeekRange(tz);
+    const { start: monthStart } = getMonthRange(tz);
+
+    // Yesterday's range for comparison (timezone-aware to handle DST transitions)
+    const yesterdayInTz = subDays(getNow(tz), 1);
+    const yesterdayStart = new Date(startOfDay(yesterdayInTz).toISOString());
+    const yesterdayEnd = new Date(endOfDay(yesterdayInTz).toISOString());
 
     // Fetch all stats in parallel
     const [
@@ -357,9 +338,10 @@ export async function getReportData(params: {
   const { startDate, endDate } = params;
 
   try {
-    // Get settings for currency
+    // Get settings for currency and timezone
     const settingsResult = await getSettings();
     const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+    const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
     // Fetch all report data in parallel
     const [
@@ -417,7 +399,7 @@ export async function getReportData(params: {
     // Revenue by day
     const revenueByDayMap = new Map<string, { revenue: number; salesCount: number }>();
     salesData.forEach((sale) => {
-      const dateKey = sale.createdAt.toISOString().split("T")[0];
+      const dateKey = formatInTz(sale.createdAt, "yyyy-MM-dd", tz);
       const existing = revenueByDayMap.get(dateKey) || { revenue: 0, salesCount: 0 };
       existing.revenue += Number(sale.finalAmount);
       existing.salesCount += 1;
@@ -474,7 +456,7 @@ export async function getReportData(params: {
     // Client growth (cumulative)
     const clientGrowthMap = new Map<string, number>();
     clientsData.forEach((client) => {
-      const dateKey = client.createdAt.toISOString().split("T")[0];
+      const dateKey = formatInTz(client.createdAt, "yyyy-MM-dd", tz);
       clientGrowthMap.set(dateKey, (clientGrowthMap.get(dateKey) || 0) + 1);
     });
 
@@ -494,7 +476,7 @@ export async function getReportData(params: {
     // Peak hours
     const hourCountMap = new Map<number, number>();
     appointmentsData.forEach((apt) => {
-      const hour = new Date(apt.startTime).getHours();
+      const hour = toSalonTz(apt.startTime, tz).getHours();
       hourCountMap.set(hour, (hourCountMap.get(hour) || 0) + 1);
     });
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import { toast } from "sonner";
 import { Repeat, Calendar, Clock, User, XCircle, Settings2, Download } from "lucide-react";
 import { RecurrencePattern, RecurrenceEndType, AppointmentStatus } from "@prisma/client";
@@ -75,11 +75,12 @@ interface RecurringSeriesCardProps {
   series: RecurringSeries[];
   clientId: string;
   canManage?: boolean;
+  timezone: string;
 }
 
 const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-export function RecurringSeriesCard({ series, clientId, canManage = false }: RecurringSeriesCardProps) {
+export function RecurringSeriesCard({ series, clientId, canManage = false, timezone }: RecurringSeriesCardProps) {
   const router = useRouter();
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [managingSeries, setManagingSeries] = useState<RecurringSeries | null>(null);
@@ -185,7 +186,7 @@ export function RecurringSeriesCard({ series, clientId, canManage = false }: Rec
                 <div className="text-sm text-muted-foreground space-y-1">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    {dayNames[s.dayOfWeek]}s at {format(new Date(`2000-01-01T${s.timeOfDay}`), "h:mm a")}
+                    {dayNames[s.dayOfWeek]}s at {formatInTz(new Date(`2000-01-01T${s.timeOfDay}:00Z`), "h:mm a", "UTC")}
                   </div>
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4" />
@@ -205,7 +206,7 @@ export function RecurringSeriesCard({ series, clientId, canManage = false }: Rec
                     <div className="flex flex-wrap gap-2">
                       {s.appointments.map((apt) => (
                         <Badge key={apt.id} variant="outline" className="text-xs">
-                          {format(new Date(apt.startTime), "MMM d")}
+                          {formatInTz(apt.startTime, "MMM d", timezone)}
                         </Badge>
                       ))}
                     </div>
@@ -292,6 +293,7 @@ export function RecurringSeriesCard({ series, clientId, canManage = false }: Rec
                 })),
               }}
               onDataChange={handleDataChange}
+              timezone={timezone}
             />
           )}
         </DialogContent>

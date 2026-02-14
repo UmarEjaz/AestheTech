@@ -9,7 +9,7 @@ import {
   pdf,
 } from "@react-pdf/renderer";
 import { ReportData } from "@/lib/actions/dashboard";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 
 // PDF Styles
 const styles = StyleSheet.create({
@@ -118,10 +118,11 @@ interface ReportPDFProps {
   startDate: Date;
   endDate: Date;
   salonName?: string;
+  timezone?: string;
 }
 
 // PDF Document Component
-function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech Salon" }: ReportPDFProps) {
+function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech Salon", timezone = "UTC" }: ReportPDFProps) {
   const formatCurrency = (value: number) => `${data.currencySymbol}${value.toFixed(2)}`;
 
   return (
@@ -132,7 +133,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
           <Text style={styles.title}>{salonName}</Text>
           <Text style={styles.subtitle}>Business Performance Report</Text>
           <Text style={styles.dateRange}>
-            {format(startDate, "MMMM d, yyyy")} - {format(endDate, "MMMM d, yyyy")}
+            {formatInTz(startDate, "MMMM d, yyyy", timezone)} - {formatInTz(endDate, "MMMM d, yyyy", timezone)}
           </Text>
         </View>
 
@@ -241,7 +242,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
 
         {/* Footer */}
         <Text style={styles.footer}>
-          Generated on {format(new Date(), "MMMM d, yyyy 'at' h:mm a")} | AestheTech Salon Management System
+          Generated on {formatInTz(new Date(), "MMMM d, yyyy 'at' h:mm a", timezone)} | AestheTech Salon Management System
         </Text>
       </Page>
     </Document>
@@ -253,15 +254,16 @@ export async function downloadReportPDF(
   data: ReportData,
   startDate: Date,
   endDate: Date,
-  salonName?: string
+  salonName?: string,
+  timezone: string = "UTC"
 ): Promise<void> {
-  const doc = <ReportPDFDocument data={data} startDate={startDate} endDate={endDate} salonName={salonName} />;
+  const doc = <ReportPDFDocument data={data} startDate={startDate} endDate={endDate} salonName={salonName} timezone={timezone} />;
   const blob = await pdf(doc).toBlob();
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `report-${format(startDate, "yyyy-MM-dd")}-to-${format(endDate, "yyyy-MM-dd")}.pdf`;
+  link.download = `report-${formatInTz(startDate, "yyyy-MM-dd", timezone)}-to-${formatInTz(endDate, "yyyy-MM-dd", timezone)}.pdf`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

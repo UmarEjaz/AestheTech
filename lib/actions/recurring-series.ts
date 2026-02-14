@@ -22,6 +22,8 @@ import {
 } from "@/lib/validations/appointment";
 import { Role, Prisma, RecurrencePattern, RecurrenceEndType } from "@prisma/client";
 import { format, startOfDay, isBefore, addMonths } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
+import { getTimezone } from "@/lib/actions/settings";
 import {
   calculateRecurringDates,
   RecurringDateConfig,
@@ -155,6 +157,7 @@ export async function createRecurringSeries(
   }
 
   const validData = validationResult.data;
+  const tz = await getTimezone();
 
   try {
     // Verify client, service, and staff exist and are active
@@ -234,7 +237,7 @@ export async function createRecurringSeries(
       // Check if user explicitly chose to skip this date
       if (userSkipDates.has(dateKey)) {
         skippedDates.push({
-          date: format(date, "MMM d, yyyy"),
+          date: formatInTz(date, "MMM d, yyyy", tz),
           reason: "Skipped by user",
         });
         continue;
@@ -252,7 +255,7 @@ export async function createRecurringSeries(
         const altHasConflict = await checkConflict(altStaffId, altStartTime, altEndTime);
         if (altHasConflict) {
           skippedDates.push({
-            date: format(date, "MMM d, yyyy"),
+            date: formatInTz(date, "MMM d, yyyy", tz),
             reason: "Alternative slot no longer available",
           });
           continue;
@@ -284,7 +287,7 @@ export async function createRecurringSeries(
 
       if (hasConflict) {
         skippedDates.push({
-          date: format(date, "MMM d, yyyy"),
+          date: formatInTz(date, "MMM d, yyyy", tz),
           reason: "Time slot conflict",
         });
         continue;
@@ -491,6 +494,7 @@ export async function updateSeriesAppointments(
   }
 
   const { staffId, timeOfDay, notes, bufferMinutes } = validationResult.data;
+  const tz = await getTimezone();
 
   try {
     const series = await prisma.recurringAppointmentSeries.findUnique({
@@ -551,7 +555,7 @@ export async function updateSeriesAppointments(
           appointmentUpdateData.endTime = newEndTime;
         } else {
           // Track skipped appointments so user knows which couldn't be rescheduled
-          skippedDueToConflict.push(format(new Date(appointment.startTime), "MMM d, yyyy"));
+          skippedDueToConflict.push(formatInTz(appointment.startTime, "MMM d, yyyy", tz));
         }
       }
 
@@ -773,6 +777,7 @@ export async function extendSeries(
   }
 
   const { seriesId, additionalMonths } = validationResult.data;
+  const tz = await getTimezone();
 
   try {
     const series = await prisma.recurringAppointmentSeries.findUnique({
@@ -869,7 +874,7 @@ export async function extendSeries(
       const hasConflict = await checkConflict(series.staffId, startTime, endTime);
 
       if (hasConflict) {
-        skippedDates.push(format(date, "MMM d, yyyy"));
+        skippedDates.push(formatInTz(date, "MMM d, yyyy", tz));
         continue;
       }
 

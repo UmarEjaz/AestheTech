@@ -1,6 +1,6 @@
 "use client";
 
-import { format } from "date-fns";
+import { formatInTz, getNow } from "@/lib/utils/timezone";
 import {
   Gift,
   TrendingUp,
@@ -46,6 +46,7 @@ interface LoyaltyDashboardProps {
   tier: LoyaltyTier;
   transactions: LoyaltyTransaction[];
   thresholds: TierThresholds;
+  timezone: string;
 }
 
 const tierColors: Record<LoyaltyTier, string> = {
@@ -82,13 +83,14 @@ export function LoyaltyDashboard({
   tier,
   transactions,
   thresholds,
+  timezone,
 }: LoyaltyDashboardProps) {
   const stats = calculateLoyaltyStats(transactions);
   const nextTier = getNextTier(tier);
   const progress = getTierProgress(balance, tier, thresholds);
   const pointsNeeded = getPointsToNextTier(balance, tier, thresholds);
-  const birthdayBonusReceived = hasReceivedBirthdayBonusThisYear(transactions);
-  const currentYear = new Date().getFullYear();
+  const birthdayBonusReceived = hasReceivedBirthdayBonusThisYear(transactions, timezone);
+  const currentYear = getNow(timezone).getFullYear();
 
   // Points expiring within 30 days (use UTC timestamps for consistency with DB dates)
   const nowMs = Date.now();
@@ -235,11 +237,11 @@ export function LoyaltyDashboard({
                         </TableCell>
                         <TableCell className="hidden md:table-cell text-xs text-muted-foreground">
                           {tx.expiresAt
-                            ? format(new Date(tx.expiresAt), "MMM d, yyyy")
+                            ? formatInTz(tx.expiresAt, "MMM d, yyyy", timezone)
                             : "-"}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                          {format(new Date(tx.createdAt), "MMM d, yyyy")}
+                          {formatInTz(tx.createdAt, "MMM d, yyyy", timezone)}
                         </TableCell>
                       </TableRow>
                     );

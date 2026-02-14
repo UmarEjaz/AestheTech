@@ -1,6 +1,6 @@
 "use client";
 
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import Link from "next/link";
 import {
   Calendar,
@@ -22,9 +22,10 @@ import { DashboardStats } from "@/lib/actions/dashboard";
 
 interface DashboardWidgetsProps {
   stats: DashboardStats;
+  timezone: string;
 }
 
-export function DashboardWidgets({ stats }: DashboardWidgetsProps) {
+export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
   const {
     todaysAppointments,
     todaysRevenue,
@@ -177,7 +178,7 @@ export function DashboardWidgets({ stats }: DashboardWidgetsProps) {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium">
-                      {format(new Date(apt.startTime), "h:mm a")}
+                      {formatInTz(apt.startTime, "h:mm a", timezone)}
                     </p>
                     <Badge className={`text-xs ${getStatusColor(apt.status)}`}>
                       {apt.status.toLowerCase()}
@@ -230,7 +231,7 @@ export function DashboardWidgets({ stats }: DashboardWidgetsProps) {
                       {currencySymbol}{sale.amount.toFixed(2)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {format(new Date(sale.createdAt), "h:mm a")}
+                      {formatInTz(sale.createdAt, "h:mm a", timezone)}
                     </p>
                   </div>
                 </div>

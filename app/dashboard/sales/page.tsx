@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { SalesTable } from "@/components/sales/sales-table";
-import { getSales } from "@/lib/actions/sale";
+import { getSales, getTodaysSalesSummary } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
@@ -17,9 +17,10 @@ export default async function SalesPage() {
   const userRole = session.user.role as Role;
   const canCreate = hasPermission(userRole, "sales:create");
 
-  const [salesResult, settingsResult] = await Promise.all([
+  const [salesResult, settingsResult, todaySummaryResult] = await Promise.all([
     getSales({ page: 1, limit: 15 }),
     getSettings(),
+    getTodaysSalesSummary(),
   ]);
 
   if (!salesResult.success) {
@@ -34,9 +35,13 @@ export default async function SalesPage() {
 
   const settings = settingsResult.success ? settingsResult.data : {
     currencySymbol: "$",
+    timezone: "UTC",
   };
 
   const { sales, total, page, totalPages } = salesResult.data;
+  const todaySummary = todaySummaryResult.success
+    ? todaySummaryResult.data
+    : { count: 0, revenue: 0, averageTicket: 0 };
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -57,7 +62,10 @@ export default async function SalesPage() {
           initialTotalPages={totalPages}
           canCreate={canCreate}
           currencySymbol={settings.currencySymbol}
+          timezone={settings.timezone}
           fetchSales={getSales}
+          todaysSalesCount={todaySummary.count}
+          todaysRevenue={todaySummary.revenue}
         />
       </div>
     </DashboardLayout>

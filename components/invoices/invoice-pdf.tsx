@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Image,
 } from "@react-pdf/renderer";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 
 // Define styles
 const styles = StyleSheet.create({
@@ -199,6 +199,7 @@ export interface InvoicePDFData {
   salonLogo: string | null;
   currencySymbol: string;
   taxRate: number;
+  timezone: string;
   client: {
     firstName: string;
     lastName: string | null;
@@ -226,8 +227,8 @@ interface InvoicePDFProps {
 }
 
 export function InvoicePDF({ data }: InvoicePDFProps) {
-  const formattedDate = format(new Date(data.createdAt), "MMMM d, yyyy");
-  const formattedTime = format(new Date(data.createdAt), "h:mm a");
+  const formattedDate = formatInTz(data.createdAt, "MMMM d, yyyy", data.timezone);
+  const formattedTime = formatInTz(data.createdAt, "h:mm a", data.timezone);
 
   return (
     <Document>
@@ -407,7 +408,7 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
         <View style={styles.footer}>
           <Text>Thank you for choosing {data.salonName}!</Text>
           <Text style={{ marginTop: 4 }}>
-            Generated on {format(new Date(), "MMMM d, yyyy 'at' h:mm a")}
+            Generated on {formatInTz(new Date(), "MMMM d, yyyy 'at' h:mm a", data.timezone)}
           </Text>
         </View>
       </Page>

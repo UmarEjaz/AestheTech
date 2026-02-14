@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import {
   Search,
   Plus,
@@ -60,6 +60,7 @@ interface ClientTableProps {
   canEdit?: boolean;
   canDelete?: boolean;
   loyaltyEnabled?: boolean;
+  timezone: string;
   fetchClients: (params: {
     query?: string;
     page?: number;
@@ -86,6 +87,7 @@ export function ClientTable({
   canEdit = false,
   canDelete = false,
   loyaltyEnabled = true,
+  timezone,
   fetchClients,
 }: ClientTableProps) {
   const router = useRouter();
@@ -374,7 +376,7 @@ export function ClientTable({
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">
-                        {format(new Date(client.createdAt), "MMM d, yyyy")}
+                        {formatInTz(client.createdAt, "MMM d, yyyy", timezone)}
                       </span>
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
