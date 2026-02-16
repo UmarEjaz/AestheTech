@@ -116,6 +116,16 @@ export function CheckoutForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<string>(staff[0]?.id || "");
 
+  // Split payment state
+  interface SplitPayment {
+    method: PaymentMethod;
+    amount: number;
+  }
+  const [isSplitMode, setIsSplitMode] = useState(false);
+  const [splitPayments, setSplitPayments] = useState<SplitPayment[]>([]);
+  const [splitMethod, setSplitMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
+  const [splitAmount, setSplitAmount] = useState("");
+
   // Walk-in client state
   const [isWalkIn, setIsWalkIn] = useState(false);
   const [walkInName, setWalkInName] = useState("");
@@ -190,7 +200,35 @@ export function CheckoutForm({
     setCart(cart.filter((item) => item.id !== itemId));
   };
 
-  const handlePayment = async (method: PaymentMethod) => {
+  // Split payment helpers
+  const splitTotal = splitPayments.reduce((sum, p) => sum + p.amount, 0);
+  const splitRemaining = Math.round((total - splitTotal) * 100) / 100;
+  const isSplitComplete = Math.abs(splitRemaining) < 0.01;
+
+  const addSplitPayment = () => {
+    const amount = parseFloat(splitAmount);
+    if (!amount || amount <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+    if (amount > splitRemaining + 0.01) {
+      toast.error("Amount exceeds remaining balance");
+      return;
+    }
+    setSplitPayments([...splitPayments, { method: splitMethod, amount }]);
+    setSplitAmount("");
+    // Auto-fill next amount with remaining
+    const newRemaining = Math.round((splitRemaining - amount) * 100) / 100;
+    if (newRemaining > 0) {
+      setSplitAmount(newRemaining.toFixed(2));
+    }
+  };
+
+  const removeSplitPayment = (index: number) => {
+    setSplitPayments(splitPayments.filter((_, i) => i !== index));
+  };
+
+  const submitPayment = async (payments: SplitPayment[]) => {
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
@@ -241,8 +279,8 @@ export function CheckoutForm({
         })),
         discount,
         discountType,
-        payments: [{ method, amount: total }],
-        redeemPoints: isWalkIn ? 0 : redeemPoints, // Walk-ins can't redeem points
+        payments,
+        redeemPoints: isWalkIn ? 0 : redeemPoints,
       });
 
       if (result.success) {
@@ -263,6 +301,15 @@ export function CheckoutForm({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSinglePayment = (method: PaymentMethod) => {
+    submitPayment([{ method, amount: total }]);
+  };
+
+  const handleSplitComplete = () => {
+    if (!isSplitComplete) return;
+    submitPayment(splitPayments);
   };
 
   const getInitials = (firstName: string, lastName: string | null) => {
@@ -672,7 +719,7 @@ export function CheckoutForm({
             <Button
               className="w-full"
               size="lg"
-              disabled={!selectedClient || cart.length === 0}
+              disabled={(!selectedClient && !isWalkIn) || cart.length === 0}
               onClick={() => setIsPaymentOpen(true)}
             >
               <CreditCard className="h-4 w-4 mr-2" />
@@ -683,81 +730,223 @@ export function CheckoutForm({
       </div>
 
       {/* Payment Modal */}
-      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
+      <Dialog
+        open={isPaymentOpen}
+        onOpenChange={(open) => {
+          setIsPaymentOpen(open);
+          if (!open) {
+            setIsSplitMode(false);
+            setSplitPayments([]);
+            setSplitAmount("");
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Select Payment Method</DialogTitle>
+            <DialogTitle>
+              {isSplitMode ? "Split Payment" : "Select Payment Method"}
+            </DialogTitle>
             <DialogDescription>
               Total: {currencySymbol}{total.toFixed(2)}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 py-4">
-            <Button
-              variant="outline"
-              className="h-24 flex-col gap-2"
-              onClick={() => handlePayment(PaymentMethod.CASH)}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-8 w-8 animate-spin" />
-              ) : (
-                <>
-                  <Banknote className="h-8 w-8" />
-                  <span>Cash</span>
-                </>
+
+          {!isSplitMode ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 py-4">
+                <Button
+                  variant="outline"
+                  className="h-24 flex-col gap-2"
+                  onClick={() => handleSinglePayment(PaymentMethod.CASH)}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <>
+                      <Banknote className="h-8 w-8" />
+                      <span>Cash</span>
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-24 flex-col gap-2"
+                  onClick={() => handleSinglePayment(PaymentMethod.CARD)}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <>
+                      <CreditCard className="h-8 w-8" />
+                      <span>Card</span>
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-24 flex-col gap-2"
+                  onClick={() => handleSinglePayment(PaymentMethod.DIGITAL_WALLET)}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <>
+                      <Wallet className="h-8 w-8" />
+                      <span>Digital Wallet</span>
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-24 flex-col gap-2"
+                  onClick={() => handleSinglePayment(PaymentMethod.OTHER)}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <>
+                      <Receipt className="h-8 w-8" />
+                      <span>Other</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+              <DialogFooter className="flex-row justify-between sm:justify-between">
+                <Button
+                  variant="link"
+                  className="text-purple-600 px-0"
+                  onClick={() => {
+                    setIsSplitMode(true);
+                    setSplitAmount(total.toFixed(2));
+                  }}
+                  disabled={isSubmitting}
+                >
+                  Split Payment
+                </Button>
+                <Button variant="ghost" onClick={() => setIsPaymentOpen(false)} disabled={isSubmitting}>
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <div className="space-y-4 py-2">
+              {/* Added splits */}
+              {splitPayments.length > 0 && (
+                <div className="space-y-2">
+                  {splitPayments.map((payment, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-2 bg-muted/50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        {payment.method === "CASH" && <Banknote className="h-4 w-4" />}
+                        {payment.method === "CARD" && <CreditCard className="h-4 w-4" />}
+                        {payment.method === "DIGITAL_WALLET" && <Wallet className="h-4 w-4" />}
+                        {payment.method === "OTHER" && <Receipt className="h-4 w-4" />}
+                        <span className="text-sm font-medium">
+                          {payment.method === "DIGITAL_WALLET" ? "Digital Wallet" : payment.method.charAt(0) + payment.method.slice(1).toLowerCase()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">
+                          {currencySymbol}{payment.amount.toFixed(2)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-destructive"
+                          onClick={() => removeSplitPayment(index)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-24 flex-col gap-2"
-              onClick={() => handlePayment(PaymentMethod.CARD)}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-8 w-8 animate-spin" />
-              ) : (
-                <>
-                  <CreditCard className="h-8 w-8" />
-                  <span>Card</span>
-                </>
+
+              {/* Add new split row */}
+              {!isSplitComplete && (
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Label className="text-xs">Method</Label>
+                    <Select
+                      value={splitMethod}
+                      onValueChange={(v) => setSplitMethod(v as PaymentMethod)}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CASH">Cash</SelectItem>
+                        <SelectItem value="CARD">Card</SelectItem>
+                        <SelectItem value="DIGITAL_WALLET">Digital Wallet</SelectItem>
+                        <SelectItem value="OTHER">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-28">
+                    <Label className="text-xs">Amount</Label>
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={splitRemaining}
+                      value={splitAmount}
+                      onChange={(e) => setSplitAmount(e.target.value)}
+                      className="h-9"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    onClick={addSplitPayment}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
               )}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-24 flex-col gap-2"
-              onClick={() => handlePayment(PaymentMethod.DIGITAL_WALLET)}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-8 w-8 animate-spin" />
-              ) : (
-                <>
-                  <Wallet className="h-8 w-8" />
-                  <span>Digital Wallet</span>
-                </>
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-24 flex-col gap-2"
-              onClick={() => handlePayment(PaymentMethod.OTHER)}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-8 w-8 animate-spin" />
-              ) : (
-                <>
-                  <Receipt className="h-8 w-8" />
-                  <span>Other</span>
-                </>
-              )}
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsPaymentOpen(false)} disabled={isSubmitting}>
-              Cancel
-            </Button>
-          </DialogFooter>
+
+              {/* Remaining bar */}
+              <div className={`flex justify-between items-center p-2 rounded-lg text-sm font-medium ${
+                isSplitComplete
+                  ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                  : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+              }`}>
+                <span>Remaining</span>
+                <span>{currencySymbol}{Math.max(0, splitRemaining).toFixed(2)}</span>
+              </div>
+
+              <DialogFooter className="flex-row justify-between sm:justify-between gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsSplitMode(false);
+                    setSplitPayments([]);
+                    setSplitAmount("");
+                  }}
+                  disabled={isSubmitting}
+                >
+                  Back
+                </Button>
+                <Button
+                  onClick={handleSplitComplete}
+                  disabled={!isSplitComplete || splitPayments.length === 0 || isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : null}
+                  Complete Payment
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -80,6 +80,15 @@ const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({
       total: true,
       tax: true,
       refundedAt: true,
+      payments: {
+        select: {
+          id: true,
+          amount: true,
+          method: true,
+          paidAt: true,
+        },
+        orderBy: { paidAt: "asc" as const },
+      },
       refunds: {
         select: {
           id: true,
