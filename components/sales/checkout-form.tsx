@@ -86,6 +86,12 @@ interface Staff {
   lastName: string;
 }
 
+interface SplitPayment {
+  id: number;
+  method: PaymentMethod;
+  amount: number;
+}
+
 interface CheckoutFormProps {
   clients: Client[];
   services: Service[];
@@ -117,14 +123,11 @@ export function CheckoutForm({
   const [selectedStaff, setSelectedStaff] = useState<string>(staff[0]?.id || "");
 
   // Split payment state
-  interface SplitPayment {
-    method: PaymentMethod;
-    amount: number;
-  }
   const [isSplitMode, setIsSplitMode] = useState(false);
   const [splitPayments, setSplitPayments] = useState<SplitPayment[]>([]);
   const [splitMethod, setSplitMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [splitAmount, setSplitAmount] = useState("");
+  const [splitIdCounter, setSplitIdCounter] = useState(0);
 
   // Walk-in client state
   const [isWalkIn, setIsWalkIn] = useState(false);
@@ -215,20 +218,19 @@ export function CheckoutForm({
       toast.error("Amount exceeds remaining balance");
       return;
     }
-    setSplitPayments([...splitPayments, { method: splitMethod, amount }]);
-    setSplitAmount("");
-    // Auto-fill next amount with remaining
+    const nextId = splitIdCounter + 1;
+    setSplitIdCounter(nextId);
+    setSplitPayments([...splitPayments, { id: nextId, method: splitMethod, amount }]);
+    // Auto-fill next amount with remaining, or clear
     const newRemaining = Math.round((splitRemaining - amount) * 100) / 100;
-    if (newRemaining > 0) {
-      setSplitAmount(newRemaining.toFixed(2));
-    }
+    setSplitAmount(newRemaining > 0 ? newRemaining.toFixed(2) : "");
   };
 
-  const removeSplitPayment = (index: number) => {
-    setSplitPayments(splitPayments.filter((_, i) => i !== index));
+  const removeSplitPayment = (id: number) => {
+    setSplitPayments(splitPayments.filter((p) => p.id !== id));
   };
 
-  const submitPayment = async (payments: SplitPayment[]) => {
+  const submitPayment = async (payments: { method: PaymentMethod; amount: number }[]) => {
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
@@ -309,7 +311,7 @@ export function CheckoutForm({
 
   const handleSplitComplete = () => {
     if (!isSplitComplete) return;
-    submitPayment(splitPayments);
+    submitPayment(splitPayments.map(({ method, amount }) => ({ method, amount })));
   };
 
   const getInitials = (firstName: string, lastName: string | null) => {
@@ -738,6 +740,7 @@ export function CheckoutForm({
             setIsSplitMode(false);
             setSplitPayments([]);
             setSplitAmount("");
+            setSplitMethod(PaymentMethod.CASH);
           }
         }}
       >
@@ -816,17 +819,19 @@ export function CheckoutForm({
                 </Button>
               </div>
               <DialogFooter className="flex-row justify-between sm:justify-between">
-                <Button
-                  variant="link"
-                  className="text-purple-600 px-0"
-                  onClick={() => {
-                    setIsSplitMode(true);
-                    setSplitAmount(total.toFixed(2));
-                  }}
-                  disabled={isSubmitting}
-                >
-                  Split Payment
-                </Button>
+                {total > 0 && (
+                  <Button
+                    variant="link"
+                    className="text-purple-600 px-0"
+                    onClick={() => {
+                      setIsSplitMode(true);
+                      setSplitAmount(total.toFixed(2));
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    Split Payment
+                  </Button>
+                )}
                 <Button variant="ghost" onClick={() => setIsPaymentOpen(false)} disabled={isSubmitting}>
                   Cancel
                 </Button>
@@ -837,9 +842,9 @@ export function CheckoutForm({
               {/* Added splits */}
               {splitPayments.length > 0 && (
                 <div className="space-y-2">
-                  {splitPayments.map((payment, index) => (
+                  {splitPayments.map((payment) => (
                     <div
-                      key={index}
+                      key={payment.id}
                       className="flex items-center justify-between p-2 bg-muted/50 rounded-lg"
                     >
                       <div className="flex items-center gap-2">
@@ -859,7 +864,7 @@ export function CheckoutForm({
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-destructive"
-                          onClick={() => removeSplitPayment(index)}
+                          onClick={() => removeSplitPayment(payment.id)}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -930,6 +935,7 @@ export function CheckoutForm({
                     setIsSplitMode(false);
                     setSplitPayments([]);
                     setSplitAmount("");
+                    setSplitMethod(PaymentMethod.CASH);
                   }}
                   disabled={isSubmitting}
                 >

@@ -34,6 +34,22 @@ import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-bu
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
 
+const paymentMethodIcons: Record<string, React.ReactNode> = {
+  CASH: <Banknote className="h-4 w-4" />,
+  CARD: <CreditCard className="h-4 w-4" />,
+  DIGITAL_WALLET: <Wallet className="h-4 w-4" />,
+  LOYALTY_POINTS: <Receipt className="h-4 w-4" />,
+  OTHER: <Receipt className="h-4 w-4" />,
+};
+
+const paymentMethodLabels: Record<string, string> = {
+  CASH: "Cash",
+  CARD: "Card",
+  DIGITAL_WALLET: "Digital Wallet",
+  LOYALTY_POINTS: "Loyalty Points",
+  OTHER: "Other",
+};
+
 export default async function SaleDetailPage({
   params,
 }: {
@@ -241,37 +257,19 @@ export default async function SaleDetailPage({
                         <span className="text-sm text-muted-foreground">
                           {sale.invoice.payments.length > 1 ? "Payments" : "Payment Method"}
                         </span>
-                        {sale.invoice.payments.map((payment) => {
-                          const methodIcons: Record<string, React.ReactNode> = {
-                            CASH: <Banknote className="h-4 w-4" />,
-                            CARD: <CreditCard className="h-4 w-4" />,
-                            DIGITAL_WALLET: <Wallet className="h-4 w-4" />,
-                            LOYALTY_POINTS: <Receipt className="h-4 w-4" />,
-                            OTHER: <Receipt className="h-4 w-4" />,
-                          };
-                          const methodLabels: Record<string, string> = {
-                            CASH: "Cash",
-                            CARD: "Card",
-                            DIGITAL_WALLET: "Digital Wallet",
-                            LOYALTY_POINTS: "Loyalty Points",
-                            OTHER: "Other",
-                          };
-                          const methodIcon = methodIcons[payment.method];
-                          const methodLabel = methodLabels[payment.method] ?? payment.method;
-                          return (
-                            <div key={payment.id} className="flex justify-between items-center">
-                              <Badge variant="outline" className="gap-1.5">
-                                {methodIcon}
-                                {methodLabel}
-                              </Badge>
-                              {sale.invoice!.payments.length > 1 && (
-                                <span className="text-sm font-medium">
-                                  {settings.currencySymbol}{Number(payment.amount).toFixed(2)}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {sale.invoice.payments.map((payment) => (
+                          <div key={payment.id} className="flex justify-between items-center">
+                            <Badge variant="outline" className="gap-1.5">
+                              {paymentMethodIcons[payment.method]}
+                              {paymentMethodLabels[payment.method] ?? payment.method}
+                            </Badge>
+                            {sale.invoice!.payments.length > 1 && (
+                              <span className="text-sm font-medium">
+                                {settings.currencySymbol}{Number(payment.amount).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </>
                   )}
