@@ -206,10 +206,12 @@ export function CheckoutForm({
   // Reset split entries if total changes while in split mode (safety net)
   const prevTotalRef = useRef(total);
   useEffect(() => {
-    if (isSplitMode && splitPayments.length > 0 && prevTotalRef.current !== total) {
-      setSplitPayments([]);
+    if (isSplitMode && prevTotalRef.current !== total) {
       setSplitAmount(total.toFixed(2));
-      toast.info("Cart total changed — split payments have been reset.");
+      if (splitPayments.length > 0) {
+        setSplitPayments([]);
+        toast.info("Cart total changed — split payments have been reset.");
+      }
     }
     prevTotalRef.current = total;
   }, [total, isSplitMode, splitPayments.length]);
@@ -222,7 +224,7 @@ export function CheckoutForm({
   const addSplitPayment = () => {
     const parsed = parseFloat(splitAmount);
     if (!parsed || parsed <= 0) {
-      toast.error("Enter a valid amount greater than $0");
+      toast.error(`Enter a valid amount greater than ${currencySymbol}0`);
       return;
     }
     // Round to cents and clamp to remaining balance
@@ -875,7 +877,7 @@ export function CheckoutForm({
                       max={splitRemaining}
                       value={splitAmount}
                       onChange={(e) => {
-                        if (parseFloat(e.target.value) < 0) return;
+                        if (e.target.value.startsWith('-')) return;
                         setSplitAmount(e.target.value);
                       }}
                       className="h-9"
