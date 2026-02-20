@@ -30,6 +30,7 @@ import { hasPermission } from "@/lib/permissions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
+import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 
 export default async function SaleDetailPage({
   params,
@@ -231,6 +232,29 @@ export default async function SaleDetailPage({
                     <span className="text-muted-foreground">Status</span>
                     {getStatusBadge(sale.invoice.status)}
                   </div>
+                  {sale.invoice.payments && sale.invoice.payments.length > 0 && (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <span className="text-sm text-muted-foreground">
+                          {sale.invoice.payments.length > 1 ? "Payments" : "Payment Method"}
+                        </span>
+                        {sale.invoice.payments.map((payment) => (
+                          <div key={payment.id} className="flex justify-between items-center">
+                            <Badge variant="outline" className="gap-1.5">
+                              <PaymentMethodIcon method={payment.method} className="h-4 w-4" />
+                              {PAYMENT_METHOD_LABELS[payment.method] ?? payment.method}
+                            </Badge>
+                            {sale.invoice!.payments.length > 1 && (
+                              <span className="text-sm font-medium">
+                                {settings.currencySymbol}{Number(payment.amount).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                   <Separator />
                   <div className="flex justify-between items-center text-lg font-bold">
                     <span>Total</span>

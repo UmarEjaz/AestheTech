@@ -142,7 +142,7 @@
 - [x] Implement cart/basket functionality
 - [x] Add discount application
 - [x] Implement multiple payment methods
-- [ ] Add split payment functionality
+- [x] Add split payment functionality
 - [x] Create Zod schema for sale validation
 - [x] Create sale API route
 - [x] Implement sale creation server action
@@ -402,7 +402,7 @@
 
 ## Progress Tracking
 
-**Last Updated**: February 6, 2026
+**Last Updated**: February 14, 2026
 
 **Overall Progress**: ~85% of core features completed
 

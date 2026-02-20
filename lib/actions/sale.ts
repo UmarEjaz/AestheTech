@@ -80,6 +80,15 @@ const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({
       total: true,
       tax: true,
       refundedAt: true,
+      payments: {
+        select: {
+          id: true,
+          amount: true,
+          method: true,
+          paidAt: true,
+        },
+        orderBy: { paidAt: "asc" as const },
+      },
       refunds: {
         select: {
           id: true,
@@ -394,12 +403,14 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const tax = (amountAfterPoints * taxRate) / 100;
     const totalWithTax = amountAfterPoints + tax;
 
-    // Validate payment total
-    const paymentTotal = payments.reduce((sum, p) => sum + p.amount, 0);
-    if (Math.abs(paymentTotal - totalWithTax) > 0.01) {
+    // Validate payment total using integer-cents to avoid floating-point drift
+    const toIntCents = (n: number) => Math.round(n * 100);
+    const paymentTotalCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
+    const invoiceTotalCents = toIntCents(totalWithTax);
+    if (paymentTotalCents !== invoiceTotalCents) {
       return {
         success: false,
-        error: `Payment total (${paymentTotal.toFixed(2)}) doesn't match invoice total (${totalWithTax.toFixed(2)})`
+        error: `Payment total (${(paymentTotalCents / 100).toFixed(2)}) doesn't match invoice total (${(invoiceTotalCents / 100).toFixed(2)})`
       };
     }
 
