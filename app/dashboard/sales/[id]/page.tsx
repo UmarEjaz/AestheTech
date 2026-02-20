@@ -9,9 +9,6 @@ import {
   Receipt,
   Clock,
   RotateCcw,
-  Banknote,
-  CreditCard,
-  Wallet,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -33,22 +30,7 @@ import { hasPermission } from "@/lib/permissions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
-
-const paymentMethodIcons: Record<string, React.ReactNode> = {
-  CASH: <Banknote className="h-4 w-4" />,
-  CARD: <CreditCard className="h-4 w-4" />,
-  DIGITAL_WALLET: <Wallet className="h-4 w-4" />,
-  LOYALTY_POINTS: <Receipt className="h-4 w-4" />,
-  OTHER: <Receipt className="h-4 w-4" />,
-};
-
-const paymentMethodLabels: Record<string, string> = {
-  CASH: "Cash",
-  CARD: "Card",
-  DIGITAL_WALLET: "Digital Wallet",
-  LOYALTY_POINTS: "Loyalty Points",
-  OTHER: "Other",
-};
+import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 
 export default async function SaleDetailPage({
   params,
@@ -260,8 +242,8 @@ export default async function SaleDetailPage({
                         {sale.invoice.payments.map((payment) => (
                           <div key={payment.id} className="flex justify-between items-center">
                             <Badge variant="outline" className="gap-1.5">
-                              {paymentMethodIcons[payment.method]}
-                              {paymentMethodLabels[payment.method] ?? payment.method}
+                              <PaymentMethodIcon method={payment.method} className="h-4 w-4" />
+                              {PAYMENT_METHOD_LABELS[payment.method] ?? payment.method}
                             </Badge>
                             {sale.invoice!.payments.length > 1 && (
                               <span className="text-sm font-medium">

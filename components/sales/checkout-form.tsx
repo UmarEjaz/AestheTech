@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -46,6 +46,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { quickSale } from "@/lib/actions/sale";
 import { PaymentMethod } from "@prisma/client";
+import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 
 interface CartItem {
   id: string;
@@ -203,18 +204,30 @@ export function CheckoutForm({
     setCart(cart.filter((item) => item.id !== itemId));
   };
 
+  // Reset split entries if total changes while in split mode (safety net)
+  const prevTotalRef = useRef(total);
+  useEffect(() => {
+    if (isSplitMode && splitPayments.length > 0 && prevTotalRef.current !== total) {
+      setSplitPayments([]);
+      setSplitAmount(total.toFixed(2));
+    }
+    prevTotalRef.current = total;
+  }, [total, isSplitMode, splitPayments.length]);
+
   // Split payment helpers
   const splitTotal = splitPayments.reduce((sum, p) => sum + p.amount, 0);
   const splitRemaining = Math.round((total - splitTotal) * 100) / 100;
   const isSplitComplete = Math.abs(splitRemaining) < 0.01;
 
   const addSplitPayment = () => {
-    const amount = parseFloat(splitAmount);
-    if (!amount || amount <= 0) {
+    const parsed = parseFloat(splitAmount);
+    if (!parsed || parsed <= 0) {
       toast.error("Enter a valid amount");
       return;
     }
-    if (amount > splitRemaining + 0.01) {
+    // Round to cents and clamp to remaining balance
+    const amount = Math.round(Math.min(parsed, splitRemaining) * 100) / 100;
+    if (amount <= 0) {
       toast.error("Amount exceeds remaining balance");
       return;
     }
@@ -848,12 +861,9 @@ export function CheckoutForm({
                       className="flex items-center justify-between p-2 bg-muted/50 rounded-lg"
                     >
                       <div className="flex items-center gap-2">
-                        {payment.method === "CASH" && <Banknote className="h-4 w-4" />}
-                        {payment.method === "CARD" && <CreditCard className="h-4 w-4" />}
-                        {payment.method === "DIGITAL_WALLET" && <Wallet className="h-4 w-4" />}
-                        {payment.method === "OTHER" && <Receipt className="h-4 w-4" />}
+                        <PaymentMethodIcon method={payment.method} className="h-4 w-4" />
                         <span className="text-sm font-medium">
-                          {payment.method === "DIGITAL_WALLET" ? "Digital Wallet" : payment.method.charAt(0) + payment.method.slice(1).toLowerCase()}
+                          {PAYMENT_METHOD_LABELS[payment.method] ?? payment.method}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
