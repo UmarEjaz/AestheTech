@@ -12,8 +12,6 @@ import {
   Users,
   Scissors,
   CreditCard,
-  Banknote,
-  Wallet,
   Star,
   Loader2,
   Receipt,
@@ -46,7 +44,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { quickSale } from "@/lib/actions/sale";
 import { PaymentMethod } from "@prisma/client";
-import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
+import { PaymentMethodIcon, PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS } from "@/lib/constants/payment-methods";
 
 interface CartItem {
   id: string;
@@ -121,6 +119,7 @@ export function CheckoutForm({
   const [redeemPoints, setRedeemPoints] = useState(0);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingMethod, setSubmittingMethod] = useState<PaymentMethod | null>(null);
   const [selectedStaff, setSelectedStaff] = useState<string>(staff[0]?.id || "");
 
   // Split payment state
@@ -315,10 +314,12 @@ export function CheckoutForm({
       toast.error("Failed to process sale");
     } finally {
       setIsSubmitting(false);
+      setSubmittingMethod(null);
     }
   };
 
   const handleSinglePayment = (method: PaymentMethod) => {
+    setSubmittingMethod(method);
     submitPayment([{ method, amount: total }]);
   };
 
@@ -770,66 +771,24 @@ export function CheckoutForm({
           {!isSplitMode ? (
             <>
               <div className="grid grid-cols-2 gap-3 py-4">
-                <Button
-                  variant="outline"
-                  className="h-24 flex-col gap-2"
-                  onClick={() => handleSinglePayment(PaymentMethod.CASH)}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  ) : (
-                    <>
-                      <Banknote className="h-8 w-8" />
-                      <span>Cash</span>
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-24 flex-col gap-2"
-                  onClick={() => handleSinglePayment(PaymentMethod.CARD)}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  ) : (
-                    <>
-                      <CreditCard className="h-8 w-8" />
-                      <span>Card</span>
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-24 flex-col gap-2"
-                  onClick={() => handleSinglePayment(PaymentMethod.DIGITAL_WALLET)}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  ) : (
-                    <>
-                      <Wallet className="h-8 w-8" />
-                      <span>Digital Wallet</span>
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-24 flex-col gap-2"
-                  onClick={() => handleSinglePayment(PaymentMethod.OTHER)}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  ) : (
-                    <>
-                      <Receipt className="h-8 w-8" />
-                      <span>Other</span>
-                    </>
-                  )}
-                </Button>
+                {SELECTABLE_PAYMENT_METHODS.map((method) => (
+                  <Button
+                    key={method}
+                    variant="outline"
+                    className="h-24 flex-col gap-2"
+                    onClick={() => handleSinglePayment(method)}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting && submittingMethod === method ? (
+                      <Loader2 className="h-8 w-8 animate-spin" />
+                    ) : (
+                      <>
+                        <PaymentMethodIcon method={method} className="h-8 w-8" />
+                        <span>{PAYMENT_METHOD_LABELS[method]}</span>
+                      </>
+                    )}
+                  </Button>
+                ))}
               </div>
               <DialogFooter className="flex-row justify-between sm:justify-between">
                 {total > 0 && (
@@ -897,10 +856,11 @@ export function CheckoutForm({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="CASH">Cash</SelectItem>
-                        <SelectItem value="CARD">Card</SelectItem>
-                        <SelectItem value="DIGITAL_WALLET">Digital Wallet</SelectItem>
-                        <SelectItem value="OTHER">Other</SelectItem>
+                        {SELECTABLE_PAYMENT_METHODS.map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {PAYMENT_METHOD_LABELS[m]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
