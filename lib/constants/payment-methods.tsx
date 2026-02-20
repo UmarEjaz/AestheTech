@@ -3,6 +3,7 @@ import {
   CreditCard,
   Wallet,
   Receipt,
+  Star,
 } from "lucide-react";
 import { PaymentMethod } from "@prisma/client";
 
@@ -18,7 +19,7 @@ const METHOD_ICONS: Record<PaymentMethod, React.ComponentType<{ className?: stri
   CASH: Banknote,
   CARD: CreditCard,
   DIGITAL_WALLET: Wallet,
-  LOYALTY_POINTS: Receipt,
+  LOYALTY_POINTS: Star,
   OTHER: Receipt,
 };
 

@@ -209,6 +209,7 @@ export function CheckoutForm({
     if (isSplitMode && splitPayments.length > 0 && prevTotalRef.current !== total) {
       setSplitPayments([]);
       setSplitAmount(total.toFixed(2));
+      toast.info("Cart total changed — split payments have been reset.");
     }
     prevTotalRef.current = total;
   }, [total, isSplitMode, splitPayments.length]);
@@ -221,13 +222,13 @@ export function CheckoutForm({
   const addSplitPayment = () => {
     const parsed = parseFloat(splitAmount);
     if (!parsed || parsed <= 0) {
-      toast.error("Enter a valid amount");
+      toast.error("Enter a valid amount greater than $0");
       return;
     }
     // Round to cents and clamp to remaining balance
     const amount = Math.round(Math.min(parsed, splitRemaining) * 100) / 100;
     if (amount <= 0) {
-      toast.error("Amount exceeds remaining balance");
+      toast.error(`Remaining balance is ${currencySymbol}${splitRemaining.toFixed(2)} — no more to split`);
       return;
     }
     const nextId = splitIdCounter + 1;
@@ -778,6 +779,7 @@ export function CheckoutForm({
                     className="h-24 flex-col gap-2"
                     onClick={() => handleSinglePayment(method)}
                     disabled={isSubmitting}
+                    aria-label={`Pay with ${PAYMENT_METHOD_LABELS[method]}`}
                   >
                     {isSubmitting && submittingMethod === method ? (
                       <Loader2 className="h-8 w-8 animate-spin" />
@@ -872,7 +874,10 @@ export function CheckoutForm({
                       step="0.01"
                       max={splitRemaining}
                       value={splitAmount}
-                      onChange={(e) => setSplitAmount(e.target.value)}
+                      onChange={(e) => {
+                        if (parseFloat(e.target.value) < 0) return;
+                        setSplitAmount(e.target.value);
+                      }}
                       className="h-9"
                       placeholder="0.00"
                     />

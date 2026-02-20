@@ -277,19 +277,28 @@
 - [ ] Get user feedback and iterate
 
 ### Testing
-- [ ] Write unit tests for utility functions
-- [ ] Write unit tests for validation schemas
-- [ ] Write component tests for key components
-- [ ] Write integration tests for API routes
-- [ ] Write integration tests for database operations
-- [ ] Write E2E tests for client management flow
-- [ ] Write E2E tests for appointment booking flow
-- [ ] Write E2E tests for sales/checkout flow
-- [ ] Write E2E tests for invoice generation
+> **Priority Note**: Add tests once the app is feature-complete, before going to production. Focus on server-side money/data logic first (highest ROI), then utilities, then skip UI/E2E tests unless team grows. No testing framework is installed yet — set up Vitest before starting.
+
+**P0 — Server actions (money & data integrity):**
+- [ ] Set up Vitest + test database configuration
+- [ ] Write tests for `completeSale` / `quickSale` (split payments, payment total validation, edge cases)
+- [ ] Write tests for refund logic (point reversal, partial refunds)
+- [ ] Write tests for loyalty point calculations (tier upgrades, birthday bonus, expiry)
+
+**P1 — Utility functions (pure logic, easy wins):**
+- [ ] Write unit tests for `recurring.ts` (date generation, all patterns, edge cases)
+- [ ] Write unit tests for `timezone.ts` (date boundaries, DST)
+- [ ] Write unit tests for `ical.ts` (export formatting)
+- [ ] Write unit tests for validation schemas (Zod edge cases)
+
+**P2 — Auth & permissions:**
 - [ ] Test authentication and authorization
-- [ ] Test role-based access
+- [ ] Test role-based access per endpoint
+
+**P3 — Lower priority (defer unless team grows):**
+- [ ] Write component tests for key components
+- [ ] Write E2E tests for critical flows (sales, appointments)
 - [ ] Run test coverage report
-- [ ] Achieve 80%+ code coverage
 - [ ] Fix all failing tests
 
 ### Bug Fixes & Performance
