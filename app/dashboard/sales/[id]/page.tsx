@@ -99,11 +99,9 @@ export default async function SaleDetailPage({
         },
         items: sale.items.map((item) => ({
           id: item.id,
-          service: { name: item.service?.name || item.product?.name || "Unknown" },
-          staff: {
-            firstName: item.staff?.firstName || "",
-            lastName: item.staff?.lastName || "",
-          },
+          service: item.service ? { name: item.service.name } : null,
+          staff: item.staff ? { firstName: item.staff.firstName, lastName: item.staff.lastName } : null,
+          product: item.product ? { name: item.product.name } : null,
           price: Number(item.price),
           quantity: item.quantity,
         })),

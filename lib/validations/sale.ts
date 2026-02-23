@@ -9,8 +9,8 @@ export const saleItemSchema = z.object({
   quantity: z.number().int().min(1, "Quantity must be at least 1").default(1),
   price: z.number().min(0, "Price must be a positive number"),
 }).refine(
-  (data) => data.serviceId || data.productId,
-  { message: "Either a service or product is required" }
+  (data) => (data.serviceId && !data.productId) || (!data.serviceId && data.productId),
+  { message: "Exactly one of service or product is required" }
 ).refine(
   (data) => !data.serviceId || data.staffId,
   { message: "Staff member is required for services" }

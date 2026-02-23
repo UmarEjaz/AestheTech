@@ -310,7 +310,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
 // Reports data
 export interface ReportData {
   revenueByDay: { date: string; revenue: number; salesCount: number }[];
-  revenueByService: { service: string; revenue: number; percentage: number }[];
+  revenueByItem: { item: string; revenue: number; percentage: number }[];
   revenueByStaff: { staff: string; revenue: number; appointments: number }[];
   appointmentsByStatus: { status: string; count: number }[];
   clientGrowth: { date: string; newClients: number; totalClients: number }[];
@@ -413,21 +413,21 @@ export async function getReportData(params: {
       .map(([date, data]) => ({ date, ...data }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Revenue by service/product
-    const serviceRevenueMap = new Map<string, number>();
-    let totalServiceRevenue = 0;
-    saleItemsData.forEach((item) => {
-      const itemName = item.service?.name || item.product?.name || "Unknown";
-      const amount = Number(item.price) * item.quantity;
-      serviceRevenueMap.set(itemName, (serviceRevenueMap.get(itemName) || 0) + amount);
-      totalServiceRevenue += amount;
+    // Revenue by item (services + products)
+    const itemRevenueMap = new Map<string, number>();
+    let totalItemRevenue = 0;
+    saleItemsData.forEach((saleItem) => {
+      const itemName = saleItem.service?.name || saleItem.product?.name || "Unknown";
+      const amount = Number(saleItem.price) * saleItem.quantity;
+      itemRevenueMap.set(itemName, (itemRevenueMap.get(itemName) || 0) + amount);
+      totalItemRevenue += amount;
     });
 
-    const revenueByService = Array.from(serviceRevenueMap.entries())
-      .map(([service, revenue]) => ({
-        service,
+    const revenueByItem = Array.from(itemRevenueMap.entries())
+      .map(([item, revenue]) => ({
+        item,
         revenue,
-        percentage: totalServiceRevenue > 0 ? Math.round((revenue / totalServiceRevenue) * 100) : 0,
+        percentage: totalItemRevenue > 0 ? Math.round((revenue / totalItemRevenue) * 100) : 0,
       }))
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
@@ -500,7 +500,7 @@ export async function getReportData(params: {
       success: true,
       data: {
         revenueByDay,
-        revenueByService,
+        revenueByItem,
         revenueByStaff,
         appointmentsByStatus,
         clientGrowth,

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ProductSearch } from "@/components/products/product-search";
 import { ProductList } from "@/components/products/product-list";
 import { getProducts } from "@/lib/actions/product";
+import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
 interface PageProps {
@@ -28,6 +29,11 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const userRole = session.user.role as Role;
+
+  if (!hasPermission(userRole, "products:view")) {
+    redirect("/dashboard/access-denied");
+  }
+
   const canManage = hasPermission(userRole, "products:manage");
 
   const page = parseInt(params.page || "1", 10);
@@ -35,7 +41,11 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const category = params.category || "";
   const lowStock = params.lowStock === "true";
 
-  const result = await getProducts({ query, category, lowStock, page, limit: 12 });
+  const [result, settingsResult] = await Promise.all([
+    getProducts({ query, category, lowStock, page, limit: 12 }),
+    getSettings(),
+  ]);
+  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
 
   if (!result.success) {
     return (
@@ -80,6 +90,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           totalPages={totalPages}
           total={total}
           canManage={canManage}
+          currencySymbol={currencySymbol}
         />
       </div>
     </DashboardLayout>

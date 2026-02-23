@@ -302,6 +302,9 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
         if (!product.isActive) {
           return { success: false, error: "One or more products are not available" };
         }
+        if (product.stock < item.quantity) {
+          return { success: false, error: `Insufficient stock for "${item.productId}". Available: ${product.stock}, requested: ${item.quantity}` };
+        }
       }
     }
 
@@ -631,7 +634,8 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     };
   } catch (error) {
     console.error("Error completing sale:", error);
-    return { success: false, error: "Failed to complete sale" };
+    const message = error instanceof Error ? error.message : "Failed to complete sale";
+    return { success: false, error: message };
   }
 }
 

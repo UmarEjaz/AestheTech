@@ -157,21 +157,21 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
           </View>
         </View>
 
-        {/* Revenue by Service */}
-        {data.revenueByService.length > 0 && (
+        {/* Revenue by Item */}
+        {data.revenueByItem.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Revenue by Service</Text>
+            <Text style={styles.sectionTitle}>Revenue by Item</Text>
             <View style={styles.table}>
               <View style={styles.tableHeader}>
-                <Text style={styles.tableCell}>Service</Text>
+                <Text style={styles.tableCell}>Item</Text>
                 <Text style={styles.tableCellRight}>Revenue</Text>
                 <Text style={styles.tableCellRight}>Percentage</Text>
               </View>
-              {data.revenueByService.map((item, index) => (
+              {data.revenueByItem.map((entry, index) => (
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
-                  <Text style={styles.tableCell}>{item.service}</Text>
-                  <Text style={styles.tableCellRight}>{formatCurrency(item.revenue)}</Text>
-                  <Text style={styles.tableCellRight}>{item.percentage}%</Text>
+                  <Text style={styles.tableCell}>{entry.item}</Text>
+                  <Text style={styles.tableCellRight}>{formatCurrency(entry.revenue)}</Text>
+                  <Text style={styles.tableCellRight}>{entry.percentage}%</Text>
                 </View>
               ))}
             </View>

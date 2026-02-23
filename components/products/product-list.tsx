@@ -23,7 +23,9 @@ interface ProductListProps {
   page: number;
   totalPages: number;
   total: number;
+  pageSize?: number;
   canManage?: boolean;
+  currencySymbol?: string;
 }
 
 export function ProductList({
@@ -31,7 +33,9 @@ export function ProductList({
   page,
   totalPages,
   total,
+  pageSize = 12,
   canManage = false,
+  currencySymbol = "$",
 }: ProductListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -75,6 +79,7 @@ export function ProductList({
             product={product}
             onDelete={canManage ? setDeleteId : undefined}
             canManage={canManage}
+            currencySymbol={currencySymbol}
           />
         ))}
       </div>
@@ -83,7 +88,7 @@ export function ProductList({
       {totalPages > 1 && (
         <div className="mt-6 flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Showing {(page - 1) * 12 + 1} to {Math.min(page * 12, total)} of {total} products
+            Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total} products
           </p>
           <div className="flex items-center gap-2">
             <Button

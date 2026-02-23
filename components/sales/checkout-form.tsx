@@ -46,6 +46,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { quickSale } from "@/lib/actions/sale";
+import { getActiveProducts } from "@/lib/actions/product";
 import { PaymentMethod } from "@prisma/client";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS } from "@/lib/constants/payment-methods";
 
@@ -391,6 +392,32 @@ export function CheckoutForm({
   const handleSplitComplete = () => {
     if (!isSplitComplete) return;
     submitPayment(splitPayments.map(({ method, amount }) => ({ method, amount })));
+  };
+
+  // Refresh stock for product cart items before opening payment modal
+  const handleProceedToPayment = async () => {
+    const productItems = cart.filter((item) => item.type === "product" && item.productId);
+    if (productItems.length > 0) {
+      const result = await getActiveProducts();
+      if (result.success) {
+        const stockMap = new Map(result.data.map((p) => [p.id, p.stock]));
+        let hasStockIssue = false;
+
+        const updatedCart = cart.map((item) => {
+          if (item.type !== "product" || !item.productId) return item;
+          const currentStock = stockMap.get(item.productId) ?? 0;
+          if (item.quantity > currentStock) {
+            hasStockIssue = true;
+            toast.error(`"${item.name}" stock changed: only ${currentStock} available (you have ${item.quantity} in cart)`);
+          }
+          return { ...item, maxQuantity: currentStock };
+        });
+
+        setCart(updatedCart);
+        if (hasStockIssue) return;
+      }
+    }
+    setIsPaymentOpen(true);
   };
 
   const getInitials = (firstName: string, lastName: string | null) => {
@@ -884,7 +911,7 @@ export function CheckoutForm({
               className="w-full"
               size="lg"
               disabled={(!selectedClient && !isWalkIn) || cart.length === 0}
-              onClick={() => setIsPaymentOpen(true)}
+              onClick={handleProceedToPayment}
             >
               <CreditCard className="h-4 w-4 mr-2" />
               Proceed to Payment

@@ -173,7 +173,9 @@ export function ProductForm({ product, mode, categories }: ProductFormProps) {
                 id="cost"
                 type="number"
                 step="0.01"
-                {...register("cost", { valueAsNumber: true })}
+                {...register("cost", {
+                  setValueAs: (v: string) => (v === "" || v === undefined ? undefined : parseFloat(v)),
+                })}
                 placeholder="0.00"
                 min="0"
               />

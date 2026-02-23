@@ -16,12 +16,14 @@ export type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string };
 
-async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
+type ProductPermission = "products:view" | "products:manage";
+
+async function checkAuth(permission: ProductPermission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
   const role = session.user.role as Role;
-  if (!hasPermission(role, permission as "products:view" | "products:manage")) {
+  if (!hasPermission(role, permission)) {
     return null;
   }
 
@@ -67,11 +69,14 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
     ...(category && { category }),
   };
 
-  const [allProducts, total, allCategoryProducts] = await Promise.all([
+  // When lowStock filter is active, we must fetch all and filter in-memory
+  // (Prisma can't compare two columns). Otherwise, use DB-level pagination.
+  const [fetchedProducts, total, allCategoryProducts] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy: [{ category: "asc" }, { name: "asc" }],
       include: productListInclude,
+      ...(lowStock ? {} : { skip, take: limit }),
     }),
     prisma.product.count({ where }),
     prisma.product.findMany({
@@ -81,14 +86,17 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
     }),
   ]);
 
-  // Apply low stock filter in-memory (comparing two columns)
-  let filteredProducts = allProducts;
-  if (lowStock) {
-    filteredProducts = allProducts.filter((p) => p.stock <= p.lowStockThreshold);
-  }
+  let paginatedProducts: ProductListItem[];
+  let filteredTotal: number;
 
-  const filteredTotal = lowStock ? filteredProducts.length : total;
-  const paginatedProducts = filteredProducts.slice(skip, skip + limit);
+  if (lowStock) {
+    const filteredProducts = fetchedProducts.filter((p) => p.stock <= p.lowStockThreshold);
+    filteredTotal = filteredProducts.length;
+    paginatedProducts = filteredProducts.slice(skip, skip + limit);
+  } else {
+    filteredTotal = total;
+    paginatedProducts = fetchedProducts;
+  }
 
   const categories = allCategoryProducts
     .map((p) => p.category)
@@ -138,26 +146,28 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
 
   const { description, category, sku, cost, ...rest } = validationResult.data;
 
-  // Check SKU uniqueness if provided
-  if (sku) {
-    const existing = await prisma.product.findUnique({ where: { sku } });
-    if (existing) {
+  try {
+    const product = await prisma.product.create({
+      data: {
+        ...rest,
+        description: description || null,
+        category: category || null,
+        sku: sku || null,
+        cost: cost ?? null,
+      },
+    });
+
+    revalidatePath("/dashboard/products");
+    return { success: true, data: { id: product.id } };
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
       return { success: false, error: `A product with SKU "${sku}" already exists` };
     }
+    throw error;
   }
-
-  const product = await prisma.product.create({
-    data: {
-      ...rest,
-      description: description || null,
-      category: category || null,
-      sku: sku || null,
-      cost: cost ?? null,
-    },
-  });
-
-  revalidatePath("/dashboard/products");
-  return { success: true, data: { id: product.id } };
 }
 
 export async function updateProduct(
@@ -183,27 +193,29 @@ export async function updateProduct(
     return { success: false, error: "Product not found" };
   }
 
-  // Check SKU uniqueness if changed
-  if (sku !== undefined && sku && sku !== existingProduct.sku) {
-    const skuExists = await prisma.product.findUnique({ where: { sku } });
-    if (skuExists) {
+  try {
+    await prisma.product.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(description !== undefined && { description: description || null }),
+        ...(category !== undefined && { category: category || null }),
+        ...(sku !== undefined && { sku: sku || null }),
+        ...(cost !== undefined && { cost: cost ?? null }),
+      },
+    });
+
+    revalidatePath("/dashboard/products");
+    return { success: true, data: undefined };
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
       return { success: false, error: `A product with SKU "${sku}" already exists` };
     }
+    throw error;
   }
-
-  await prisma.product.update({
-    where: { id },
-    data: {
-      ...rest,
-      ...(description !== undefined && { description: description || null }),
-      ...(category !== undefined && { category: category || null }),
-      ...(sku !== undefined && { sku: sku || null }),
-      ...(cost !== undefined && { cost: cost ?? null }),
-    },
-  });
-
-  revalidatePath("/dashboard/products");
-  return { success: true, data: undefined };
 }
 
 export async function deleteProduct(id: string): Promise<ActionResult> {
@@ -214,13 +226,6 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
 
   const product = await prisma.product.findUnique({
     where: { id },
-    include: {
-      _count: {
-        select: {
-          saleItems: true,
-        },
-      },
-    },
   });
 
   if (!product) {
