@@ -16,6 +16,7 @@ async function main() {
   await prisma.sale.deleteMany();
   await prisma.appointment.deleteMany();
   await prisma.schedule.deleteMany();
+  await prisma.product.deleteMany();
   await prisma.service.deleteMany();
   await prisma.client.deleteMany();
   await prisma.user.deleteMany();
@@ -217,6 +218,90 @@ async function main() {
   ]);
 
   console.log("💇 Created services");
+
+  // Create Products
+  await Promise.all([
+    prisma.product.create({
+      data: {
+        name: "Argan Oil Shampoo",
+        description: "Nourishing shampoo with argan oil for smooth, shiny hair",
+        sku: "PROD-001",
+        price: 24.99,
+        cost: 12.00,
+        stock: 25,
+        lowStockThreshold: 5,
+        points: 25,
+        category: "Hair Care",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Deep Conditioning Mask",
+        description: "Intensive repair treatment for damaged hair",
+        sku: "PROD-002",
+        price: 34.99,
+        cost: 15.00,
+        stock: 18,
+        lowStockThreshold: 5,
+        points: 35,
+        category: "Hair Care",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Gel Nail Polish Set",
+        description: "Set of 6 trending gel nail colors",
+        sku: "PROD-003",
+        price: 45.00,
+        cost: 20.00,
+        stock: 12,
+        lowStockThreshold: 3,
+        points: 45,
+        category: "Nails",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Cuticle Oil",
+        description: "Vitamin E enriched cuticle moisturizer",
+        sku: "PROD-004",
+        price: 12.99,
+        cost: 5.00,
+        stock: 30,
+        lowStockThreshold: 8,
+        points: 13,
+        category: "Nails",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "Hyaluronic Acid Serum",
+        description: "Professional-grade hydrating serum",
+        sku: "PROD-005",
+        price: 59.99,
+        cost: 25.00,
+        stock: 8,
+        lowStockThreshold: 5,
+        points: 60,
+        category: "Skincare",
+      },
+    }),
+    prisma.product.create({
+      data: {
+        name: "SPF 50 Sunscreen",
+        description: "Lightweight daily sun protection",
+        sku: "PROD-006",
+        price: 28.00,
+        cost: 10.00,
+        stock: 3,
+        lowStockThreshold: 5,
+        points: 28,
+        category: "Skincare",
+      },
+    }),
+  ]);
+
+  console.log("📦 Created products");
 
   // Create Clients
   const clients = await Promise.all([

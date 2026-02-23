@@ -292,12 +292,12 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
 
         {/* Items Table */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Services</Text>
+          <Text style={styles.sectionTitle}>Items</Text>
           <View style={styles.table}>
             {/* Table Header */}
             <View style={styles.tableHeader}>
               <Text style={[styles.tableHeaderCell, styles.colService]}>
-                Service
+                Item
               </Text>
               <Text style={[styles.tableHeaderCell, styles.colStaff]}>
                 Staff
@@ -318,7 +318,9 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
                   {item.service.name}
                 </Text>
                 <Text style={[styles.tableCell, styles.colStaff]}>
-                  {item.staff.firstName} {item.staff.lastName}
+                  {item.staff.firstName || item.staff.lastName
+                    ? `${item.staff.firstName} ${item.staff.lastName}`.trim()
+                    : "-"}
                 </Text>
                 <Text style={[styles.tableCell, styles.colPrice]}>
                   {data.currencySymbol}

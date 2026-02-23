@@ -3,18 +3,25 @@ import { PaymentMethod } from "@prisma/client";
 
 // Schema for individual sale item
 export const saleItemSchema = z.object({
-  serviceId: z.string().min(1, "Service is required"),
-  staffId: z.string().min(1, "Staff member is required"),
+  serviceId: z.string().optional(),
+  staffId: z.string().optional(),
+  productId: z.string().optional(),
   quantity: z.number().int().min(1, "Quantity must be at least 1").default(1),
   price: z.number().min(0, "Price must be a positive number"),
-});
+}).refine(
+  (data) => data.serviceId || data.productId,
+  { message: "Either a service or product is required" }
+).refine(
+  (data) => !data.serviceId || data.staffId,
+  { message: "Staff member is required for services" }
+);
 
 // Schema for creating a sale
 export const createSaleSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
   items: z
     .array(saleItemSchema)
-    .min(1, "At least one service is required"),
+    .min(1, "At least one item is required"),
   discount: z
     .number()
     .min(0, "Discount cannot be negative")

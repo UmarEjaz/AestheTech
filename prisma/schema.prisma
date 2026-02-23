@@ -163,6 +163,30 @@ model Service {
   @@map("services")
 }
 
+// Product model (physical products for retail)
+model Product {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  sku               String?  @unique
+  price             Decimal  @db.Decimal(10, 2)
+  cost              Decimal? @db.Decimal(10, 2) // wholesale cost
+  stock             Int      @default(0)
+  lowStockThreshold Int      @default(5)
+  points            Int      @default(0) // loyalty points earned
+  category          String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  saleItems SaleItem[]
+
+  @@index([category])
+  @@index([isActive])
+  @@map("products")
+}
+
 // Appointment model
 model Appointment {
   id                   String            @id @default(cuid())
@@ -219,18 +243,21 @@ model Sale {
 model SaleItem {
   id        String   @id @default(cuid())
   saleId    String
-  serviceId String
-  staffId   String   // staff who performed the service
+  serviceId String?
+  staffId   String?  // staff who performed the service
+  productId String?
   quantity  Int      @default(1)
   price     Decimal  @db.Decimal(10, 2)
   createdAt DateTime @default(now())
 
   // Relations
-  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  service Service @relation(fields: [serviceId], references: [id])
-  staff   User    @relation(fields: [staffId], references: [id])
+  sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  service Service? @relation(fields: [serviceId], references: [id])
+  staff   User?    @relation(fields: [staffId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
 
   @@index([saleId])
+  @@index([productId])
   @@map("sale_items")
 }
 

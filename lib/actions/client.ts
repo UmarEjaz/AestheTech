@@ -112,6 +112,7 @@ function getClientInclude() {
         items: {
           include: {
             service: true,
+            product: true,
           },
         },
       },

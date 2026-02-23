@@ -99,10 +99,10 @@ export default async function SaleDetailPage({
         },
         items: sale.items.map((item) => ({
           id: item.id,
-          service: { name: item.service.name },
+          service: { name: item.service?.name || item.product?.name || "Unknown" },
           staff: {
-            firstName: item.staff.firstName,
-            lastName: item.staff.lastName,
+            firstName: item.staff?.firstName || "",
+            lastName: item.staff?.lastName || "",
           },
           price: Number(item.price),
           quantity: item.quantity,
@@ -179,14 +179,14 @@ export default async function SaleDetailPage({
             {/* Services */}
             <Card>
               <CardHeader>
-                <CardTitle>Services</CardTitle>
+                <CardTitle>Items</CardTitle>
                 <CardDescription>{sale.items.length} items</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Service</TableHead>
+                      <TableHead>Item</TableHead>
                       <TableHead>Staff</TableHead>
                       <TableHead className="text-right">Price</TableHead>
                       <TableHead className="text-center">Qty</TableHead>
@@ -196,9 +196,11 @@ export default async function SaleDetailPage({
                   <TableBody>
                     {sale.items.map((item) => (
                       <TableRow key={item.id}>
-                        <TableCell className="font-medium">{item.service.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {item.service?.name || item.product?.name || "Unknown"}
+                        </TableCell>
                         <TableCell>
-                          {item.staff.firstName} {item.staff.lastName}
+                          {item.staff ? `${item.staff.firstName} ${item.staff.lastName}` : "-"}
                         </TableCell>
                         <TableCell className="text-right">
                           {settings.currencySymbol}{Number(item.price).toFixed(2)}

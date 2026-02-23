@@ -16,6 +16,8 @@ import {
   Loader2,
   Receipt,
   Percent,
+  Package,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createWalkInClient } from "@/lib/actions/client";
@@ -42,19 +44,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { quickSale } from "@/lib/actions/sale";
 import { PaymentMethod } from "@prisma/client";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS } from "@/lib/constants/payment-methods";
 
 interface CartItem {
   id: string;
-  serviceId: string;
-  serviceName: string;
-  staffId: string;
-  staffName: string;
+  type: "service" | "product";
+  serviceId?: string;
+  productId?: string;
+  name: string;
+  staffId?: string;
+  staffName?: string;
   price: number;
   quantity: number;
   points: number;
+  maxQuantity?: number; // stock limit for products
 }
 
 interface Client {
@@ -79,6 +85,17 @@ interface Service {
   points: number;
 }
 
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  category: string | null;
+  points: number;
+  sku: string | null;
+  lowStockThreshold: number;
+}
+
 interface Staff {
   id: string;
   firstName: string;
@@ -94,6 +111,7 @@ interface SplitPayment {
 interface CheckoutFormProps {
   clients: Client[];
   services: Service[];
+  products?: Product[];
   staff: Staff[];
   currencySymbol: string;
   taxRate: number;
@@ -104,6 +122,7 @@ interface CheckoutFormProps {
 export function CheckoutForm({
   clients,
   services,
+  products = [],
   staff,
   currencySymbol,
   taxRate,
@@ -156,9 +175,9 @@ export function CheckoutForm({
   // Calculate points to be earned
   const pointsToEarn = cart.reduce((sum, item) => sum + item.points * item.quantity, 0);
 
-  const addToCart = (service: Service) => {
+  const addServiceToCart = (service: Service) => {
     const existingItem = cart.find(
-      (item) => item.serviceId === service.id && item.staffId === selectedStaff
+      (item) => item.type === "service" && item.serviceId === service.id && item.staffId === selectedStaff
     );
 
     if (existingItem) {
@@ -174,9 +193,10 @@ export function CheckoutForm({
       setCart([
         ...cart,
         {
-          id: `${service.id}-${selectedStaff}-${Date.now()}`,
+          id: `service-${service.id}-${selectedStaff}-${Date.now()}`,
+          type: "service",
           serviceId: service.id,
-          serviceName: service.name,
+          name: service.name,
           staffId: selectedStaff,
           staffName: staffMember ? `${staffMember.firstName} ${staffMember.lastName}` : "",
           price: Number(service.price),
@@ -187,14 +207,55 @@ export function CheckoutForm({
     }
   };
 
+  const addProductToCart = (product: Product) => {
+    if (product.stock <= 0) return;
+
+    const existingItem = cart.find(
+      (item) => item.type === "product" && item.productId === product.id
+    );
+
+    if (existingItem) {
+      if (existingItem.quantity >= product.stock) {
+        toast.error(`Only ${product.stock} in stock`);
+        return;
+      }
+      setCart(
+        cart.map((item) =>
+          item.id === existingItem.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+      );
+    } else {
+      setCart([
+        ...cart,
+        {
+          id: `product-${product.id}-${Date.now()}`,
+          type: "product",
+          productId: product.id,
+          name: product.name,
+          price: Number(product.price),
+          quantity: 1,
+          points: product.points,
+          maxQuantity: product.stock,
+        },
+      ]);
+    }
+  };
+
   const updateQuantity = (itemId: string, delta: number) => {
     setCart(
       cart
-        .map((item) =>
-          item.id === itemId
-            ? { ...item, quantity: Math.max(0, item.quantity + delta) }
-            : item
-        )
+        .map((item) => {
+          if (item.id !== itemId) return item;
+          const newQty = Math.max(0, item.quantity + delta);
+          // Respect stock limit for products
+          if (item.maxQuantity !== undefined && newQty > item.maxQuantity) {
+            toast.error(`Only ${item.maxQuantity} in stock`);
+            return item;
+          }
+          return { ...item, quantity: newQty };
+        })
         .filter((item) => item.quantity > 0)
     );
   };
@@ -291,6 +352,7 @@ export function CheckoutForm({
         items: cart.map((item) => ({
           serviceId: item.serviceId,
           staffId: item.staffId,
+          productId: item.productId,
           quantity: item.quantity,
           price: item.price,
         })),
@@ -343,9 +405,17 @@ export function CheckoutForm({
     return acc;
   }, {} as Record<string, Service[]>);
 
+  // Group products by category
+  const productsByCategory = products.reduce((acc, product) => {
+    const category = product.category || "Other";
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(product);
+    return acc;
+  }, {} as Record<string, Product[]>);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Left: Service Selection */}
+      {/* Left: Service/Product Selection */}
       <div className="lg:col-span-2 space-y-6">
         {/* Client Selection */}
         <Card>
@@ -534,40 +604,106 @@ export function CheckoutForm({
           </CardContent>
         </Card>
 
-        {/* Services */}
+        {/* Services & Products Tabs */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle>Services</CardTitle>
-            <CardDescription>Click a service to add it to the cart</CardDescription>
+            <CardTitle>Items</CardTitle>
+            <CardDescription>Click an item to add it to the cart</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
-                <div key={category}>
-                  <h4 className="font-medium text-sm text-muted-foreground mb-2">{category}</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {categoryServices.map((service) => (
-                      <button
-                        key={service.id}
-                        onClick={() => addToCart(service)}
-                        disabled={!selectedStaff}
-                        className="p-3 border rounded-lg hover:bg-muted hover:border-purple-300 text-left transition-colors disabled:opacity-50"
-                      >
-                        <p className="font-medium text-sm truncate">{service.name}</p>
-                        <div className="flex items-center justify-between mt-1">
-                          <span className="text-sm text-purple-600 font-semibold">
-                            {currencySymbol}{Number(service.price).toFixed(2)}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {service.duration}min
-                          </span>
+            <Tabs defaultValue="services">
+              <TabsList className="mb-4">
+                <TabsTrigger value="services" className="gap-2">
+                  <Scissors className="h-4 w-4" />
+                  Services
+                </TabsTrigger>
+                {products.length > 0 && (
+                  <TabsTrigger value="products" className="gap-2">
+                    <Package className="h-4 w-4" />
+                    Products
+                  </TabsTrigger>
+                )}
+              </TabsList>
+
+              <TabsContent value="services">
+                <div className="space-y-4">
+                  {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+                    <div key={category}>
+                      <h4 className="font-medium text-sm text-muted-foreground mb-2">{category}</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {categoryServices.map((service) => (
+                          <button
+                            key={service.id}
+                            onClick={() => addServiceToCart(service)}
+                            disabled={!selectedStaff}
+                            className="p-3 border rounded-lg hover:bg-muted hover:border-purple-300 text-left transition-colors disabled:opacity-50"
+                          >
+                            <p className="font-medium text-sm truncate">{service.name}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-sm text-purple-600 font-semibold">
+                                {currencySymbol}{Number(service.price).toFixed(2)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {service.duration}min
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+
+              {products.length > 0 && (
+                <TabsContent value="products">
+                  <div className="space-y-4">
+                    {Object.entries(productsByCategory).map(([category, categoryProducts]) => (
+                      <div key={category}>
+                        <h4 className="font-medium text-sm text-muted-foreground mb-2">{category}</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {categoryProducts.map((product) => {
+                            const isOutOfStock = product.stock <= 0;
+                            const isLowStock = product.stock > 0 && product.stock <= product.lowStockThreshold;
+                            return (
+                              <button
+                                key={product.id}
+                                onClick={() => addProductToCart(product)}
+                                disabled={isOutOfStock}
+                                className="p-3 border rounded-lg hover:bg-muted hover:border-purple-300 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <p className="font-medium text-sm truncate">{product.name}</p>
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text-sm text-purple-600 font-semibold">
+                                    {currencySymbol}{Number(product.price).toFixed(2)}
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    {isOutOfStock ? (
+                                      <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                                        Out of Stock
+                                      </Badge>
+                                    ) : isLowStock ? (
+                                      <Badge className="text-[10px] px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                                        <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                                        {product.stock} left
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">
+                                        {product.stock} in stock
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
-                      </button>
+                      </div>
                     ))}
                   </div>
-                </div>
-              ))}
-            </div>
+                </TabsContent>
+              )}
+            </Tabs>
           </CardContent>
         </Card>
       </div>
@@ -587,7 +723,7 @@ export function CheckoutForm({
           <CardContent className="space-y-4">
             {cart.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">
-                Cart is empty. Add services to begin.
+                Cart is empty. Add services or products to begin.
               </p>
             ) : (
               <>
@@ -595,8 +731,17 @@ export function CheckoutForm({
                   {cart.map((item) => (
                     <div key={item.id} className="flex items-start justify-between gap-2 p-2 bg-muted/50 rounded-lg">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{item.serviceName}</p>
-                        <p className="text-xs text-muted-foreground truncate">by {item.staffName}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="font-medium text-sm truncate">{item.name}</p>
+                          {item.type === "product" && (
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
+                              Product
+                            </Badge>
+                          )}
+                        </div>
+                        {item.staffName && (
+                          <p className="text-xs text-muted-foreground truncate">by {item.staffName}</p>
+                        )}
                         <p className="text-sm font-semibold text-purple-600">
                           {currencySymbol}{(item.price * item.quantity).toFixed(2)}
                         </p>

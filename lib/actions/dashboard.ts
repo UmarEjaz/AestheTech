@@ -152,11 +152,12 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
         },
       }),
 
-      // Top services this month
+      // Top services this month (only service-based items)
       prisma.saleItem.groupBy({
         by: ["serviceId"],
         where: {
           createdAt: { gte: monthStart },
+          serviceId: { not: null },
         },
         _count: { id: true },
         _sum: { price: true },
@@ -190,11 +191,12 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
         take: 5,
       }),
 
-      // Staff performance this month
+      // Staff performance this month (only items with staff)
       prisma.saleItem.groupBy({
         by: ["staffId"],
         where: {
           createdAt: { gte: monthStart },
+          staffId: { not: null },
         },
         _count: { id: true },
         _sum: { price: true },
@@ -223,7 +225,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       : todaysRevenue > 0 ? 100 : 0;
 
     // Get service names for top services
-    const serviceIds = topServicesData.map((s) => s.serviceId);
+    const serviceIds = topServicesData.map((s) => s.serviceId).filter((id): id is string => id !== null);
     const services = await prisma.service.findMany({
       where: { id: { in: serviceIds } },
       select: { id: true, name: true },
@@ -231,7 +233,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     const serviceMap = new Map(services.map((s) => [s.id, s.name]));
 
     const topServices = topServicesData.map((item) => ({
-      name: serviceMap.get(item.serviceId) || "Unknown",
+      name: (item.serviceId && serviceMap.get(item.serviceId)) || "Unknown",
       count: item._count.id,
       revenue: Number(item._sum.price) || 0,
     }));
@@ -256,7 +258,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     }));
 
     // Get staff names for performance
-    const staffIds = staffPerformanceData.map((s) => s.staffId);
+    const staffIds = staffPerformanceData.map((s) => s.staffId).filter((id): id is string => id !== null);
     const staffMembers = await prisma.user.findMany({
       where: { id: { in: staffIds } },
       select: { id: true, firstName: true, lastName: true },
@@ -265,8 +267,8 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
 
     const staffPerformance = staffPerformanceData
       .map((item) => ({
-        staffId: item.staffId,
-        staffName: staffMap.get(item.staffId) || "Unknown",
+        staffId: item.staffId ?? "",
+        staffName: (item.staffId && staffMap.get(item.staffId)) || "Unknown",
         appointmentsCount: item._count.id,
         revenue: Number(item._sum.price) || 0,
       }))
@@ -384,13 +386,14 @@ export async function getReportData(params: {
         orderBy: { createdAt: "asc" },
       }),
 
-      // Sale items for service breakdown
+      // Sale items for service/product breakdown
       prisma.saleItem.findMany({
         where: {
           createdAt: { gte: startDate, lte: endDate },
         },
         include: {
           service: { select: { name: true } },
+          product: { select: { name: true } },
           staff: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
@@ -410,13 +413,13 @@ export async function getReportData(params: {
       .map(([date, data]) => ({ date, ...data }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Revenue by service
+    // Revenue by service/product
     const serviceRevenueMap = new Map<string, number>();
     let totalServiceRevenue = 0;
     saleItemsData.forEach((item) => {
-      const serviceName = item.service.name;
+      const itemName = item.service?.name || item.product?.name || "Unknown";
       const amount = Number(item.price) * item.quantity;
-      serviceRevenueMap.set(serviceName, (serviceRevenueMap.get(serviceName) || 0) + amount);
+      serviceRevenueMap.set(itemName, (serviceRevenueMap.get(itemName) || 0) + amount);
       totalServiceRevenue += amount;
     });
 
@@ -432,6 +435,7 @@ export async function getReportData(params: {
     // Revenue by staff
     const staffRevenueMap = new Map<string, { revenue: number; appointments: number }>();
     saleItemsData.forEach((item) => {
+      if (!item.staff) return; // skip product-only items with no staff
       const staffName = `${item.staff.firstName} ${item.staff.lastName}`;
       const amount = Number(item.price) * item.quantity;
       const existing = staffRevenueMap.get(staffName) || { revenue: 0, appointments: 0 };

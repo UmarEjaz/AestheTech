@@ -240,7 +240,7 @@ export function SalesTable({
                 <TableHead className="w-12"></TableHead>
                 <TableHead>Client</TableHead>
                 <TableHead>Invoice</TableHead>
-                <TableHead>Services</TableHead>
+                <TableHead>Items</TableHead>
                 <TableHead>Staff</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>
@@ -309,7 +309,7 @@ export function SalesTable({
                       <div className="max-w-[150px]">
                         {sale.items.slice(0, 2).map((item, idx) => (
                           <p key={idx} className="text-sm truncate">
-                            {item.service.name}
+                            {item.service?.name || item.product?.name || "Unknown"}
                           </p>
                         ))}
                         {sale.items.length > 2 && (

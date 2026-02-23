@@ -70,6 +70,13 @@ const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({
           lastName: true,
         },
       },
+      product: {
+        select: {
+          id: true,
+          name: true,
+          price: true,
+        },
+      },
     },
   },
   invoice: {
@@ -254,23 +261,47 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       return { success: false, error: "Client not found or inactive" };
     }
 
-    // Verify services and calculate totals
-    const serviceIds = items.map((item) => item.serviceId);
-    const services = await prisma.service.findMany({
-      where: { id: { in: serviceIds } },
-      select: { id: true, price: true, isActive: true },
-    });
+    // Verify services and products
+    const serviceIds = items.filter((i) => i.serviceId).map((i) => i.serviceId!);
+    const productIds = items.filter((i) => i.productId).map((i) => i.productId!);
+
+    const [services, products] = await Promise.all([
+      serviceIds.length > 0
+        ? prisma.service.findMany({
+            where: { id: { in: serviceIds } },
+            select: { id: true, price: true, isActive: true },
+          })
+        : [],
+      productIds.length > 0
+        ? prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, price: true, isActive: true, stock: true },
+          })
+        : [],
+    ]);
 
     const serviceMap = new Map(services.map((s) => [s.id, s]));
+    const productMap = new Map(products.map((p) => [p.id, p]));
 
     // Validate all services exist and are active
     for (const item of items) {
-      const service = serviceMap.get(item.serviceId);
-      if (!service) {
-        return { success: false, error: `Service not found: ${item.serviceId}` };
+      if (item.serviceId) {
+        const service = serviceMap.get(item.serviceId);
+        if (!service) {
+          return { success: false, error: `Service not found: ${item.serviceId}` };
+        }
+        if (!service.isActive) {
+          return { success: false, error: "One or more services are not available" };
+        }
       }
-      if (!service.isActive) {
-        return { success: false, error: "One or more services are not available" };
+      if (item.productId) {
+        const product = productMap.get(item.productId);
+        if (!product) {
+          return { success: false, error: `Product not found: ${item.productId}` };
+        }
+        if (!product.isActive) {
+          return { success: false, error: "One or more products are not available" };
+        }
       }
     }
 
@@ -298,8 +329,9 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
         finalAmount,
         items: {
           create: items.map((item) => ({
-            serviceId: item.serviceId,
-            staffId: item.staffId,
+            serviceId: item.serviceId || null,
+            staffId: item.staffId || null,
+            productId: item.productId || null,
             quantity: item.quantity,
             price: item.price,
           })),
@@ -345,7 +377,10 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
           include: { loyaltyPoints: true },
         },
         items: {
-          include: { service: { select: { points: true } } },
+          include: {
+            service: { select: { points: true } },
+            product: { select: { id: true, points: true, stock: true } },
+          },
         },
       },
     });
@@ -425,7 +460,8 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     if (loyaltyEnabled) {
       let basePoints = 0;
       for (const item of sale.items) {
-        basePoints += (item.service.points || 0) * item.quantity;
+        basePoints += (item.service?.points || 0) * item.quantity;
+        basePoints += (item.product?.points || 0) * item.quantity;
       }
       // Also add points based on amount spent
       basePoints += Math.floor(Number(sale.finalAmount) * loyaltyPointsPerDollar);
@@ -448,6 +484,19 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     // Execute transaction
     let birthdayBonusPoints = 0;
     await prisma.$transaction(async (tx) => {
+      // Deduct stock for product items
+      for (const item of sale.items) {
+        if (item.product) {
+          const updated = await tx.product.update({
+            where: { id: item.product.id },
+            data: { stock: { decrement: item.quantity } },
+          });
+          if (updated.stock < 0) {
+            throw new Error(`Insufficient stock for product "${updated.name}"`);
+          }
+        }
+      }
+
       // Create invoice
       const invoice = await tx.invoice.create({
         data: {
