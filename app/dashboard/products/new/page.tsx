@@ -7,6 +7,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/products/product-form";
 import { getAllProductCategories } from "@/lib/actions/product";
+import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
 export default async function NewProductPage() {
@@ -23,8 +24,12 @@ export default async function NewProductPage() {
     redirect("/dashboard/access-denied");
   }
 
-  const categoriesResult = await getAllProductCategories();
+  const [categoriesResult, settingsResult] = await Promise.all([
+    getAllProductCategories(),
+    getSettings(),
+  ]);
   const categories = categoriesResult.success ? categoriesResult.data : [];
+  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -43,7 +48,7 @@ export default async function NewProductPage() {
           </div>
         </div>
 
-        <ProductForm mode="create" categories={categories} />
+        <ProductForm mode="create" categories={categories} currencySymbol={currencySymbol} />
       </div>
     </DashboardLayout>
   );

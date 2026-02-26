@@ -216,8 +216,9 @@ export function CheckoutForm({
     );
 
     if (existingItem) {
-      if (existingItem.quantity >= product.stock) {
-        toast.error(`Only ${product.stock} in stock`);
+      const stockLimit = existingItem.maxQuantity ?? product.stock;
+      if (existingItem.quantity >= stockLimit) {
+        toast.error(`Only ${stockLimit} in stock`);
         return;
       }
       setCart(

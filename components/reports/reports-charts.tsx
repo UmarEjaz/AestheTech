@@ -316,7 +316,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No service data for this period
+                  No item data for this period
                 </div>
               )}
             </div>

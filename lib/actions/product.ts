@@ -11,10 +11,7 @@ import {
   ProductSearchParams,
 } from "@/lib/validations/product";
 import { Role, Prisma } from "@prisma/client";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 type ProductPermission = "products:view" | "products:manage";
 
@@ -78,7 +75,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
       include: productListInclude,
       ...(lowStock ? {} : { skip, take: limit }),
     }),
-    prisma.product.count({ where }),
+    lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
     prisma.product.findMany({
       where: { isActive: true },
       select: { category: true },

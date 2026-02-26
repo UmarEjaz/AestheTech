@@ -7,6 +7,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceForm } from "@/components/services/service-form";
 import { getService, getAllCategories } from "@/lib/actions/service";
+import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
 interface PageProps {
@@ -28,9 +29,10 @@ export default async function EditServicePage({ params }: PageProps) {
     redirect("/dashboard/access-denied");
   }
 
-  const [serviceResult, categoriesResult] = await Promise.all([
+  const [serviceResult, categoriesResult, settingsResult] = await Promise.all([
     getService(id),
     getAllCategories(),
+    getSettings(),
   ]);
 
   if (!serviceResult.success || !serviceResult.data) {
@@ -39,6 +41,7 @@ export default async function EditServicePage({ params }: PageProps) {
 
   const service = serviceResult.data;
   const categories = categoriesResult.success ? categoriesResult.data : [];
+  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -70,6 +73,7 @@ export default async function EditServicePage({ params }: PageProps) {
             isActive: service.isActive,
           }}
           categories={categories}
+          currencySymbol={currencySymbol}
         />
       </div>
     </DashboardLayout>

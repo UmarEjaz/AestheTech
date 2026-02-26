@@ -17,10 +17,7 @@ import { Role, Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
 import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -275,7 +272,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       productIds.length > 0
         ? prisma.product.findMany({
             where: { id: { in: productIds } },
-            select: { id: true, price: true, isActive: true, stock: true },
+            select: { id: true, name: true, price: true, isActive: true, stock: true },
           })
         : [],
     ]);
@@ -303,7 +300,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
           return { success: false, error: "One or more products are not available" };
         }
         if (product.stock < item.quantity) {
-          return { success: false, error: `Insufficient stock for "${item.productId}". Available: ${product.stock}, requested: ${item.quantity}` };
+          return { success: false, error: `Insufficient stock for "${product.name}". Available: ${product.stock}, requested: ${item.quantity}` };
         }
       }
     }

@@ -240,6 +240,13 @@ model Sale {
 }
 
 // SaleItem model (line items)
+// PRODUCTION TODO: Add DB-level CHECK constraint to enforce that at least one of serviceId
+// or productId is set. Prisma doesn't support CHECK constraints natively.
+// Recommended: Create a migration with `npx prisma migrate dev --name add_sale_item_check`
+// and add this SQL inside the generated migration file:
+//   ALTER TABLE "sale_items" ADD CONSTRAINT "chk_service_or_product"
+//   CHECK ("serviceId" IS NOT NULL OR "productId" IS NOT NULL);
+// Currently enforced at the app level via Zod XOR validation in lib/validations/sale.ts
 model SaleItem {
   id        String   @id @default(cuid())
   saleId    String

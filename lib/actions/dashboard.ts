@@ -14,10 +14,7 @@ import {
   toSalonTz,
   formatInTz,
 } from "@/lib/utils/timezone";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -358,13 +355,9 @@ export async function getReportData(params: {
           createdAt: { gte: startDate, lte: endDate },
           invoice: { isNot: null },
         },
-        include: {
-          items: {
-            include: {
-              service: { select: { name: true } },
-              staff: { select: { id: true, firstName: true, lastName: true } },
-            },
-          },
+        select: {
+          createdAt: true,
+          finalAmount: true,
         },
         orderBy: { createdAt: "asc" },
       }),

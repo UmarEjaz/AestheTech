@@ -7,6 +7,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/products/product-form";
 import { getProduct, getAllProductCategories } from "@/lib/actions/product";
+import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
 interface PageProps {
@@ -28,9 +29,10 @@ export default async function EditProductPage({ params }: PageProps) {
     redirect("/dashboard/access-denied");
   }
 
-  const [productResult, categoriesResult] = await Promise.all([
+  const [productResult, categoriesResult, settingsResult] = await Promise.all([
     getProduct(id),
     getAllProductCategories(),
+    getSettings(),
   ]);
 
   if (!productResult.success || !productResult.data) {
@@ -39,6 +41,7 @@ export default async function EditProductPage({ params }: PageProps) {
 
   const product = productResult.data;
   const categories = categoriesResult.success ? categoriesResult.data : [];
+  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -73,6 +76,7 @@ export default async function EditProductPage({ params }: PageProps) {
             isActive: product.isActive,
           }}
           categories={categories}
+          currencySymbol={currencySymbol}
         />
       </div>
     </DashboardLayout>

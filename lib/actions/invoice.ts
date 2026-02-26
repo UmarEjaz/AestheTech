@@ -17,10 +17,7 @@ import {
 import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier } from "@/lib/utils/loyalty";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();

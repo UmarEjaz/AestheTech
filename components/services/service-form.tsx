@@ -27,9 +27,10 @@ interface ServiceFormProps {
   };
   mode: "create" | "edit";
   categories: string[];
+  currencySymbol?: string;
 }
 
-export function ServiceForm({ service, mode, categories }: ServiceFormProps) {
+export function ServiceForm({ service, mode, categories, currencySymbol = "$" }: ServiceFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -150,7 +151,7 @@ export function ServiceForm({ service, mode, categories }: ServiceFormProps) {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="price">Price ($) *</Label>
+              <Label htmlFor="price">Price ({currencySymbol}) *</Label>
               <Input
                 id="price"
                 type="number"

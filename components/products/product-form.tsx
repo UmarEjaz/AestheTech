@@ -30,9 +30,10 @@ interface ProductFormProps {
   };
   mode: "create" | "edit";
   categories: string[];
+  currencySymbol?: string;
 }
 
-export function ProductForm({ product, mode, categories }: ProductFormProps) {
+export function ProductForm({ product, mode, categories, currencySymbol = "$" }: ProductFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -77,6 +78,9 @@ export function ProductForm({ product, mode, categories }: ProductFormProps) {
           toast.error(result.error);
         }
       }
+    } catch (error) {
+      console.error("Error saving product:", error);
+      toast.error("An unexpected error occurred");
     } finally {
       setIsSubmitting(false);
     }
@@ -154,7 +158,7 @@ export function ProductForm({ product, mode, categories }: ProductFormProps) {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="price">Price ($) *</Label>
+              <Label htmlFor="price">Price ({currencySymbol}) *</Label>
               <Input
                 id="price"
                 type="number"
@@ -168,7 +172,7 @@ export function ProductForm({ product, mode, categories }: ProductFormProps) {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cost">Cost ($)</Label>
+              <Label htmlFor="cost">Cost ({currencySymbol})</Label>
               <Input
                 id="cost"
                 type="number"
