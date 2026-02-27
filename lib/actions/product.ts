@@ -52,7 +52,9 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
   }
 
   const { query, category, isActive = true, lowStock, page = 1, limit = 12 } = params;
-  const skip = (page - 1) * limit;
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 12;
+  const skip = (safePage - 1) * safeLimit;
 
   try {
     const where: Prisma.ProductWhereInput = {
@@ -74,7 +76,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
         where,
         orderBy: [{ category: "asc" }, { name: "asc" }],
         include: productListInclude,
-        ...(lowStock ? {} : { skip, take: limit }),
+        ...(lowStock ? {} : { skip, take: safeLimit }),
       }),
       lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
       prisma.product.findMany({
@@ -90,7 +92,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
     if (lowStock) {
       const filteredProducts = fetchedProducts.filter((p) => p.stock <= p.lowStockThreshold);
       filteredTotal = filteredProducts.length;
-      paginatedProducts = filteredProducts.slice(skip, skip + limit);
+      paginatedProducts = filteredProducts.slice(skip, skip + safeLimit);
     } else {
       filteredTotal = total;
       paginatedProducts = fetchedProducts;
@@ -106,8 +108,8 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
       data: {
         products: paginatedProducts,
         total: filteredTotal,
-        page,
-        totalPages: Math.ceil(filteredTotal / limit),
+        page: safePage,
+        totalPages: Math.max(1, Math.ceil(filteredTotal / safeLimit)),
         categories,
       },
     };
@@ -173,7 +175,8 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
     ) {
       return { success: false, error: `A product with SKU "${sku}" already exists` };
     }
-    throw error;
+    console.error("Error creating product:", error);
+    return { success: false, error: "Failed to create product" };
   }
 }
 
@@ -192,15 +195,15 @@ export async function updateProduct(
 
   const { id, description, category, sku, cost, ...rest } = validationResult.data;
 
-  const existingProduct = await prisma.product.findUnique({
-    where: { id },
-  });
-
-  if (!existingProduct) {
-    return { success: false, error: "Product not found" };
-  }
-
   try {
+    const existingProduct = await prisma.product.findUnique({
+      where: { id },
+    });
+
+    if (!existingProduct) {
+      return { success: false, error: "Product not found" };
+    }
+
     await prisma.product.update({
       where: { id },
       data: {
@@ -221,7 +224,8 @@ export async function updateProduct(
     ) {
       return { success: false, error: `A product with SKU "${sku}" already exists` };
     }
-    throw error;
+    console.error("Error updating product:", error);
+    return { success: false, error: "Failed to update product" };
   }
 }
 

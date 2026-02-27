@@ -51,7 +51,9 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
   }
 
   const { query, category, isActive = true, page = 1, limit = 12 } = params;
-  const skip = (page - 1) * limit;
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 12;
+  const skip = (safePage - 1) * safeLimit;
 
   try {
     const where = {
@@ -70,7 +72,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
         where,
         orderBy: [{ category: "asc" }, { name: "asc" }],
         skip,
-        take: limit,
+        take: safeLimit,
         include: serviceListInclude,
       }),
       prisma.service.count({ where }),
@@ -91,8 +93,8 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
       data: {
         services,
         total,
-        page,
-        totalPages: Math.ceil(total / limit),
+        page: safePage,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
         categories,
       },
     };

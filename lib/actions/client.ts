@@ -46,7 +46,9 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
   }
 
   const { query, tags, isActive = true, isWalkIn, page = 1, limit = 10 } = params;
-  const skip = (page - 1) * limit;
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
+  const skip = (safePage - 1) * safeLimit;
 
   try {
     const where = {
@@ -72,7 +74,7 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
         where,
         orderBy: { createdAt: "desc" },
         skip,
-        take: limit,
+        take: safeLimit,
         include: clientListInclude,
       }),
       prisma.client.count({ where }),
@@ -83,8 +85,8 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
       data: {
         clients,
         total,
-        page,
-        totalPages: Math.ceil(total / limit),
+        page: safePage,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
       },
     };
   } catch (error) {
