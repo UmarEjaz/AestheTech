@@ -231,22 +231,27 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const product = await prisma.product.findUnique({
-    where: { id },
-  });
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id },
+    });
 
-  if (!product) {
-    return { success: false, error: "Product not found" };
+    if (!product) {
+      return { success: false, error: "Product not found" };
+    }
+
+    // Soft delete - mark as inactive
+    await prisma.product.update({
+      where: { id },
+      data: { isActive: false },
+    });
+
+    revalidatePath("/dashboard/products");
+    return { success: true, data: undefined };
+  } catch (error) {
+    console.error("Error deleting product:", error);
+    return { success: false, error: "Failed to delete product" };
   }
-
-  // Soft delete - mark as inactive
-  await prisma.product.update({
-    where: { id },
-    data: { isActive: false },
-  });
-
-  revalidatePath("/dashboard/products");
-  return { success: true, data: undefined };
 }
 
 export async function restoreProduct(id: string): Promise<ActionResult> {
@@ -255,21 +260,26 @@ export async function restoreProduct(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const product = await prisma.product.findUnique({
-    where: { id },
-  });
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id },
+    });
 
-  if (!product) {
-    return { success: false, error: "Product not found" };
+    if (!product) {
+      return { success: false, error: "Product not found" };
+    }
+
+    await prisma.product.update({
+      where: { id },
+      data: { isActive: true },
+    });
+
+    revalidatePath("/dashboard/products");
+    return { success: true, data: undefined };
+  } catch (error) {
+    console.error("Error restoring product:", error);
+    return { success: false, error: "Failed to restore product" };
   }
-
-  await prisma.product.update({
-    where: { id },
-    data: { isActive: true },
-  });
-
-  revalidatePath("/dashboard/products");
-  return { success: true, data: undefined };
 }
 
 export async function getAllProductCategories(): Promise<ActionResult<string[]>> {
