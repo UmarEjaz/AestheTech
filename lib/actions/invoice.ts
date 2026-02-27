@@ -17,10 +17,7 @@ import {
 import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier } from "@/lib/utils/loyalty";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -128,7 +125,9 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
   }
 
   const { query, clientId, status, startDate, endDate, page = 1, limit = 20 } = validatedParams.data;
-  const skip = (page - 1) * limit;
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 20;
+  const skip = (safePage - 1) * safeLimit;
 
   // Build date filter
   let dateFilter: Prisma.DateTimeFilter | undefined;
@@ -159,7 +158,7 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
         include: invoiceListInclude,
         orderBy: { createdAt: "desc" },
         skip,
-        take: limit,
+        take: safeLimit,
       }),
       prisma.invoice.count({ where }),
     ]);
@@ -169,8 +168,8 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
       data: {
         invoices,
         total,
-        page,
-        totalPages: Math.ceil(total / limit),
+        page: safePage,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
       },
     };
   } catch (error) {

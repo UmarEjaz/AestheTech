@@ -8,6 +8,7 @@ import {
   Users,
   UserCog,
   Scissors,
+  Package,
   DollarSign,
   FileText,
   Clock,
@@ -55,6 +56,12 @@ const navItems: NavItem[] = [
     title: "Services",
     href: "/dashboard/services",
     icon: Scissors,
+    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+  },
+  {
+    title: "Products",
+    href: "/dashboard/products",
+    icon: Package,
     roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {

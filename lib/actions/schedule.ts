@@ -11,10 +11,7 @@ import {
   WeekScheduleFormData,
 } from "@/lib/validations/schedule";
 import { Role, Prisma, ShiftType } from "@prisma/client";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();

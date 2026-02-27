@@ -209,8 +209,9 @@ export interface InvoicePDFData {
   };
   items: Array<{
     id: string;
-    service: { name: string };
-    staff: { firstName: string; lastName: string };
+    service: { name: string } | null;
+    staff: { firstName: string; lastName: string } | null;
+    product: { name: string } | null;
     price: number;
     quantity: number;
   }>;
@@ -292,12 +293,12 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
 
         {/* Items Table */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Services</Text>
+          <Text style={styles.sectionTitle}>Items</Text>
           <View style={styles.table}>
             {/* Table Header */}
             <View style={styles.tableHeader}>
               <Text style={[styles.tableHeaderCell, styles.colService]}>
-                Service
+                Item
               </Text>
               <Text style={[styles.tableHeaderCell, styles.colStaff]}>
                 Staff
@@ -315,10 +316,12 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
             {data.items.map((item) => (
               <View key={item.id} style={styles.tableRow}>
                 <Text style={[styles.tableCell, styles.colService]}>
-                  {item.service.name}
+                  {item.service?.name || item.product?.name || "Unknown"}
                 </Text>
                 <Text style={[styles.tableCell, styles.colStaff]}>
-                  {item.staff.firstName} {item.staff.lastName}
+                  {item.staff
+                    ? `${item.staff.firstName} ${item.staff.lastName}`.trim() || "-"
+                    : "-"}
                 </Text>
                 <Text style={[styles.tableCell, styles.colPrice]}>
                   {data.currencySymbol}

@@ -341,6 +341,7 @@
 - [ ] Configure database backups
 
 ### Pre-Launch
+- [ ] Add DB-level CHECK constraint on `sale_items` table — create a migration with `npx prisma migrate dev --name add_sale_item_check` and add `ALTER TABLE "sale_items" ADD CONSTRAINT "chk_service_or_product" CHECK ("serviceId" IS NOT NULL OR "productId" IS NOT NULL);` inside the generated SQL file. See comment in `prisma/schema.prisma` above `SaleItem` model
 - [ ] Deploy to staging environment
 - [ ] Run full testing on staging
 - [ ] Conduct user acceptance testing (UAT)

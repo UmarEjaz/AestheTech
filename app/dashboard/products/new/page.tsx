@@ -5,12 +5,12 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
-import { ServiceForm } from "@/components/services/service-form";
-import { getAllCategories } from "@/lib/actions/service";
+import { ProductForm } from "@/components/products/product-form";
+import { getAllProductCategories } from "@/lib/actions/product";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
-export default async function NewServicePage() {
+export default async function NewProductPage() {
   const session = await auth();
 
   if (!session) {
@@ -18,14 +18,14 @@ export default async function NewServicePage() {
   }
 
   const userRole = session.user.role as Role;
-  const canManage = hasPermission(userRole, "services:manage");
+  const canManage = hasPermission(userRole, "products:manage");
 
   if (!canManage) {
     redirect("/dashboard/access-denied");
   }
 
   const [categoriesResult, settingsResult] = await Promise.all([
-    getAllCategories(),
+    getAllProductCategories(),
     getSettings(),
   ]);
   const categories = categoriesResult.success ? categoriesResult.data : [];
@@ -36,19 +36,19 @@ export default async function NewServicePage() {
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/dashboard/services">
+            <Link href="/dashboard/products">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">Add New Service</h1>
+            <h1 className="text-3xl font-bold">Add New Product</h1>
             <p className="text-muted-foreground">
-              Create a new service offering
+              Add a new retail product to your catalog
             </p>
           </div>
         </div>
 
-        <ServiceForm mode="create" categories={categories} currencySymbol={currencySymbol} />
+        <ProductForm mode="create" categories={categories} currencySymbol={currencySymbol} />
       </div>
     </DashboardLayout>
   );

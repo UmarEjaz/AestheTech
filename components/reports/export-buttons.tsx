@@ -49,15 +49,15 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
     toast.success("Revenue data exported to CSV");
   };
 
-  const handleExportServicesCSV = () => {
-    const columns: ExportColumn<typeof data.revenueByService[0]>[] = [
-      { header: "Service", accessor: "service" },
+  const handleExportItemsCSV = () => {
+    const columns: ExportColumn<typeof data.revenueByItem[0]>[] = [
+      { header: "Item", accessor: "item" },
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencySymbol) },
       { header: "Percentage", accessor: (row) => `${row.percentage}%` },
     ];
 
-    downloadCSV(data.revenueByService, columns, `revenue-by-service-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
-    toast.success("Services data exported to CSV");
+    downloadCSV(data.revenueByItem, columns, `revenue-by-item-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
+    toast.success("Items data exported to CSV");
   };
 
   const handleExportStaffCSV = () => {
@@ -123,9 +123,9 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
           <FileSpreadsheet className="h-4 w-4 mr-2" />
           Revenue by Day (CSV)
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleExportServicesCSV}>
+        <DropdownMenuItem onClick={handleExportItemsCSV}>
           <FileSpreadsheet className="h-4 w-4 mr-2" />
-          Revenue by Service (CSV)
+          Revenue by Item (CSV)
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleExportStaffCSV}>
           <FileSpreadsheet className="h-4 w-4 mr-2" />

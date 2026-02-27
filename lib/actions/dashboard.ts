@@ -14,10 +14,7 @@ import {
   toSalonTz,
   formatInTz,
 } from "@/lib/utils/timezone";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -152,11 +149,12 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
         },
       }),
 
-      // Top services this month
+      // Top services this month (only service-based items)
       prisma.saleItem.groupBy({
         by: ["serviceId"],
         where: {
           createdAt: { gte: monthStart },
+          serviceId: { not: null },
         },
         _count: { id: true },
         _sum: { price: true },
@@ -190,11 +188,12 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
         take: 5,
       }),
 
-      // Staff performance this month
+      // Staff performance this month (only items with staff)
       prisma.saleItem.groupBy({
         by: ["staffId"],
         where: {
           createdAt: { gte: monthStart },
+          staffId: { not: null },
         },
         _count: { id: true },
         _sum: { price: true },
@@ -223,7 +222,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       : todaysRevenue > 0 ? 100 : 0;
 
     // Get service names for top services
-    const serviceIds = topServicesData.map((s) => s.serviceId);
+    const serviceIds = topServicesData.map((s) => s.serviceId).filter((id): id is string => id !== null);
     const services = await prisma.service.findMany({
       where: { id: { in: serviceIds } },
       select: { id: true, name: true },
@@ -231,7 +230,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     const serviceMap = new Map(services.map((s) => [s.id, s.name]));
 
     const topServices = topServicesData.map((item) => ({
-      name: serviceMap.get(item.serviceId) || "Unknown",
+      name: (item.serviceId && serviceMap.get(item.serviceId)) || "Unknown",
       count: item._count.id,
       revenue: Number(item._sum.price) || 0,
     }));
@@ -256,7 +255,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     }));
 
     // Get staff names for performance
-    const staffIds = staffPerformanceData.map((s) => s.staffId);
+    const staffIds = staffPerformanceData.map((s) => s.staffId).filter((id): id is string => id !== null);
     const staffMembers = await prisma.user.findMany({
       where: { id: { in: staffIds } },
       select: { id: true, firstName: true, lastName: true },
@@ -265,8 +264,8 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
 
     const staffPerformance = staffPerformanceData
       .map((item) => ({
-        staffId: item.staffId,
-        staffName: staffMap.get(item.staffId) || "Unknown",
+        staffId: item.staffId ?? "",
+        staffName: (item.staffId && staffMap.get(item.staffId)) || "Unknown",
         appointmentsCount: item._count.id,
         revenue: Number(item._sum.price) || 0,
       }))
@@ -308,7 +307,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
 // Reports data
 export interface ReportData {
   revenueByDay: { date: string; revenue: number; salesCount: number }[];
-  revenueByService: { service: string; revenue: number; percentage: number }[];
+  revenueByItem: { item: string; revenue: number; percentage: number }[];
   revenueByStaff: { staff: string; revenue: number; appointments: number }[];
   appointmentsByStatus: { status: string; count: number }[];
   clientGrowth: { date: string; newClients: number; totalClients: number }[];
@@ -356,13 +355,9 @@ export async function getReportData(params: {
           createdAt: { gte: startDate, lte: endDate },
           invoice: { isNot: null },
         },
-        include: {
-          items: {
-            include: {
-              service: { select: { name: true } },
-              staff: { select: { id: true, firstName: true, lastName: true } },
-            },
-          },
+        select: {
+          createdAt: true,
+          finalAmount: true,
         },
         orderBy: { createdAt: "asc" },
       }),
@@ -384,13 +379,14 @@ export async function getReportData(params: {
         orderBy: { createdAt: "asc" },
       }),
 
-      // Sale items for service breakdown
+      // Sale items for service/product breakdown
       prisma.saleItem.findMany({
         where: {
           createdAt: { gte: startDate, lte: endDate },
         },
         include: {
           service: { select: { name: true } },
+          product: { select: { name: true } },
           staff: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
@@ -410,21 +406,21 @@ export async function getReportData(params: {
       .map(([date, data]) => ({ date, ...data }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Revenue by service
-    const serviceRevenueMap = new Map<string, number>();
-    let totalServiceRevenue = 0;
-    saleItemsData.forEach((item) => {
-      const serviceName = item.service.name;
-      const amount = Number(item.price) * item.quantity;
-      serviceRevenueMap.set(serviceName, (serviceRevenueMap.get(serviceName) || 0) + amount);
-      totalServiceRevenue += amount;
+    // Revenue by item (services + products)
+    const itemRevenueMap = new Map<string, number>();
+    let totalItemRevenue = 0;
+    saleItemsData.forEach((saleItem) => {
+      const itemName = saleItem.service?.name || saleItem.product?.name || "Unknown";
+      const amount = Number(saleItem.price) * saleItem.quantity;
+      itemRevenueMap.set(itemName, (itemRevenueMap.get(itemName) || 0) + amount);
+      totalItemRevenue += amount;
     });
 
-    const revenueByService = Array.from(serviceRevenueMap.entries())
-      .map(([service, revenue]) => ({
-        service,
+    const revenueByItem = Array.from(itemRevenueMap.entries())
+      .map(([item, revenue]) => ({
+        item,
         revenue,
-        percentage: totalServiceRevenue > 0 ? Math.round((revenue / totalServiceRevenue) * 100) : 0,
+        percentage: totalItemRevenue > 0 ? Math.round((revenue / totalItemRevenue) * 100) : 0,
       }))
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
@@ -432,6 +428,7 @@ export async function getReportData(params: {
     // Revenue by staff
     const staffRevenueMap = new Map<string, { revenue: number; appointments: number }>();
     saleItemsData.forEach((item) => {
+      if (!item.staff) return; // skip product-only items with no staff
       const staffName = `${item.staff.firstName} ${item.staff.lastName}`;
       const amount = Number(item.price) * item.quantity;
       const existing = staffRevenueMap.get(staffName) || { revenue: 0, appointments: 0 };
@@ -496,7 +493,7 @@ export async function getReportData(params: {
       success: true,
       data: {
         revenueByDay,
-        revenueByService,
+        revenueByItem,
         revenueByStaff,
         appointmentsByStatus,
         clientGrowth,

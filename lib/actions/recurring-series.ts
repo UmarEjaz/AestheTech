@@ -28,10 +28,7 @@ import {
   calculateRecurringDates,
   RecurringDateConfig,
 } from "@/lib/utils/recurring";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
