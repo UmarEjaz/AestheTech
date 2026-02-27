@@ -386,7 +386,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                   />
                   <Legend />
                   <Bar yAxisId="left" dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[4, 4, 0, 0]} />
-                  <Bar yAxisId="right" dataKey="appointments" fill="#06b6d4" name="Services" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="right" dataKey="appointments" fill="#06b6d4" name="Items" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

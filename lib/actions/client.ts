@@ -48,44 +48,49 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
   const { query, tags, isActive = true, isWalkIn, page = 1, limit = 10 } = params;
   const skip = (page - 1) * limit;
 
-  const where = {
-    isActive,
-    ...(query && {
-      OR: [
-        { firstName: { contains: query, mode: "insensitive" as const } },
-        { lastName: { contains: query, mode: "insensitive" as const } },
-        { email: { contains: query, mode: "insensitive" as const } },
-        { phone: { contains: query } },
-      ],
-    }),
-    ...(tags && tags.length > 0 && {
-      tags: { hasSome: tags },
-    }),
-    ...(isWalkIn !== undefined && {
-      isWalkIn,
-    }),
-  };
+  try {
+    const where = {
+      isActive,
+      ...(query && {
+        OR: [
+          { firstName: { contains: query, mode: "insensitive" as const } },
+          { lastName: { contains: query, mode: "insensitive" as const } },
+          { email: { contains: query, mode: "insensitive" as const } },
+          { phone: { contains: query } },
+        ],
+      }),
+      ...(tags && tags.length > 0 && {
+        tags: { hasSome: tags },
+      }),
+      ...(isWalkIn !== undefined && {
+        isWalkIn,
+      }),
+    };
 
-  const [clients, total] = await Promise.all([
-    prisma.client.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-      include: clientListInclude,
-    }),
-    prisma.client.count({ where }),
-  ]);
+    const [clients, total] = await Promise.all([
+      prisma.client.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: clientListInclude,
+      }),
+      prisma.client.count({ where }),
+    ]);
 
-  return {
-    success: true,
-    data: {
-      clients,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
+    return {
+      success: true,
+      data: {
+        clients,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  } catch (error) {
+    console.error("Error fetching clients:", error);
+    return { success: false, error: "Failed to fetch clients" };
+  }
 }
 
 // Function to get client include with fresh date filter (avoids stale date issue)
@@ -161,16 +166,21 @@ export async function getClient(id: string): Promise<ActionResult<ClientWithRela
     return { success: false, error: "Unauthorized" };
   }
 
-  const client = await prisma.client.findUnique({
-    where: { id },
-    include: getClientInclude(),
-  });
+  try {
+    const client = await prisma.client.findUnique({
+      where: { id },
+      include: getClientInclude(),
+    });
 
-  if (!client) {
-    return { success: false, error: "Client not found" };
+    if (!client) {
+      return { success: false, error: "Client not found" };
+    }
+
+    return { success: true, data: client };
+  } catch (error) {
+    console.error("Error fetching client:", error);
+    return { success: false, error: "Failed to fetch client" };
   }
-
-  return { success: true, data: client };
 }
 
 export async function createClient(data: ClientFormData): Promise<ActionResult<{ id: string }>> {
@@ -370,15 +380,20 @@ export async function getAllTags(): Promise<ActionResult<string[]>> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const clients = await prisma.client.findMany({
-    select: { tags: true },
-    where: { isActive: true },
-  });
+  try {
+    const clients = await prisma.client.findMany({
+      select: { tags: true },
+      where: { isActive: true },
+    });
 
-  const allTags = new Set<string>();
-  clients.forEach((client) => {
-    client.tags.forEach((tag) => allTags.add(tag));
-  });
+    const allTags = new Set<string>();
+    clients.forEach((client) => {
+      client.tags.forEach((tag) => allTags.add(tag));
+    });
 
-  return { success: true, data: Array.from(allTags).sort() };
+    return { success: true, data: Array.from(allTags).sort() };
+  } catch (error) {
+    console.error("Error fetching tags:", error);
+    return { success: false, error: "Failed to fetch tags" };
+  }
 }

@@ -54,62 +54,67 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
   const { query, category, isActive = true, lowStock, page = 1, limit = 12 } = params;
   const skip = (page - 1) * limit;
 
-  const where: Prisma.ProductWhereInput = {
-    isActive,
-    ...(query && {
-      OR: [
-        { name: { contains: query, mode: "insensitive" as const } },
-        { description: { contains: query, mode: "insensitive" as const } },
-        { sku: { contains: query, mode: "insensitive" as const } },
-      ],
-    }),
-    ...(category && { category }),
-  };
+  try {
+    const where: Prisma.ProductWhereInput = {
+      isActive,
+      ...(query && {
+        OR: [
+          { name: { contains: query, mode: "insensitive" as const } },
+          { description: { contains: query, mode: "insensitive" as const } },
+          { sku: { contains: query, mode: "insensitive" as const } },
+        ],
+      }),
+      ...(category && { category }),
+    };
 
-  // When lowStock filter is active, we must fetch all and filter in-memory
-  // (Prisma can't compare two columns). Otherwise, use DB-level pagination.
-  const [fetchedProducts, total, allCategoryProducts] = await Promise.all([
-    prisma.product.findMany({
-      where,
-      orderBy: [{ category: "asc" }, { name: "asc" }],
-      include: productListInclude,
-      ...(lowStock ? {} : { skip, take: limit }),
-    }),
-    lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
-    prisma.product.findMany({
-      where: { isActive: true },
-      select: { category: true },
-      distinct: ["category"],
-    }),
-  ]);
+    // When lowStock filter is active, we must fetch all and filter in-memory
+    // (Prisma can't compare two columns). Otherwise, use DB-level pagination.
+    const [fetchedProducts, total, allCategoryProducts] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy: [{ category: "asc" }, { name: "asc" }],
+        include: productListInclude,
+        ...(lowStock ? {} : { skip, take: limit }),
+      }),
+      lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
+      prisma.product.findMany({
+        where: { isActive: true },
+        select: { category: true },
+        distinct: ["category"],
+      }),
+    ]);
 
-  let paginatedProducts: ProductListItem[];
-  let filteredTotal: number;
+    let paginatedProducts: ProductListItem[];
+    let filteredTotal: number;
 
-  if (lowStock) {
-    const filteredProducts = fetchedProducts.filter((p) => p.stock <= p.lowStockThreshold);
-    filteredTotal = filteredProducts.length;
-    paginatedProducts = filteredProducts.slice(skip, skip + limit);
-  } else {
-    filteredTotal = total;
-    paginatedProducts = fetchedProducts;
+    if (lowStock) {
+      const filteredProducts = fetchedProducts.filter((p) => p.stock <= p.lowStockThreshold);
+      filteredTotal = filteredProducts.length;
+      paginatedProducts = filteredProducts.slice(skip, skip + limit);
+    } else {
+      filteredTotal = total;
+      paginatedProducts = fetchedProducts;
+    }
+
+    const categories = allCategoryProducts
+      .map((p) => p.category)
+      .filter((c): c is string => c !== null)
+      .sort();
+
+    return {
+      success: true,
+      data: {
+        products: paginatedProducts,
+        total: filteredTotal,
+        page,
+        totalPages: Math.ceil(filteredTotal / limit),
+        categories,
+      },
+    };
+  } catch (error) {
+    console.error("Error fetching products:", error);
+    return { success: false, error: "Failed to fetch products" };
   }
-
-  const categories = allCategoryProducts
-    .map((p) => p.category)
-    .filter((c): c is string => c !== null)
-    .sort();
-
-  return {
-    success: true,
-    data: {
-      products: paginatedProducts,
-      total: filteredTotal,
-      page,
-      totalPages: Math.ceil(filteredTotal / limit),
-      categories,
-    },
-  };
 }
 
 export async function getProduct(id: string): Promise<ActionResult<ProductListItem | null>> {
@@ -118,16 +123,21 @@ export async function getProduct(id: string): Promise<ActionResult<ProductListIt
     return { success: false, error: "Unauthorized" };
   }
 
-  const product = await prisma.product.findUnique({
-    where: { id },
-    include: productListInclude,
-  });
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: productListInclude,
+    });
 
-  if (!product) {
-    return { success: false, error: "Product not found" };
+    if (!product) {
+      return { success: false, error: "Product not found" };
+    }
+
+    return { success: true, data: product };
+  } catch (error) {
+    console.error("Error fetching product:", error);
+    return { success: false, error: "Failed to fetch product" };
   }
-
-  return { success: true, data: product };
 }
 
 export async function createProduct(data: ProductFormData): Promise<ActionResult<{ id: string }>> {
@@ -268,18 +278,23 @@ export async function getAllProductCategories(): Promise<ActionResult<string[]>>
     return { success: false, error: "Unauthorized" };
   }
 
-  const products = await prisma.product.findMany({
-    where: { isActive: true },
-    select: { category: true },
-    distinct: ["category"],
-  });
+  try {
+    const products = await prisma.product.findMany({
+      where: { isActive: true },
+      select: { category: true },
+      distinct: ["category"],
+    });
 
-  const categories = products
-    .map((p) => p.category)
-    .filter((c): c is string => c !== null)
-    .sort();
+    const categories = products
+      .map((p) => p.category)
+      .filter((c): c is string => c !== null)
+      .sort();
 
-  return { success: true, data: categories };
+    return { success: true, data: categories };
+  } catch (error) {
+    console.error("Error fetching product categories:", error);
+    return { success: false, error: "Failed to fetch categories" };
+  }
 }
 
 export async function getActiveProducts(): Promise<ActionResult<{
@@ -297,26 +312,31 @@ export async function getActiveProducts(): Promise<ActionResult<{
     return { success: false, error: "Unauthorized" };
   }
 
-  const products = await prisma.product.findMany({
-    where: { isActive: true },
-    select: {
-      id: true,
-      name: true,
-      price: true,
-      stock: true,
-      category: true,
-      points: true,
-      sku: true,
-      lowStockThreshold: true,
-    },
-    orderBy: [{ category: "asc" }, { name: "asc" }],
-  });
+  try {
+    const products = await prisma.product.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        stock: true,
+        category: true,
+        points: true,
+        sku: true,
+        lowStockThreshold: true,
+      },
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+    });
 
-  return {
-    success: true,
-    data: products.map((p) => ({
-      ...p,
-      price: Number(p.price),
-    })),
-  };
+    return {
+      success: true,
+      data: products.map((p) => ({
+        ...p,
+        price: Number(p.price),
+      })),
+    };
+  } catch (error) {
+    console.error("Error fetching active products:", error);
+    return { success: false, error: "Failed to fetch products" };
+  }
 }
