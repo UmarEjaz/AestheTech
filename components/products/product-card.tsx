@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { DollarSign, Gift, MoreVertical, Edit, Trash2, ShoppingBag, Package, AlertTriangle } from "lucide-react";
+import { Banknote, Gift, MoreVertical, Edit, Trash2, ShoppingBag, Package, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,7 +91,7 @@ export function ProductCard({ product, onDelete, canManage = false, currencySymb
 
         <div className="grid grid-cols-2 gap-4">
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <Banknote className="h-4 w-4 text-muted-foreground" />
             <span>{currencySymbol}{Number(product.price).toFixed(2)}</span>
           </div>
           <div className="flex items-center gap-2 text-sm">

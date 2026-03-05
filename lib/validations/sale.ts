@@ -3,9 +3,9 @@ import { PaymentMethod } from "@prisma/client";
 
 // Schema for individual sale item
 export const saleItemSchema = z.object({
-  serviceId: z.string().optional(),
-  staffId: z.string().optional(),
-  productId: z.string().optional(),
+  serviceId: z.string().min(1).optional(),
+  staffId: z.string().min(1).optional(),
+  productId: z.string().min(1).optional(),
   quantity: z.number().int().min(1, "Quantity must be at least 1").default(1),
   price: z.number().min(0, "Price must be a positive number"),
 }).refine(

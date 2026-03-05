@@ -498,6 +498,10 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
         include: {
           sale: {
             include: {
+              items: {
+                where: { productId: { not: null } },
+                select: { productId: true, quantity: true },
+              },
               loyaltyTransactions: {
                 where: { type: LoyaltyTransactionType.EARNED },
               },
@@ -595,6 +599,18 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
               description: `Points reversed due to refund on invoice ${invoice.invoiceNumber}`,
             },
           });
+        }
+      }
+
+      // Restore product stock on full refund
+      if (isFullRefund) {
+        for (const item of invoice.sale.items) {
+          if (item.productId) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            });
+          }
         }
       }
 
