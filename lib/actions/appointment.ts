@@ -14,10 +14,7 @@ import {
 } from "@/lib/validations/appointment";
 import { Role, Prisma, AppointmentStatus } from "@prisma/client";
 import { getSettings } from "./settings";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -95,7 +92,9 @@ export async function getAppointments(params: {
   }
 
   const { date, startDate, endDate, staffId, clientId, status, page = 1, limit = 50 } = params;
-  const skip = (page - 1) * limit;
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 50;
+  const skip = (safePage - 1) * safeLimit;
 
   // Build date filter
   let dateFilter: Prisma.DateTimeFilter | undefined;
@@ -126,7 +125,7 @@ export async function getAppointments(params: {
         include: appointmentListInclude,
         orderBy: { startTime: "asc" },
         skip,
-        take: limit,
+        take: safeLimit,
       }),
       prisma.appointment.count({ where }),
     ]);
@@ -136,8 +135,8 @@ export async function getAppointments(params: {
       data: {
         appointments,
         total,
-        page,
-        totalPages: Math.ceil(total / limit),
+        page: safePage,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
       },
     };
   } catch (error) {

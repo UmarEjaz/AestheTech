@@ -5,8 +5,8 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
-import { ServiceForm } from "@/components/services/service-form";
-import { getService, getAllCategories } from "@/lib/actions/service";
+import { ProductForm } from "@/components/products/product-form";
+import { getProduct, getAllProductCategories } from "@/lib/actions/product";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 
@@ -14,7 +14,7 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default async function EditServicePage({ params }: PageProps) {
+export default async function EditProductPage({ params }: PageProps) {
   const session = await auth();
 
   if (!session) {
@@ -23,23 +23,23 @@ export default async function EditServicePage({ params }: PageProps) {
 
   const { id } = await params;
   const userRole = session.user.role as Role;
-  const canManage = hasPermission(userRole, "services:manage");
+  const canManage = hasPermission(userRole, "products:manage");
 
   if (!canManage) {
     redirect("/dashboard/access-denied");
   }
 
-  const [serviceResult, categoriesResult, settingsResult] = await Promise.all([
-    getService(id),
-    getAllCategories(),
+  const [productResult, categoriesResult, settingsResult] = await Promise.all([
+    getProduct(id),
+    getAllProductCategories(),
     getSettings(),
   ]);
 
-  if (!serviceResult.success || !serviceResult.data) {
+  if (!productResult.success || !productResult.data) {
     notFound();
   }
 
-  const service = serviceResult.data;
+  const product = productResult.data;
   const categories = categoriesResult.success ? categoriesResult.data : [];
   const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
 
@@ -48,29 +48,32 @@ export default async function EditServicePage({ params }: PageProps) {
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/dashboard/services">
+            <Link href="/dashboard/products">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">Edit Service</h1>
+            <h1 className="text-3xl font-bold">Edit Product</h1>
             <p className="text-muted-foreground">
-              Update {service.name}
+              Update {product.name}
             </p>
           </div>
         </div>
 
-        <ServiceForm
+        <ProductForm
           mode="edit"
-          service={{
-            id: service.id,
-            name: service.name,
-            description: service.description,
-            duration: service.duration,
-            price: Number(service.price),
-            points: service.points,
-            category: service.category,
-            isActive: service.isActive,
+          product={{
+            id: product.id,
+            name: product.name,
+            description: product.description,
+            sku: product.sku,
+            price: Number(product.price),
+            cost: product.cost ? Number(product.cost) : null,
+            stock: product.stock,
+            lowStockThreshold: product.lowStockThreshold,
+            points: product.points,
+            category: product.category,
+            isActive: product.isActive,
           }}
           categories={categories}
           currencySymbol={currencySymbol}

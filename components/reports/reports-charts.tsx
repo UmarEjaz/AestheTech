@@ -285,19 +285,19 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
 
       {/* Two Column Layout */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Revenue by Service */}
+        {/* Revenue by Item */}
         <Card>
           <CardHeader>
-            <CardTitle>Revenue by Service</CardTitle>
-            <CardDescription>Top performing services</CardDescription>
+            <CardTitle>Revenue by Item</CardTitle>
+            <CardDescription>Top performing services &amp; products</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
-              {data.revenueByService.length > 0 ? (
+              {data.revenueByItem.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={data.revenueByService}
+                      data={data.revenueByItem}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
@@ -305,9 +305,9 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                       outerRadius={80}
                       fill="#8884d8"
                       dataKey="revenue"
-                      nameKey="service"
+                      nameKey="item"
                     >
-                      {data.revenueByService.map((_, index) => (
+                      {data.revenueByItem.map((_, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
@@ -316,7 +316,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No service data for this period
+                  No item data for this period
                 </div>
               )}
             </div>
@@ -386,7 +386,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                   />
                   <Legend />
                   <Bar yAxisId="left" dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[4, 4, 0, 0]} />
-                  <Bar yAxisId="right" dataKey="appointments" fill="#06b6d4" name="Services" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="right" dataKey="appointments" fill="#06b6d4" name="Items" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

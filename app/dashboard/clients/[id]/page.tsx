@@ -386,7 +386,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
                   >
                     <div>
                       <p className="font-medium">
-                        {sale.items.map((item) => item.service.name).join(", ")}
+                        {sale.items.map((item) => item.service?.name || item.product?.name || "Unknown").join(", ")}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {formatInTz(sale.createdAt, "MMM d, yyyy", tz)}

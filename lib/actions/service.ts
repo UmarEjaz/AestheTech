@@ -11,10 +11,7 @@ import {
   ServiceSearchParams,
 } from "@/lib/validations/service";
 import { Role, Prisma } from "@prisma/client";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -54,50 +51,57 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
   }
 
   const { query, category, isActive = true, page = 1, limit = 12 } = params;
-  const skip = (page - 1) * limit;
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 12;
+  const skip = (safePage - 1) * safeLimit;
 
-  const where = {
-    isActive,
-    ...(query && {
-      OR: [
-        { name: { contains: query, mode: "insensitive" as const } },
-        { description: { contains: query, mode: "insensitive" as const } },
-      ],
-    }),
-    ...(category && { category }),
-  };
+  try {
+    const where = {
+      isActive,
+      ...(query && {
+        OR: [
+          { name: { contains: query, mode: "insensitive" as const } },
+          { description: { contains: query, mode: "insensitive" as const } },
+        ],
+      }),
+      ...(category && { category }),
+    };
 
-  const [services, total, allServices] = await Promise.all([
-    prisma.service.findMany({
-      where,
-      orderBy: [{ category: "asc" }, { name: "asc" }],
-      skip,
-      take: limit,
-      include: serviceListInclude,
-    }),
-    prisma.service.count({ where }),
-    prisma.service.findMany({
-      where: { isActive: true },
-      select: { category: true },
-      distinct: ["category"],
-    }),
-  ]);
+    const [services, total, allServices] = await Promise.all([
+      prisma.service.findMany({
+        where,
+        orderBy: [{ category: "asc" }, { name: "asc" }],
+        skip,
+        take: safeLimit,
+        include: serviceListInclude,
+      }),
+      prisma.service.count({ where }),
+      prisma.service.findMany({
+        where: { isActive: true },
+        select: { category: true },
+        distinct: ["category"],
+      }),
+    ]);
 
-  const categories = allServices
-    .map((s) => s.category)
-    .filter((c): c is string => c !== null)
-    .sort();
+    const categories = allServices
+      .map((s) => s.category)
+      .filter((c): c is string => c !== null)
+      .sort();
 
-  return {
-    success: true,
-    data: {
-      services,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-      categories,
-    },
-  };
+    return {
+      success: true,
+      data: {
+        services,
+        total,
+        page: safePage,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+        categories,
+      },
+    };
+  } catch (error) {
+    console.error("Error fetching services:", error);
+    return { success: false, error: "Failed to fetch services" };
+  }
 }
 
 export async function getService(id: string): Promise<ActionResult<ServiceListItem | null>> {
@@ -106,16 +110,21 @@ export async function getService(id: string): Promise<ActionResult<ServiceListIt
     return { success: false, error: "Unauthorized" };
   }
 
-  const service = await prisma.service.findUnique({
-    where: { id },
-    include: serviceListInclude,
-  });
+  try {
+    const service = await prisma.service.findUnique({
+      where: { id },
+      include: serviceListInclude,
+    });
 
-  if (!service) {
-    return { success: false, error: "Service not found" };
+    if (!service) {
+      return { success: false, error: "Service not found" };
+    }
+
+    return { success: true, data: service };
+  } catch (error) {
+    console.error("Error fetching service:", error);
+    return { success: false, error: "Failed to fetch service" };
   }
-
-  return { success: true, data: service };
 }
 
 export async function createService(data: ServiceFormData): Promise<ActionResult<{ id: string }>> {
@@ -240,16 +249,21 @@ export async function getAllCategories(): Promise<ActionResult<string[]>> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const services = await prisma.service.findMany({
-    where: { isActive: true },
-    select: { category: true },
-    distinct: ["category"],
-  });
+  try {
+    const services = await prisma.service.findMany({
+      where: { isActive: true },
+      select: { category: true },
+      distinct: ["category"],
+    });
 
-  const categories = services
-    .map((s) => s.category)
-    .filter((c): c is string => c !== null)
-    .sort();
+    const categories = services
+      .map((s) => s.category)
+      .filter((c): c is string => c !== null)
+      .sort();
 
-  return { success: true, data: categories };
+    return { success: true, data: categories };
+  } catch (error) {
+    console.error("Error fetching service categories:", error);
+    return { success: false, error: "Failed to fetch categories" };
+  }
 }

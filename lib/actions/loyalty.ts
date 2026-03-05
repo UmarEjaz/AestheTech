@@ -6,10 +6,7 @@ import { hasPermission } from "@/lib/permissions";
 import { Role } from "@prisma/client";
 import { calculateTier } from "@/lib/utils/loyalty";
 import { getSettings } from "./settings";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 /**
  * Process expired loyalty points.

@@ -15,10 +15,7 @@ import {
 } from "@/lib/validations/user";
 import { Role, Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
-
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import { ActionResult } from "@/lib/types";
 
 async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -66,41 +63,48 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
   }
 
   const { query, role, isActive, page = 1, limit = 10 } = params;
-  const skip = (page - 1) * limit;
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
+  const skip = (safePage - 1) * safeLimit;
 
-  const where: Prisma.UserWhereInput = {
-    ...(isActive !== undefined && { isActive }),
-    ...(role && { role }),
-    ...(query && {
-      OR: [
-        { firstName: { contains: query, mode: "insensitive" } },
-        { lastName: { contains: query, mode: "insensitive" } },
-        { email: { contains: query, mode: "insensitive" } },
-        { phone: { contains: query } },
-      ],
-    }),
-  };
+  try {
+    const where: Prisma.UserWhereInput = {
+      ...(isActive !== undefined && { isActive }),
+      ...(role && { role }),
+      ...(query && {
+        OR: [
+          { firstName: { contains: query, mode: "insensitive" } },
+          { lastName: { contains: query, mode: "insensitive" } },
+          { email: { contains: query, mode: "insensitive" } },
+          { phone: { contains: query } },
+        ],
+      }),
+    };
 
-  const [users, total] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-      select: userListSelect,
-    }),
-    prisma.user.count({ where }),
-  ]);
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: safeLimit,
+        select: userListSelect,
+      }),
+      prisma.user.count({ where }),
+    ]);
 
-  return {
-    success: true,
-    data: {
-      users,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
+    return {
+      success: true,
+      data: {
+        users,
+        total,
+        page: safePage,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+      },
+    };
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return { success: false, error: "Failed to fetch users" };
+  }
 }
 
 const userDetailSelect = Prisma.validator<Prisma.UserSelect>()({
@@ -157,16 +161,21 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
     return { success: false, error: "Unauthorized" };
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id },
-    select: userDetailSelect,
-  });
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: userDetailSelect,
+    });
 
-  if (!user) {
-    return { success: false, error: "User not found" };
+    if (!user) {
+      return { success: false, error: "User not found" };
+    }
+
+    return { success: true, data: user };
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    return { success: false, error: "Failed to fetch user" };
   }
-
-  return { success: true, data: user };
 }
 
 export async function createUser(data: UserFormData): Promise<ActionResult<{ id: string }>> {
@@ -409,16 +418,21 @@ export async function getActiveStaff(): Promise<ActionResult<{ id: string; first
     return { success: false, error: "Unauthorized" };
   }
 
-  const staff = await prisma.user.findMany({
-    where: { isActive: true },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      role: true,
-    },
-    orderBy: { firstName: "asc" },
-  });
+  try {
+    const staff = await prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+      },
+      orderBy: { firstName: "asc" },
+    });
 
-  return { success: true, data: staff };
+    return { success: true, data: staff };
+  } catch (error) {
+    console.error("Error fetching staff:", error);
+    return { success: false, error: "Failed to fetch staff" };
+  }
 }
