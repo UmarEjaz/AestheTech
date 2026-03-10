@@ -203,8 +203,17 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
     }
   };
 
-  const getScheduleForDay = (staff: StaffWithSchedules, dayOfWeek: number) => {
-    return staff.schedules.find((s) => s.dayOfWeek === dayOfWeek);
+  const formatTime = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    const period = h >= 12 ? "PM" : "AM";
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${hour12}:${m.toString().padStart(2, "0")} ${period}`;
+  };
+
+  const getSchedulesForDay = (staff: StaffWithSchedules, dayOfWeek: number) => {
+    return staff.schedules
+      .filter((s) => s.dayOfWeek === dayOfWeek)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
   };
 
   return (
@@ -290,27 +299,29 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                       </div>
                     </td>
                     {DAY_NAMES.map((_, dayIndex) => {
-                      const schedule = getScheduleForDay(staff, dayIndex);
+                      const daySchedules = getSchedulesForDay(staff, dayIndex);
                       return (
                         <td key={dayIndex} className="p-2 text-center">
-                          {schedule ? (
-                            <div
-                              className={`p-2 rounded-md cursor-pointer transition-colors ${
-                                schedule.isAvailable
-                                  ? SHIFT_COLORS[schedule.shiftType]
-                                  : "bg-gray-100 text-gray-500 dark:bg-gray-800"
-                              }`}
-                              onClick={() => canManage && openEditDialog(staff.id, dayIndex, schedule)}
-                            >
-                              <p className="text-xs font-medium">
-                                {schedule.startTime} - {schedule.endTime}
-                              </p>
-                              {!schedule.isAvailable && (
-                                <p className="text-xs italic">Off</p>
-                              )}
-                            </div>
-                          ) : (
-                            canManage && (
+                          <div className="space-y-1">
+                            {daySchedules.map((schedule) => (
+                              <div
+                                key={schedule.id}
+                                className={`p-2 rounded-md cursor-pointer transition-colors ${
+                                  schedule.isAvailable
+                                    ? SHIFT_COLORS[schedule.shiftType]
+                                    : "bg-gray-100 text-gray-500 dark:bg-gray-800"
+                                }`}
+                                onClick={() => canManage && openEditDialog(staff.id, dayIndex, schedule)}
+                              >
+                                <p className="text-xs font-medium">
+                                  {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
+                                </p>
+                                {!schedule.isAvailable && (
+                                  <p className="text-xs italic">Off</p>
+                                )}
+                              </div>
+                            ))}
+                            {canManage && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -319,8 +330,8 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                               >
                                 <Plus className="h-4 w-4" />
                               </Button>
-                            )
-                          )}
+                            )}
+                          </div>
                         </td>
                       );
                     })}

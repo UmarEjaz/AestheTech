@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { X, Plus, Loader2 } from "lucide-react";
+import { X, Plus, Loader2, Camera } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { clientSchema, ClientFormData, ClientFormInput } from "@/lib/validations/client";
 import { createClient, updateClient } from "@/lib/actions/client";
 
@@ -22,6 +23,7 @@ interface ClientFormProps {
     lastName: string | null;
     email: string | null;
     phone: string | null;
+    photoUrl: string | null;
     birthday: Date | null;
     address: string | null;
     notes: string | null;
@@ -37,6 +39,8 @@ export function ClientForm({ client, mode }: ClientFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>(client?.tags || []);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(client?.photoUrl || null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const {
     register,
@@ -77,11 +81,37 @@ export function ClientForm({ client, mode }: ClientFormProps) {
     }
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("folder", "clients");
+
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+
+      if (res.ok) {
+        setPhotoUrl(data.url);
+        toast.success("Photo uploaded");
+      } else {
+        toast.error(data.error || "Upload failed");
+      }
+    } catch {
+      toast.error("Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const onSubmit = async (data: ClientFormData) => {
     setIsSubmitting(true);
 
     try {
-      const formData = { ...data, tags };
+      const formData = { ...data, tags, photoUrl: photoUrl || undefined };
 
       if (mode === "create") {
         const result = await createClient(formData);
@@ -107,6 +137,60 @@ export function ClientForm({ client, mode }: ClientFormProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Photo Upload */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Profile Photo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-6">
+            <Avatar className="h-24 w-24">
+              {photoUrl ? (
+                <AvatarImage src={photoUrl} alt="Client photo" />
+              ) : null}
+              <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
+                {(client?.firstName?.[0] || "").toUpperCase()}
+                {(client?.lastName?.[0] || "").toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="space-y-2">
+              <Label htmlFor="photo" className="cursor-pointer">
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-sm font-medium">
+                  {isUploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Camera className="h-4 w-4" />
+                  )}
+                  {isUploading ? "Uploading..." : photoUrl ? "Change Photo" : "Upload Photo"}
+                </div>
+              </Label>
+              <input
+                id="photo"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handlePhotoUpload}
+                disabled={isUploading}
+              />
+              {photoUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setPhotoUrl(null)}
+                >
+                  <X className="h-3 w-3 mr-1" /> Remove
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">
+                JPEG, PNG, or WebP. Max 5MB.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Basic Information</CardTitle>

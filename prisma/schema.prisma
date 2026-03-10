@@ -119,6 +119,7 @@ model Client {
   lastName    String?
   email       String?
   phone       String?   @unique
+  photoUrl    String?
   birthday    DateTime?
   address     String?
   notes       String?

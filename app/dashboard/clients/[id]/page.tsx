@@ -20,7 +20,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { getClient } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
@@ -82,6 +82,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
               </Link>
             </Button>
             <Avatar className="h-16 w-16">
+              {client.photoUrl && <AvatarImage src={client.photoUrl} alt={`${client.firstName} ${client.lastName}`} />}
               <AvatarFallback className="bg-primary text-primary-foreground text-xl">
                 {initials}
               </AvatarFallback>

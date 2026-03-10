@@ -196,7 +196,7 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { birthday, email, ...rest } = validationResult.data;
+  const { birthday, email, photoUrl, ...rest } = validationResult.data;
 
   // Check for duplicate phone number
   const existingClient = await prisma.client.findUnique({
@@ -211,6 +211,7 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
     data: {
       ...rest,
       email: email || null,
+      photoUrl: photoUrl || null,
       birthday: birthday ? new Date(birthday) : null,
       loyaltyPoints: {
         create: {
@@ -285,7 +286,7 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { id, birthday, email, ...rest } = validationResult.data;
+  const { id, birthday, email, photoUrl, ...rest } = validationResult.data;
 
   // Check if client exists
   const existingClient = await prisma.client.findUnique({
@@ -312,6 +313,7 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
     data: {
       ...rest,
       ...(email !== undefined && { email: email || null }),
+      ...(photoUrl !== undefined && { photoUrl: photoUrl || null }),
       ...(birthday !== undefined && { birthday: birthday ? new Date(birthday) : null }),
     },
   });
