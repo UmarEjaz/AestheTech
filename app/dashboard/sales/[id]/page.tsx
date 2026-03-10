@@ -30,6 +30,7 @@ import { hasPermission } from "@/lib/permissions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
+import { EmailReceiptButton, EmailInvoiceButton } from "@/components/sales/email-receipt-button";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 
 export default async function SaleDetailPage({
@@ -166,7 +167,17 @@ export default async function SaleDetailPage({
               />
             )}
             {sale.invoice && invoiceData && (
-              <InvoiceDownloadButton invoiceData={invoiceData} />
+              <>
+                <EmailReceiptButton
+                  saleId={sale.id}
+                  clientEmail={sale.client.email}
+                />
+                <EmailInvoiceButton
+                  saleId={sale.id}
+                  clientEmail={sale.client.email}
+                />
+                <InvoiceDownloadButton invoiceData={invoiceData} />
+              </>
             )}
           </div>
         </div>
