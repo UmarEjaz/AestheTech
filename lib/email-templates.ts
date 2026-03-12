@@ -95,7 +95,7 @@ export function receiptEmailHtml(data: ReceiptEmailData): string {
             <table width="100%" style="background-color: #f9fafb; border-radius: 6px; padding: 16px;">
               <tr>
                 <td style="font-size: 13px; color: #6b7280;">Invoice #</td>
-                <td style="font-size: 13px; font-weight: bold; text-align: right;">${data.invoiceNumber}</td>
+                <td style="font-size: 13px; font-weight: bold; text-align: right;">${escapeHtml(data.invoiceNumber)}</td>
               </tr>
               <tr>
                 <td style="font-size: 13px; color: #6b7280;">Date</td>
@@ -204,7 +204,7 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
             <table width="100%" style="background-color: #f9fafb; border-radius: 6px; padding: 16px;">
               <tr>
                 <td style="font-size: 13px; color: #6b7280;">Invoice #</td>
-                <td style="font-size: 13px; font-weight: bold; text-align: right;">${data.invoiceNumber}</td>
+                <td style="font-size: 13px; font-weight: bold; text-align: right;">${escapeHtml(data.invoiceNumber)}</td>
               </tr>
               <tr>
                 <td style="font-size: 13px; color: #6b7280;">Date</td>
