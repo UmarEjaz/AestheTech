@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import { EventDropArg, EventClickArg } from "@fullcalendar/core";
+import { EventDropArg, EventClickArg, DatesSetArg } from "@fullcalendar/core";
 import { ShiftType, Role } from "@prisma/client";
 import { toast } from "sonner";
 
@@ -66,10 +66,20 @@ export function ScheduleMonthView({
 }: ScheduleMonthViewProps) {
   const router = useRouter();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [visibleRange, setVisibleRange] = useState<{ start: Date; end: Date } | null>(null);
+
+  // Track the visible date range so we generate events for whichever month is shown
+  const handleDatesSet = useCallback((arg: DatesSetArg) => {
+    setVisibleRange({ start: arg.start, end: arg.end });
+  }, []);
 
   // Convert weekly schedules into recurring FullCalendar events
-  // We generate events for a 6-week window around the current reference date
   const events = useMemo(() => {
+    // Use visible range if available, otherwise default ±6 weeks
+    const today = new Date();
+    const startDate = visibleRange?.start ?? new Date(today.getFullYear(), today.getMonth(), today.getDate() - 42);
+    const endDate = visibleRange?.end ?? new Date(today.getFullYear(), today.getMonth(), today.getDate() + 42);
+
     const result: {
       id: string;
       title: string;
@@ -88,13 +98,6 @@ export function ScheduleMonthView({
       };
     }[] = [];
 
-    // Generate events for 8 weeks centered around today
-    const today = new Date();
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - 28); // 4 weeks back
-    const endDate = new Date(today);
-    endDate.setDate(endDate.getDate() + 28); // 4 weeks forward
-
     for (const staff of staffWithSchedules) {
       for (const schedule of staff.schedules) {
         // Find all dates within the window that match this dayOfWeek
@@ -105,7 +108,12 @@ export function ScheduleMonthView({
         }
 
         while (current <= endDate) {
-          const dateStr = current.toISOString().split("T")[0];
+          // Build date string from local fields to avoid UTC shift
+          const dateStr = [
+            current.getFullYear(),
+            String(current.getMonth() + 1).padStart(2, "0"),
+            String(current.getDate()).padStart(2, "0"),
+          ].join("-");
           const bgColor = schedule.isAvailable
             ? SHIFT_BG_COLORS[schedule.shiftType]
             : "#9ca3af";
@@ -134,7 +142,7 @@ export function ScheduleMonthView({
     }
 
     return result;
-  }, [staffWithSchedules, canManage]);
+  }, [staffWithSchedules, canManage, visibleRange]);
 
   // Handle drag-and-drop: reassign schedule to a new day of week
   const handleEventDrop = useCallback(
@@ -160,18 +168,23 @@ export function ScheduleMonthView({
       }
 
       setIsProcessing(true);
-      const result = await reassignSchedule(scheduleId, newDayOfWeek);
+      try {
+        const result = await reassignSchedule(scheduleId, newDayOfWeek);
 
-      if (!result.success) {
-        arg.revert();
-        toast.error(result.error || "Failed to move schedule");
-      } else {
-        toast.success(
-          `Schedule moved to ${DAY_NAMES[newDayOfWeek]}`
-        );
+        if (!result.success) {
+          arg.revert();
+          toast.error(result.error || "Failed to move schedule");
+          return;
+        }
+
+        toast.success(`Schedule moved to ${DAY_NAMES[newDayOfWeek]}`);
         router.refresh();
+      } catch {
+        arg.revert();
+        toast.error("Failed to move schedule");
+      } finally {
+        setIsProcessing(false);
       }
-      setIsProcessing(false);
     },
     [router, isProcessing]
   );
@@ -259,6 +272,7 @@ export function ScheduleMonthView({
           right: "",
         }}
         events={events}
+        datesSet={handleDatesSet}
         eventClick={handleEventClick}
         eventDrop={handleEventDrop}
         height="auto"

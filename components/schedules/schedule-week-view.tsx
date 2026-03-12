@@ -304,22 +304,27 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                         <td key={dayIndex} className="p-2 text-center">
                           <div className="space-y-1">
                             {daySchedules.map((schedule) => (
-                              <div
+                              <Button
+                                type="button"
+                                variant="ghost"
                                 key={schedule.id}
-                                className={`p-2 rounded-md cursor-pointer transition-colors ${
+                                className={`h-auto w-full rounded-md p-2 transition-colors ${
                                   schedule.isAvailable
                                     ? SHIFT_COLORS[schedule.shiftType]
                                     : "bg-gray-100 text-gray-500 dark:bg-gray-800"
                                 }`}
                                 onClick={() => canManage && openEditDialog(staff.id, dayIndex, schedule)}
+                                disabled={!canManage}
                               >
-                                <p className="text-xs font-medium">
-                                  {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
-                                </p>
-                                {!schedule.isAvailable && (
-                                  <p className="text-xs italic">Off</p>
-                                )}
-                              </div>
+                                <div>
+                                  <p className="text-xs font-medium">
+                                    {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
+                                  </p>
+                                  {!schedule.isAvailable && (
+                                    <p className="text-xs italic">Off</p>
+                                  )}
+                                </div>
+                              </Button>
                             ))}
                             {canManage && (
                               <Button

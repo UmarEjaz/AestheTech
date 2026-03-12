@@ -129,8 +129,9 @@ export async function getSchedule(id: string): Promise<ActionResult<ScheduleList
   }
 }
 
-// Check for schedule time overlap with existing schedules for same staff on same day
-async function checkScheduleConflict(
+// Check for schedule time overlap — accepts a Prisma transaction client for atomic operations
+async function checkScheduleConflictTx(
+  tx: Prisma.TransactionClient,
   staffId: string,
   dayOfWeek: number,
   startTime: string,
@@ -140,7 +141,7 @@ async function checkScheduleConflict(
   const startMinutes = timeToMinutes(startTime);
   const endMinutes = timeToMinutes(endTime);
 
-  const existing = await prisma.schedule.findMany({
+  const existing = await tx.schedule.findMany({
     where: {
       staffId,
       dayOfWeek,
@@ -162,6 +163,17 @@ async function checkScheduleConflict(
   }
 
   return { hasConflict: false };
+}
+
+// Convenience wrapper that uses the default prisma client
+async function checkScheduleConflict(
+  staffId: string,
+  dayOfWeek: number,
+  startTime: string,
+  endTime: string,
+  excludeId?: string
+) {
+  return checkScheduleConflictTx(prisma, staffId, dayOfWeek, startTime, endTime, excludeId);
 }
 
 function timeToMinutes(time: string): number {
@@ -194,29 +206,32 @@ export async function createSchedule(data: ScheduleFormData): Promise<ActionResu
       return { success: false, error: "Staff member not found or inactive" };
     }
 
-    // Check for conflicting schedule on this day
-    const conflict = await checkScheduleConflict(staffId, dayOfWeek, startTime, endTime);
-    if (conflict.hasConflict) {
-      return { success: false, error: `Schedule overlaps with existing shift (${conflict.conflictWith})` };
-    }
+    // Atomic conflict check + create inside a transaction
+    const schedule = await prisma.$transaction(async (tx) => {
+      const conflict = await checkScheduleConflictTx(tx, staffId, dayOfWeek, startTime, endTime);
+      if (conflict.hasConflict) {
+        throw new Error(`Schedule overlaps with existing shift (${conflict.conflictWith})`);
+      }
 
-    const schedule = await prisma.schedule.create({
-      data: {
-        staffId,
-        dayOfWeek,
-        startTime,
-        endTime,
-        shiftType,
-        isAvailable,
-      },
-      include: scheduleListInclude,
+      return tx.schedule.create({
+        data: {
+          staffId,
+          dayOfWeek,
+          startTime,
+          endTime,
+          shiftType,
+          isAvailable,
+        },
+        include: scheduleListInclude,
+      });
     });
 
     revalidatePath("/dashboard/schedules");
     return { success: true, data: schedule };
   } catch (error) {
     console.error("Error creating schedule:", error);
-    return { success: false, error: "Failed to create schedule" };
+    const message = error instanceof Error ? error.message : "Failed to create schedule";
+    return { success: false, error: message };
   }
 }
 
@@ -238,36 +253,39 @@ export async function updateSchedule(
   const { startTime, endTime, shiftType, isAvailable } = validationResult.data;
 
   try {
-    const existing = await prisma.schedule.findUnique({
-      where: { id },
-    });
+    // Atomic conflict check + update inside a transaction
+    const schedule = await prisma.$transaction(async (tx) => {
+      const existing = await tx.schedule.findUnique({
+        where: { id },
+      });
 
-    if (!existing) {
-      return { success: false, error: "Schedule not found" };
-    }
+      if (!existing) {
+        throw new Error("Schedule not found");
+      }
 
-    // Check for conflicting schedule (exclude current one)
-    const conflict = await checkScheduleConflict(existing.staffId, existing.dayOfWeek, startTime, endTime, id);
-    if (conflict.hasConflict) {
-      return { success: false, error: `Schedule overlaps with existing shift (${conflict.conflictWith})` };
-    }
+      const conflict = await checkScheduleConflictTx(tx, existing.staffId, existing.dayOfWeek, startTime, endTime, id);
+      if (conflict.hasConflict) {
+        throw new Error(`Schedule overlaps with existing shift (${conflict.conflictWith})`);
+      }
 
-    const schedule = await prisma.schedule.update({
-      where: { id },
-      data: {
-        startTime,
-        endTime,
-        shiftType,
-        isAvailable,
-      },
-      include: scheduleListInclude,
+      return tx.schedule.update({
+        where: { id },
+        data: {
+          startTime,
+          endTime,
+          shiftType,
+          isAvailable,
+        },
+        include: scheduleListInclude,
+      });
     });
 
     revalidatePath("/dashboard/schedules");
     return { success: true, data: schedule };
   } catch (error) {
     console.error("Error updating schedule:", error);
-    return { success: false, error: "Failed to update schedule" };
+    const message = error instanceof Error ? error.message : "Failed to update schedule";
+    return { success: false, error: message };
   }
 }
 
@@ -303,6 +321,23 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
 
   const { staffId, schedules } = validationResult.data;
 
+  // Check for intra-batch overlaps (new entries conflicting with each other)
+  for (let i = 0; i < schedules.length; i++) {
+    for (let j = i + 1; j < schedules.length; j++) {
+      if (schedules[i].dayOfWeek !== schedules[j].dayOfWeek) continue;
+      const aStart = timeToMinutes(schedules[i].startTime);
+      const aEnd = timeToMinutes(schedules[i].endTime);
+      const bStart = timeToMinutes(schedules[j].startTime);
+      const bEnd = timeToMinutes(schedules[j].endTime);
+      if (aStart < bEnd && aEnd > bStart) {
+        return {
+          success: false,
+          error: `Overlapping shifts on ${DAY_NAMES[schedules[i].dayOfWeek]}: ${schedules[i].startTime}-${schedules[i].endTime} and ${schedules[j].startTime}-${schedules[j].endTime}`,
+        };
+      }
+    }
+  }
+
   try {
     // Verify staff exists
     const staff = await prisma.user.findUnique({
@@ -314,15 +349,15 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
       return { success: false, error: "Staff member not found or inactive" };
     }
 
-    // Delete existing schedules for this staff
-    await prisma.schedule.deleteMany({
-      where: { staffId },
-    });
+    // Atomic delete + create inside a transaction
+    const createdSchedules = await prisma.$transaction(async (tx) => {
+      await tx.schedule.deleteMany({
+        where: { staffId },
+      });
 
-    // Create new schedules
-    const createdSchedules = await Promise.all(
-      schedules.map((schedule) =>
-        prisma.schedule.create({
+      const results: ScheduleListItem[] = [];
+      for (const schedule of schedules) {
+        const created = await tx.schedule.create({
           data: {
             staffId,
             dayOfWeek: schedule.dayOfWeek,
@@ -332,15 +367,18 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
             isAvailable: schedule.isAvailable,
           },
           include: scheduleListInclude,
-        })
-      )
-    );
+        });
+        results.push(created);
+      }
+      return results;
+    });
 
     revalidatePath("/dashboard/schedules");
     return { success: true, data: createdSchedules };
   } catch (error) {
     console.error("Error setting week schedule:", error);
-    return { success: false, error: "Failed to set week schedule" };
+    const message = error instanceof Error ? error.message : "Failed to set week schedule";
+    return { success: false, error: message };
   }
 }
 
@@ -495,37 +533,41 @@ export async function reassignSchedule(
   }
 
   try {
-    const existing = await prisma.schedule.findUnique({
-      where: { id },
-    });
+    // Atomic conflict check + update inside a transaction
+    const schedule = await prisma.$transaction(async (tx) => {
+      const existing = await tx.schedule.findUnique({
+        where: { id },
+      });
 
-    if (!existing) {
-      return { success: false, error: "Schedule not found" };
-    }
+      if (!existing) {
+        throw new Error("Schedule not found");
+      }
 
-    // Check for conflict on the new day
-    const conflict = await checkScheduleConflict(
-      existing.staffId,
-      newDayOfWeek,
-      existing.startTime,
-      existing.endTime,
-      id
-    );
-    if (conflict.hasConflict) {
-      return { success: false, error: `Cannot move: overlaps with existing shift (${conflict.conflictWith})` };
-    }
+      const conflict = await checkScheduleConflictTx(
+        tx,
+        existing.staffId,
+        newDayOfWeek,
+        existing.startTime,
+        existing.endTime,
+        id
+      );
+      if (conflict.hasConflict) {
+        throw new Error(`Cannot move: overlaps with existing shift (${conflict.conflictWith})`);
+      }
 
-    const schedule = await prisma.schedule.update({
-      where: { id },
-      data: { dayOfWeek: newDayOfWeek },
-      include: scheduleListInclude,
+      return tx.schedule.update({
+        where: { id },
+        data: { dayOfWeek: newDayOfWeek },
+        include: scheduleListInclude,
+      });
     });
 
     revalidatePath("/dashboard/schedules");
     return { success: true, data: schedule };
   } catch (error) {
     console.error("Error reassigning schedule:", error);
-    return { success: false, error: "Failed to reassign schedule" };
+    const message = error instanceof Error ? error.message : "Failed to reassign schedule";
+    return { success: false, error: message };
   }
 }
 

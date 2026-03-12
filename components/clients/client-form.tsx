@@ -108,10 +108,15 @@ export function ClientForm({ client, mode }: ClientFormProps) {
   };
 
   const onSubmit = async (data: ClientFormData) => {
+    if (isUploading) {
+      toast.error("Please wait for the photo upload to finish");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const formData = { ...data, tags, photoUrl: photoUrl || undefined };
+      const formData = { ...data, tags, photoUrl: photoUrl ?? "" };
 
       if (mode === "create") {
         const result = await createClient(formData);
@@ -168,7 +173,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
                 id="photo"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                className="hidden"
+                className="sr-only"
                 onChange={handlePhotoUpload}
                 disabled={isUploading}
               />
@@ -364,7 +369,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" disabled={isSubmitting || isUploading}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {mode === "create" ? "Create Client" : "Update Client"}
         </Button>

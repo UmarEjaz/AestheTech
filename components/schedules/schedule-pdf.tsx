@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Document,
   Page,
@@ -9,8 +10,9 @@ import {
   pdf,
 } from "@react-pdf/renderer";
 import { ShiftType, Role } from "@prisma/client";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { FileDown } from "lucide-react";
+import { FileDown, Loader2 } from "lucide-react";
 
 const DAY_NAMES = [
   "Sunday",
@@ -263,26 +265,45 @@ export function SchedulePDFExportButton({
   staffWithSchedules,
   salonName,
 }: SchedulePDFProps) {
-  const handleExport = async () => {
-    const blob = await pdf(
-      <SchedulePDFDocument
-        staffWithSchedules={staffWithSchedules}
-        salonName={salonName}
-      />
-    ).toBlob();
+  const [isExporting, setIsExporting] = useState(false);
 
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `schedule-${new Date().toISOString().split("T")[0]}.pdf`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await pdf(
+        <SchedulePDFDocument
+          staffWithSchedules={staffWithSchedules}
+          salonName={salonName}
+        />
+      ).toBlob();
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `schedule-${new Date().toISOString().split("T")[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      // Delay revoke to avoid cancelling download in Safari/Firefox
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+
+      toast.success("Schedule PDF exported");
+    } catch (error) {
+      console.error("Error generating schedule PDF:", error);
+      toast.error("Failed to generate schedule PDF");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
-    <Button variant="outline" onClick={handleExport}>
-      <FileDown className="h-4 w-4 mr-2" />
-      Export PDF
+    <Button variant="outline" onClick={handleExport} disabled={isExporting}>
+      {isExporting ? (
+        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <FileDown className="h-4 w-4 mr-2" />
+      )}
+      {isExporting ? "Exporting..." : "Export PDF"}
     </Button>
   );
 }

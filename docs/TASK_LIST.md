@@ -60,7 +60,7 @@
 - [x] Create loading spinner component
 - [x] Create error boundary component
 - [x] Create toast/notification system
-- [x] ~~Test responsive design on mobile~~ (moved to Phase 5)
+- ~~Test responsive design on mobile~~ (moved to Phase 5)
 
 ---
 
@@ -85,7 +85,7 @@
 - [x] Add client allergies/sensitivities tracking
 - [x] Implement client photo upload
 - [x] Add client tags functionality
-- [x] ~~Test all client operations~~ (moved to Phase 5)
+- ~~Test all client operations~~ (moved to Phase 5)
 - [x] Add permission checks for client operations
 
 ### Service Management

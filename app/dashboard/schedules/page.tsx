@@ -17,10 +17,7 @@ export default async function SchedulesPage() {
   const userRole = session.user.role as Role;
   const canManage = hasPermission(userRole, "schedules:manage");
 
-  const [staffResult, settingsResult] = await Promise.all([
-    getStaffWithSchedules(),
-    getSettings(),
-  ]);
+  const staffResult = await getStaffWithSchedules();
 
   if (!staffResult.success) {
     return (
@@ -32,6 +29,7 @@ export default async function SchedulesPage() {
     );
   }
 
+  const settingsResult = await getSettings();
   const salonName = settingsResult.success ? settingsResult.data.salonName : "AestheTech Salon";
 
   return (

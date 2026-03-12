@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
+import { Role } from "@prisma/client";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_FOLDERS = new Set(["clients"]);
+
+const EXT_BY_MIME: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 
 export async function POST(request: NextRequest) {
@@ -12,16 +21,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // RBAC check — only users who can manage clients may upload
+  const role = session.user.role as Role;
+  if (!hasPermission(role, "clients:update")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   try {
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const folder = (formData.get("folder") as string) || "clients";
+    const file = formData.get("file");
+    const requestedFolder = formData.get("folder");
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: "Invalid file payload" }, { status: 400 });
     }
 
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    // Validate MIME type from server-side allowlist
+    const ext = EXT_BY_MIME[file.type];
+    if (!ext) {
       return NextResponse.json(
         { error: "Invalid file type. Only JPEG, PNG, and WebP are allowed." },
         { status: 400 }
@@ -35,9 +52,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate unique filename
-    const ext = file.name.split(".").pop() || "jpg";
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    // Sanitize folder against allowlist to prevent path traversal
+    const folder =
+      typeof requestedFolder === "string" && ALLOWED_FOLDERS.has(requestedFolder)
+        ? requestedFolder
+        : "clients";
+
+    // Generate unique filename using crypto UUID
+    const filename = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
     // Ensure upload directory exists
     const uploadDir = path.join(process.cwd(), "public", "uploads", folder);
