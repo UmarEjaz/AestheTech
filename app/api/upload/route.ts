@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/permissions";
 import { Role } from "@prisma/client";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, unlink } from "fs/promises";
 import path from "path";
 
 const ALLOWED_FOLDERS = new Set(["clients"]);
@@ -75,5 +75,39 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Upload error:", error);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const role = session.user.role as Role;
+  if (!hasPermission(role, "clients:update")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const { url } = await request.json();
+
+    if (typeof url !== "string") {
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+
+    // Validate the URL matches the expected upload path pattern
+    const match = url.match(/^\/uploads\/(clients)\/[A-Za-z0-9._-]+$/);
+    if (!match || !ALLOWED_FOLDERS.has(match[1])) {
+      return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
+    }
+
+    const filePath = path.join(process.cwd(), "public", url);
+    await unlink(filePath).catch(() => {}); // ignore if already deleted
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete error:", error);
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }

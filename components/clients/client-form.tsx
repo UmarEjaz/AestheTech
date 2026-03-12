@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -41,6 +41,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
   const [tags, setTags] = useState<string[]>(client?.tags || []);
   const [photoUrl, setPhotoUrl] = useState<string | null>(client?.photoUrl || null);
   const [isUploading, setIsUploading] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
@@ -95,6 +96,14 @@ export function ClientForm({ client, mode }: ClientFormProps) {
       const data = await res.json();
 
       if (res.ok) {
+        // Clean up previous upload if replacing
+        if (photoUrl) {
+          fetch("/api/upload", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: photoUrl }),
+          }).catch(() => {}); // best-effort cleanup
+        }
         setPhotoUrl(data.url);
         toast.success("Photo uploaded");
       } else {
@@ -103,6 +112,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
     } catch {
       toast.error("Upload failed");
     } finally {
+      e.target.value = "";
       setIsUploading(false);
     }
   };
@@ -170,6 +180,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
                 </div>
               </Label>
               <input
+                ref={photoInputRef}
                 id="photo"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
@@ -183,7 +194,20 @@ export function ClientForm({ client, mode }: ClientFormProps) {
                   variant="ghost"
                   size="sm"
                   className="text-destructive hover:text-destructive"
-                  onClick={() => setPhotoUrl(null)}
+                  onClick={() => {
+                    // Clean up uploaded file server-side
+                    if (photoUrl) {
+                      fetch("/api/upload", {
+                        method: "DELETE",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ url: photoUrl }),
+                      }).catch(() => {});
+                    }
+                    setPhotoUrl(null);
+                    if (photoInputRef.current) {
+                      photoInputRef.current.value = "";
+                    }
+                  }}
                 >
                   <X className="h-3 w-3 mr-1" /> Remove
                 </Button>
