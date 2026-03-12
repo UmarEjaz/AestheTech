@@ -40,6 +40,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>(client?.tags || []);
   const [photoUrl, setPhotoUrl] = useState<string | null>(client?.photoUrl || null);
+  const [originalPhotoUrl] = useState<string | null>(client?.photoUrl || null);
   const [isUploading, setIsUploading] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,13 +97,13 @@ export function ClientForm({ client, mode }: ClientFormProps) {
       const data = await res.json();
 
       if (res.ok) {
-        // Clean up previous upload if replacing
-        if (photoUrl) {
+        // Clean up previous temp upload if replacing (don't delete the original saved photo)
+        if (photoUrl && photoUrl !== originalPhotoUrl) {
           fetch("/api/upload", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: photoUrl }),
-          }).catch(() => {}); // best-effort cleanup
+          }).catch(() => {});
         }
         setPhotoUrl(data.url);
         toast.success("Photo uploaded");
@@ -139,6 +140,14 @@ export function ClientForm({ client, mode }: ClientFormProps) {
       } else if (client) {
         const result = await updateClient({ id: client.id, ...formData });
         if (result.success) {
+          // Delete the original photo if it was removed or replaced
+          if (originalPhotoUrl && originalPhotoUrl !== photoUrl) {
+            fetch("/api/upload", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: originalPhotoUrl }),
+            }).catch(() => {});
+          }
           toast.success("Client updated successfully");
           router.push(`/dashboard/clients/${client.id}`);
         } else {
@@ -195,8 +204,8 @@ export function ClientForm({ client, mode }: ClientFormProps) {
                   size="sm"
                   className="text-destructive hover:text-destructive"
                   onClick={() => {
-                    // Clean up uploaded file server-side
-                    if (photoUrl) {
+                    // Only delete temp uploads (not the original saved photo)
+                    if (photoUrl && photoUrl !== originalPhotoUrl) {
                       fetch("/api/upload", {
                         method: "DELETE",
                         headers: { "Content-Type": "application/json" },
