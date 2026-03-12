@@ -164,7 +164,14 @@ export function receiptEmailHtml(data: ReceiptEmailData): string {
 }
 
 export function invoiceEmailHtml(data: InvoiceEmailData): string {
-  const statusColor = data.status === "PAID" ? "#16a34a" : data.status === "OVERDUE" ? "#dc2626" : "#d97706";
+  const statusColors: Record<string, string> = {
+    PAID: "#16a34a",
+    OVERDUE: "#dc2626",
+    PENDING: "#d97706",
+    CANCELLED: "#6b7280",
+    REFUNDED: "#2563eb",
+  };
+  const statusColor = statusColors[data.status] ?? "#d97706";
   const statusLabel = data.status.charAt(0) + data.status.slice(1).toLowerCase();
 
   return `

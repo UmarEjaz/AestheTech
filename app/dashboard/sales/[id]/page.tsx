@@ -143,7 +143,7 @@ export default async function SaleDetailPage({
     <DashboardLayout userRole={userRole}>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/sales">
@@ -157,7 +157,7 @@ export default async function SaleDetailPage({
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {canIssueRefund && sale.invoice && (
               <RefundDialog
                 invoiceId={sale.invoice.id}
