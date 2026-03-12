@@ -12,6 +12,7 @@ import {
 } from "@/lib/validations/service";
 import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -148,6 +149,15 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
     },
   });
 
+  await logAudit({
+    action: "SERVICE_CREATED",
+    entityType: "Service",
+    entityId: service.id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { name: rest.name, price: rest.price, duration: rest.duration },
+  });
+
   revalidatePath("/dashboard/services");
   return { success: true, data: { id: service.id } };
 }
@@ -184,6 +194,15 @@ export async function updateService(
     },
   });
 
+  await logAudit({
+    action: "SERVICE_UPDATED",
+    entityType: "Service",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { name: existingService.name },
+  });
+
   revalidatePath("/dashboard/services");
   return { success: true, data: undefined };
 }
@@ -216,6 +235,15 @@ export async function deleteService(id: string): Promise<ActionResult> {
     data: { isActive: false },
   });
 
+  await logAudit({
+    action: "SERVICE_DELETED",
+    entityType: "Service",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { name: service.name },
+  });
+
   revalidatePath("/dashboard/services");
   return { success: true, data: undefined };
 }
@@ -237,6 +265,15 @@ export async function restoreService(id: string): Promise<ActionResult> {
   await prisma.service.update({
     where: { id },
     data: { isActive: true },
+  });
+
+  await logAudit({
+    action: "SERVICE_RESTORED",
+    entityType: "Service",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { name: service.name },
   });
 
   revalidatePath("/dashboard/services");

@@ -7,6 +7,7 @@ import { Role } from "@prisma/client";
 import { calculateTier } from "@/lib/utils/loyalty";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 /**
  * Process expired loyalty points.
@@ -125,6 +126,19 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
         clientsAffected++;
       }
     });
+
+    if (totalPointsExpired > 0 && !options?.skipAuth) {
+      const session = await auth();
+      if (session?.user) {
+        await logAudit({
+          action: "POINTS_EXPIRED",
+          entityType: "LoyaltyPoints",
+          userId: session.user.id,
+          userRole: session.user.role as string,
+          details: { clientsAffected, totalPointsExpired },
+        });
+      }
+    }
 
     return {
       success: true,

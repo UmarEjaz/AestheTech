@@ -16,6 +16,7 @@ import {
 import { Role, Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -218,6 +219,15 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
     },
   });
 
+  await logAudit({
+    action: "USER_CREATED",
+    entityType: "User",
+    entityId: user.id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { email: userData.email, role: userData.role, firstName: userData.firstName, lastName: userData.lastName },
+  });
+
   revalidatePath("/dashboard/staff");
 
   return { success: true, data: { id: user.id } };
@@ -277,6 +287,21 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     },
   });
 
+  const changes: Record<string, { from: string; to: string }> = {};
+  if (updateData.email !== existingUser.email) changes.email = { from: existingUser.email, to: updateData.email };
+  if (updateData.role && updateData.role !== existingUser.role) changes.role = { from: existingUser.role, to: updateData.role };
+  if (updateData.firstName !== existingUser.firstName) changes.firstName = { from: existingUser.firstName, to: updateData.firstName };
+  if (updateData.lastName !== existingUser.lastName) changes.lastName = { from: existingUser.lastName, to: updateData.lastName };
+
+  await logAudit({
+    action: "USER_UPDATED",
+    entityType: "User",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: changes,
+  });
+
   revalidatePath("/dashboard/staff");
   revalidatePath(`/dashboard/staff/${id}`);
 
@@ -320,6 +345,15 @@ export async function changePassword(data: PasswordChangeData): Promise<ActionRe
     data: { password: hashedPassword },
   });
 
+  await logAudit({
+    action: "PASSWORD_CHANGED",
+    entityType: "User",
+    entityId: userId,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { targetUser: existingUser.email },
+  });
+
   return { success: true, data: undefined };
 }
 
@@ -352,6 +386,15 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
   const updatedUser = await prisma.user.update({
     where: { id },
     data: { isActive: !existingUser.isActive },
+  });
+
+  await logAudit({
+    action: updatedUser.isActive ? "USER_ACTIVATED" : "USER_DEACTIVATED",
+    entityType: "User",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { targetUser: existingUser.email, targetRole: existingUser.role },
   });
 
   revalidatePath("/dashboard/staff");
@@ -404,6 +447,15 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   // Delete user
   await prisma.user.delete({
     where: { id },
+  });
+
+  await logAudit({
+    action: "USER_DELETED",
+    entityType: "User",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { email: existingUser.email, role: existingUser.role, firstName: existingUser.firstName, lastName: existingUser.lastName },
   });
 
   revalidatePath("/dashboard/staff");

@@ -9,6 +9,7 @@ import { receiptEmailHtml, invoiceEmailHtml } from "@/lib/email-templates";
 import { getSettings } from "./settings";
 import { formatInTz } from "@/lib/utils/timezone";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 import { PaymentMethod } from "@prisma/client";
 
@@ -83,6 +84,15 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       subject: `Your Receipt from ${salonName} — ${sale.invoice.invoiceNumber}`,
       html,
       salonName,
+    });
+
+    await logAudit({
+      action: "RECEIPT_EMAIL_SENT",
+      entityType: "Sale",
+      entityId: saleId,
+      userId: session.user.id,
+      userRole: session.user.role as string,
+      details: { clientEmail: sale.client.email, invoiceNumber: sale.invoice.invoiceNumber },
     });
 
     return { success: true, data: { emailId: result?.id ?? "sent" } };
@@ -169,6 +179,15 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       subject: `Invoice ${sale.invoice.invoiceNumber} — ${statusLabel}`,
       html,
       salonName,
+    });
+
+    await logAudit({
+      action: "INVOICE_EMAIL_SENT",
+      entityType: "Sale",
+      entityId: saleId,
+      userId: session.user.id,
+      userRole: session.user.role as string,
+      details: { clientEmail: sale.client.email, invoiceNumber: sale.invoice.invoiceNumber },
     });
 
     return { success: true, data: { emailId: result?.id ?? "sent" } };

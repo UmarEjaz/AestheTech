@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { Role, Currency } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -202,6 +203,15 @@ export async function updateSettings(
         data: { tier: "SILVER" },
       });
     }
+
+    await logAudit({
+      action: "SETTINGS_UPDATED",
+      entityType: "Settings",
+      entityId: existingSettings.id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { changedFields: Object.keys(data) },
+    });
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/settings");

@@ -18,6 +18,7 @@ import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/cli
 import { getSettings } from "./settings";
 import { calculateTier } from "@/lib/utils/loyalty";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -293,6 +294,15 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
       include: invoiceListInclude,
     });
 
+    await logAudit({
+      action: "PAYMENT_ADDED",
+      entityType: "Invoice",
+      entityId: invoiceId,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { amount, method, invoiceNumber: updatedInvoice?.invoiceNumber },
+    });
+
     revalidatePath("/dashboard/invoices");
     return { success: true, data: updatedInvoice! };
   } catch (error) {
@@ -357,6 +367,15 @@ export async function updateInvoiceStatus(
       include: invoiceListInclude,
     });
 
+    await logAudit({
+      action: "INVOICE_STATUS_CHANGED",
+      entityType: "Invoice",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { from: invoice.status, to: validationResult.data.status, invoiceNumber: updatedInvoice.invoiceNumber },
+    });
+
     revalidatePath("/dashboard/invoices");
     return { success: true, data: updatedInvoice };
   } catch (error) {
@@ -394,6 +413,15 @@ export async function cancelInvoice(id: string): Promise<ActionResult<InvoiceLis
       where: { id },
       data: { status: InvoiceStatus.CANCELLED },
       include: invoiceListInclude,
+    });
+
+    await logAudit({
+      action: "INVOICE_CANCELLED",
+      entityType: "Invoice",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { invoiceNumber: updatedInvoice.invoiceNumber },
     });
 
     revalidatePath("/dashboard/invoices");
@@ -622,6 +650,15 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
       };
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    await logAudit({
+      action: "REFUND_CREATED",
+      entityType: "Invoice",
+      entityId: invoiceId,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { amount, reason, pointsReversed: result.pointsReversed, refundId: result.refundId },
     });
 
     revalidatePath("/dashboard/invoices");

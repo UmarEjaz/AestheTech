@@ -12,6 +12,7 @@ import {
 } from "@/lib/validations/product";
 import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 type ProductPermission = "products:view" | "products:manage";
 
@@ -166,6 +167,15 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
       },
     });
 
+    await logAudit({
+      action: "PRODUCT_CREATED",
+      entityType: "Product",
+      entityId: product.id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { name: rest.name, price: rest.price, stock: rest.stock, sku },
+    });
+
     revalidatePath("/dashboard/products");
     return { success: true, data: { id: product.id } };
   } catch (error) {
@@ -215,6 +225,15 @@ export async function updateProduct(
       },
     });
 
+    await logAudit({
+      action: "PRODUCT_UPDATED",
+      entityType: "Product",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { name: existingProduct.name },
+    });
+
     revalidatePath("/dashboard/products");
     return { success: true, data: undefined };
   } catch (error) {
@@ -250,6 +269,15 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
       data: { isActive: false },
     });
 
+    await logAudit({
+      action: "PRODUCT_DELETED",
+      entityType: "Product",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { name: product.name, sku: product.sku },
+    });
+
     revalidatePath("/dashboard/products");
     return { success: true, data: undefined };
   } catch (error) {
@@ -276,6 +304,15 @@ export async function restoreProduct(id: string): Promise<ActionResult> {
     await prisma.product.update({
       where: { id },
       data: { isActive: true },
+    });
+
+    await logAudit({
+      action: "PRODUCT_RESTORED",
+      entityType: "Product",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { name: product.name, sku: product.sku },
     });
 
     revalidatePath("/dashboard/products");

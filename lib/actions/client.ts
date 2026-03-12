@@ -7,6 +7,7 @@ import { hasPermission } from "@/lib/permissions";
 import { clientSchema, clientUpdateSchema, walkInClientSchema, ClientFormData, ClientSearchParams, WalkInClientData } from "@/lib/validations/client";
 import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -222,6 +223,15 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
     },
   });
 
+  await logAudit({
+    action: "CLIENT_CREATED",
+    entityType: "Client",
+    entityId: client.id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { firstName: rest.firstName, lastName: rest.lastName, phone: rest.phone },
+  });
+
   revalidatePath("/dashboard/clients");
   return { success: true, data: { id: client.id } };
 }
@@ -271,6 +281,15 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
     },
   });
 
+  await logAudit({
+    action: "WALKIN_CLIENT_CREATED",
+    entityType: "Client",
+    entityId: client.id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { firstName, phone: normalizedPhone },
+  });
+
   revalidatePath("/dashboard/clients");
   return { success: true, data: { id: client.id, firstName: client.firstName } };
 }
@@ -318,6 +337,15 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
     },
   });
 
+  await logAudit({
+    action: "CLIENT_UPDATED",
+    entityType: "Client",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { firstName: rest.firstName, lastName: rest.lastName },
+  });
+
   revalidatePath("/dashboard/clients");
   revalidatePath(`/dashboard/clients/${id}`);
   return { success: true, data: undefined };
@@ -351,6 +379,15 @@ export async function deleteClient(id: string): Promise<ActionResult> {
     data: { isActive: false },
   });
 
+  await logAudit({
+    action: "CLIENT_DELETED",
+    entityType: "Client",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { firstName: client.firstName, lastName: client.lastName },
+  });
+
   revalidatePath("/dashboard/clients");
   return { success: true, data: undefined };
 }
@@ -372,6 +409,15 @@ export async function restoreClient(id: string): Promise<ActionResult> {
   await prisma.client.update({
     where: { id },
     data: { isActive: true },
+  });
+
+  await logAudit({
+    action: "CLIENT_RESTORED",
+    entityType: "Client",
+    entityId: id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { firstName: client.firstName, lastName: client.lastName },
   });
 
   revalidatePath("/dashboard/clients");
