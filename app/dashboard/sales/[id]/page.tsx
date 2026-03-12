@@ -30,6 +30,7 @@ import { hasPermission } from "@/lib/permissions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
+import { EmailReceiptButton, EmailInvoiceButton } from "@/components/sales/email-receipt-button";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 
 export default async function SaleDetailPage({
@@ -142,7 +143,7 @@ export default async function SaleDetailPage({
     <DashboardLayout userRole={userRole}>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/sales">
@@ -156,7 +157,7 @@ export default async function SaleDetailPage({
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {canIssueRefund && sale.invoice && (
               <RefundDialog
                 invoiceId={sale.invoice.id}
@@ -166,7 +167,17 @@ export default async function SaleDetailPage({
               />
             )}
             {sale.invoice && invoiceData && (
-              <InvoiceDownloadButton invoiceData={invoiceData} />
+              <>
+                <EmailReceiptButton
+                  saleId={sale.id}
+                  clientEmail={sale.client.email}
+                />
+                <EmailInvoiceButton
+                  saleId={sale.id}
+                  clientEmail={sale.client.email}
+                />
+                <InvoiceDownloadButton invoiceData={invoiceData} />
+              </>
             )}
           </div>
         </div>
