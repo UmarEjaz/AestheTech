@@ -135,6 +135,14 @@ export function ClientForm({ client, mode }: ClientFormProps) {
           toast.success("Client created successfully");
           router.push(`/dashboard/clients/${result.data.id}`);
         } else {
+          // Clean up temp upload on create failure
+          if (photoUrl && photoUrl !== originalPhotoUrl) {
+            fetch("/api/upload", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: photoUrl }),
+            }).catch(() => {});
+          }
           toast.error(result.error);
         }
       } else if (client) {
@@ -151,6 +159,14 @@ export function ClientForm({ client, mode }: ClientFormProps) {
           toast.success("Client updated successfully");
           router.push(`/dashboard/clients/${client.id}`);
         } else {
+          // Clean up temp upload on update failure
+          if (photoUrl && photoUrl !== originalPhotoUrl) {
+            fetch("/api/upload", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: photoUrl }),
+            }).catch(() => {});
+          }
           toast.error(result.error);
         }
       }
