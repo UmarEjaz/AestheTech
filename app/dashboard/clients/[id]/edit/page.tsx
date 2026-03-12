@@ -61,6 +61,7 @@ export default async function EditClientPage({ params }: PageProps) {
             lastName: client.lastName,
             email: client.email,
             phone: client.phone,
+            photoUrl: client.photoUrl,
             birthday: client.birthday,
             address: client.address,
             notes: client.notes,

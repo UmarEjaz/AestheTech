@@ -60,7 +60,7 @@
 - [x] Create loading spinner component
 - [x] Create error boundary component
 - [x] Create toast/notification system
-- [ ] Test responsive design on mobile
+- ~~Test responsive design on mobile~~ (moved to Phase 5)
 
 ---
 
@@ -83,9 +83,9 @@
 - [x] Add client notes section
 - [x] Add client preferences fields
 - [x] Add client allergies/sensitivities tracking
-- [ ] Implement client photo upload (optional)
+- [x] Implement client photo upload
 - [x] Add client tags functionality
-- [ ] Test all client operations
+- ~~Test all client operations~~ (moved to Phase 5)
 - [x] Add permission checks for client operations
 
 ### Service Management
@@ -138,7 +138,7 @@
 - [x] Create service selection interface
 - [x] Add client selection for sale
 - [x] Add staff assignment for services
-- [ ] Create product selection (future, skip for now)
+- [x] Create product selection
 - [x] Implement cart/basket functionality
 - [x] Add discount application
 - [x] Implement multiple payment methods
@@ -176,7 +176,7 @@
 ### Staff Schedule Management
 - [x] Design schedule calendar view
 - [x] Create weekly schedule view
-- [ ] Create monthly schedule view
+- [x] Create monthly schedule view
 - [x] Design "Add Schedule" form
 - [x] Implement shift creation (opening, closing, split)
 - [x] Add staff availability tracking
@@ -184,10 +184,10 @@
 - [x] Implement schedule creation
 - [x] Implement schedule update
 - [x] Add time-off request functionality (toggle availability)
-- [ ] Create conflict detection for schedules
+- [x] Create conflict detection for schedules
 - [x] Add schedule templates (copy schedule feature)
-- [ ] Implement drag-and-drop schedule adjustment
-- [ ] Export schedule to PDF
+- [x] Implement drag-and-drop schedule adjustment
+- [x] Export schedule to PDF
 - [x] Staff can view their own schedule
 - [x] Test schedule management
 - [x] Add permission checks
@@ -273,8 +273,11 @@
 - [ ] Add helpful tooltips and hints
 - [ ] Optimize images and assets
 - [ ] Test on different browsers (Chrome, Firefox, Safari)
+- [ ] Test all client operations (moved from Phase 2)
+- [ ] Test responsive design on mobile (moved from Phase 1)
 - [ ] Test on different devices (mobile, tablet, desktop)
 - [ ] Get user feedback and iterate
+- [ ] Add time format setting (12h/24h) to salon settings and apply across the app (schedules, appointments, invoices)
 
 ### Testing
 > **Priority Note**: Add tests once the app is feature-complete, before going to production. Focus on server-side money/data logic first (highest ROI), then utilities, then skip UI/E2E tests unless team grows. No testing framework is installed yet — set up Vitest before starting.

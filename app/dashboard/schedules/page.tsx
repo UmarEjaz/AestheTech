@@ -2,9 +2,10 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { ScheduleWeekView } from "@/components/schedules/schedule-week-view";
 import { getStaffWithSchedules } from "@/lib/actions/schedule";
 import { hasPermission } from "@/lib/permissions";
+import { getSettings } from "@/lib/actions/settings";
+import { SchedulePageClient } from "@/components/schedules/schedule-page-client";
 
 export default async function SchedulesPage() {
   const session = await auth();
@@ -28,23 +29,16 @@ export default async function SchedulesPage() {
     );
   }
 
+  const settingsResult = await getSettings();
+  const salonName = settingsResult.success ? settingsResult.data.salonName : "AestheTech Salon";
+
   return (
     <DashboardLayout userRole={userRole}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold">Staff Schedules</h1>
-          <p className="text-muted-foreground">
-            Manage working hours and availability for all staff members
-          </p>
-        </div>
-
-        {/* Schedule View */}
-        <ScheduleWeekView
-          staffWithSchedules={staffResult.data}
-          canManage={canManage}
-        />
-      </div>
+      <SchedulePageClient
+        staffWithSchedules={staffResult.data}
+        canManage={canManage}
+        salonName={salonName}
+      />
     </DashboardLayout>
   );
 }

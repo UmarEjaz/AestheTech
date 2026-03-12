@@ -26,6 +26,7 @@ export const clientSchema = z.object({
   preferences: z.string().max(500, "Preferences must be less than 500 characters").optional().or(z.literal("")),
   allergies: z.string().max(500, "Allergies must be less than 500 characters").optional().or(z.literal("")),
   tags: z.array(z.string()).default([]),
+  photoUrl: z.string().regex(/^\/uploads\/clients\/[A-Za-z0-9._-]+$/, "Invalid photo URL").optional().or(z.literal("")),
 });
 
 // Schema for walk-in client creation (minimal details)

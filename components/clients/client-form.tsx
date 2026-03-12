@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { X, Plus, Loader2 } from "lucide-react";
+import { X, Plus, Loader2, Camera } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { clientSchema, ClientFormData, ClientFormInput } from "@/lib/validations/client";
 import { createClient, updateClient } from "@/lib/actions/client";
 
@@ -22,6 +23,7 @@ interface ClientFormProps {
     lastName: string | null;
     email: string | null;
     phone: string | null;
+    photoUrl: string | null;
     birthday: Date | null;
     address: string | null;
     notes: string | null;
@@ -37,6 +39,10 @@ export function ClientForm({ client, mode }: ClientFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>(client?.tags || []);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(client?.photoUrl || null);
+  const [originalPhotoUrl] = useState<string | null>(client?.photoUrl || null);
+  const [isUploading, setIsUploading] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
@@ -77,11 +83,51 @@ export function ClientForm({ client, mode }: ClientFormProps) {
     }
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("folder", "clients");
+
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+
+      if (res.ok) {
+        // Clean up previous temp upload if replacing (don't delete the original saved photo)
+        if (photoUrl && photoUrl !== originalPhotoUrl) {
+          fetch("/api/upload", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: photoUrl }),
+          }).catch(() => {});
+        }
+        setPhotoUrl(data.url);
+        toast.success("Photo uploaded");
+      } else {
+        toast.error(data.error || "Upload failed");
+      }
+    } catch {
+      toast.error("Upload failed");
+    } finally {
+      e.target.value = "";
+      setIsUploading(false);
+    }
+  };
+
   const onSubmit = async (data: ClientFormData) => {
+    if (isUploading) {
+      toast.error("Please wait for the photo upload to finish");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const formData = { ...data, tags };
+      const formData = { ...data, tags, photoUrl: photoUrl ?? "" };
 
       if (mode === "create") {
         const result = await createClient(formData);
@@ -89,14 +135,38 @@ export function ClientForm({ client, mode }: ClientFormProps) {
           toast.success("Client created successfully");
           router.push(`/dashboard/clients/${result.data.id}`);
         } else {
+          // Clean up temp upload on create failure
+          if (photoUrl && photoUrl !== originalPhotoUrl) {
+            fetch("/api/upload", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: photoUrl }),
+            }).catch(() => {});
+          }
           toast.error(result.error);
         }
       } else if (client) {
         const result = await updateClient({ id: client.id, ...formData });
         if (result.success) {
+          // Delete the original photo if it was removed or replaced
+          if (originalPhotoUrl && originalPhotoUrl !== photoUrl) {
+            fetch("/api/upload", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: originalPhotoUrl }),
+            }).catch(() => {});
+          }
           toast.success("Client updated successfully");
           router.push(`/dashboard/clients/${client.id}`);
         } else {
+          // Clean up temp upload on update failure
+          if (photoUrl && photoUrl !== originalPhotoUrl) {
+            fetch("/api/upload", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: photoUrl }),
+            }).catch(() => {});
+          }
           toast.error(result.error);
         }
       }
@@ -107,6 +177,74 @@ export function ClientForm({ client, mode }: ClientFormProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Photo Upload */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Profile Photo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-6">
+            <Avatar className="h-24 w-24">
+              {photoUrl ? (
+                <AvatarImage src={photoUrl} alt="Client photo" />
+              ) : null}
+              <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
+                {(client?.firstName?.[0] || "").toUpperCase()}
+                {(client?.lastName?.[0] || "").toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="space-y-2">
+              <Label htmlFor="photo" className="cursor-pointer">
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-sm font-medium">
+                  {isUploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Camera className="h-4 w-4" />
+                  )}
+                  {isUploading ? "Uploading..." : photoUrl ? "Change Photo" : "Upload Photo"}
+                </div>
+              </Label>
+              <input
+                ref={photoInputRef}
+                id="photo"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={handlePhotoUpload}
+                disabled={isUploading}
+              />
+              {photoUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => {
+                    // Only delete temp uploads (not the original saved photo)
+                    if (photoUrl && photoUrl !== originalPhotoUrl) {
+                      fetch("/api/upload", {
+                        method: "DELETE",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ url: photoUrl }),
+                      }).catch(() => {});
+                    }
+                    setPhotoUrl(null);
+                    if (photoInputRef.current) {
+                      photoInputRef.current.value = "";
+                    }
+                  }}
+                >
+                  <X className="h-3 w-3 mr-1" /> Remove
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">
+                JPEG, PNG, or WebP. Max 5MB.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Basic Information</CardTitle>
@@ -280,7 +418,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" disabled={isSubmitting || isUploading}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {mode === "create" ? "Create Client" : "Update Client"}
         </Button>

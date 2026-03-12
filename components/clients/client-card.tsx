@@ -5,7 +5,7 @@ import { Phone, Mail, Calendar, Gift, MoreVertical, Edit, Trash2, Eye } from "lu
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +39,7 @@ export function ClientCard({ client, onDelete, canEdit = true, canDelete = false
         <div className="flex items-start justify-between">
           <Link href={`/dashboard/clients/${client.id}`} className="flex items-start gap-3 flex-1">
             <Avatar className="h-12 w-12">
+              {client.photoUrl && <AvatarImage src={client.photoUrl} alt={`${client.firstName} ${client.lastName}`} />}
               <AvatarFallback className="bg-primary text-primary-foreground">
                 {initials}
               </AvatarFallback>
