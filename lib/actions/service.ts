@@ -194,13 +194,19 @@ export async function updateService(
     },
   });
 
+  const changes: Record<string, { from: string | number | null; to: string | number | null }> = {};
+  if (rest.name !== undefined && rest.name !== existingService.name) changes.name = { from: existingService.name, to: rest.name };
+  if (rest.price !== undefined && Number(rest.price) !== Number(existingService.price)) changes.price = { from: Number(existingService.price), to: Number(rest.price) };
+  if (rest.duration !== undefined && rest.duration !== existingService.duration) changes.duration = { from: existingService.duration, to: rest.duration };
+  if (category !== undefined && (category || null) !== existingService.category) changes.category = { from: existingService.category, to: category || null };
+
   await logAudit({
     action: "SERVICE_UPDATED",
     entityType: "Service",
     entityId: id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { name: existingService.name },
+    details: changes,
   });
 
   revalidatePath("/dashboard/services");

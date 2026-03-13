@@ -316,12 +316,10 @@ export async function deleteSchedule(id: string): Promise<ActionResult<void>> {
   }
 
   try {
-    const schedule = await prisma.schedule.findUnique({
+    const schedule = await prisma.schedule.delete({
       where: { id },
       select: { staffId: true, dayOfWeek: true, startTime: true, endTime: true },
     });
-
-    await prisma.schedule.delete({ where: { id } });
 
     await logAudit({
       action: "SCHEDULE_DELETED",
@@ -329,7 +327,7 @@ export async function deleteSchedule(id: string): Promise<ActionResult<void>> {
       entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: schedule ? { staffId: schedule.staffId, dayOfWeek: schedule.dayOfWeek } : undefined,
+      details: { staffId: schedule.staffId, dayOfWeek: schedule.dayOfWeek },
     });
 
     revalidatePath("/dashboard/schedules");

@@ -246,7 +246,9 @@ export function AuditLogClient({
       <Card>
         <CardHeader className="pb-0">
           <CardDescription>
-            Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} of {total}
+            {total === 0
+              ? "No entries"
+              : `Showing ${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} of ${total}`}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -314,6 +316,7 @@ export function AuditLogClient({
             size="sm"
             onClick={() => goToPage(page - 1)}
             disabled={page <= 1}
+            aria-label="Previous page"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -325,6 +328,7 @@ export function AuditLogClient({
             size="sm"
             onClick={() => goToPage(page + 1)}
             disabled={page >= totalPages}
+            aria-label="Next page"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>

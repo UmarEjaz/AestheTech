@@ -634,7 +634,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       entityId: saleId,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { invoiceNumber, total: Number(sale.finalAmount), pointsEarned, birthdayBonus: birthdayBonusPoints },
+      details: { invoiceNumber, subtotal: Number(sale.finalAmount), redeemPoints, tax: Number(tax), total: Number(totalWithTax), pointsEarned, birthdayBonus: birthdayBonusPoints },
     });
 
     revalidatePath("/dashboard/sales");

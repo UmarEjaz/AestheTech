@@ -92,7 +92,7 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       entityId: saleId,
       userId: session.user.id,
       userRole: session.user.role as string,
-      details: { clientEmail: sale.client.email, invoiceNumber: sale.invoice.invoiceNumber },
+      details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 
     return { success: true, data: { emailId: result?.id ?? "sent" } };
@@ -187,7 +187,7 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       entityId: saleId,
       userId: session.user.id,
       userRole: session.user.role as string,
-      details: { clientEmail: sale.client.email, invoiceNumber: sale.invoice.invoiceNumber },
+      details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 
     return { success: true, data: { emailId: result?.id ?? "sent" } };

@@ -19,6 +19,9 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
   clientsAffected: number;
   totalPointsExpired: number;
 }>> {
+  let actorUserId: string | null = null;
+  let actorUserRole: string | null = null;
+
   // Auth check unless called from cron
   if (!options?.skipAuth) {
     const session = await auth();
@@ -27,6 +30,8 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
     if (!hasPermission(role, "settings:manage")) {
       return { success: false, error: "Unauthorized" };
     }
+    actorUserId = session.user.id;
+    actorUserRole = session.user.role as string;
   }
 
   try {
@@ -127,17 +132,14 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
       }
     });
 
-    if (totalPointsExpired > 0 && !options?.skipAuth) {
-      const session = await auth();
-      if (session?.user) {
-        await logAudit({
-          action: "POINTS_EXPIRED",
-          entityType: "LoyaltyPoints",
-          userId: session.user.id,
-          userRole: session.user.role as string,
-          details: { clientsAffected, totalPointsExpired },
-        });
-      }
+    if (totalPointsExpired > 0 && actorUserId && actorUserRole) {
+      await logAudit({
+        action: "POINTS_EXPIRED",
+        entityType: "LoyaltyPoints",
+        userId: actorUserId,
+        userRole: actorUserRole,
+        details: { clientsAffected, totalPointsExpired },
+      });
     }
 
     return {

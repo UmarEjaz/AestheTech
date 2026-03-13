@@ -204,13 +204,22 @@ export async function updateSettings(
       });
     }
 
+    const changes: Record<string, { from: string | null; to: string | null }> = {};
+    for (const key of Object.keys(data)) {
+      const newVal = (data as Record<string, unknown>)[key];
+      const oldVal = (existingSettings as Record<string, unknown>)[key];
+      if (newVal !== undefined && String(newVal) !== String(oldVal)) {
+        changes[key] = { from: String(oldVal), to: String(newVal) };
+      }
+    }
+
     await logAudit({
       action: "SETTINGS_UPDATED",
       entityType: "Settings",
       entityId: existingSettings.id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { changedFields: Object.keys(data) },
+      details: changes,
     });
 
     revalidatePath("/dashboard");

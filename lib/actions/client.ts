@@ -337,13 +337,19 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
     },
   });
 
+  const changes: Record<string, { from: string | null; to: string | null }> = {};
+  if (rest.firstName !== undefined && rest.firstName !== existingClient.firstName) changes.firstName = { from: existingClient.firstName, to: rest.firstName };
+  if (rest.lastName !== undefined && rest.lastName !== existingClient.lastName) changes.lastName = { from: existingClient.lastName, to: rest.lastName };
+  if (rest.phone !== undefined && rest.phone !== existingClient.phone) changes.phone = { from: existingClient.phone, to: rest.phone };
+  if (email !== undefined && (email || null) !== existingClient.email) changes.email = { from: existingClient.email, to: email || null };
+
   await logAudit({
     action: "CLIENT_UPDATED",
     entityType: "Client",
     entityId: id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { firstName: rest.firstName, lastName: rest.lastName },
+    details: changes,
   });
 
   revalidatePath("/dashboard/clients");

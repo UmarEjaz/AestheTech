@@ -225,13 +225,20 @@ export async function updateProduct(
       },
     });
 
+    const changes: Record<string, { from: string | number | null; to: string | number | null }> = {};
+    if (rest.name !== undefined && rest.name !== existingProduct.name) changes.name = { from: existingProduct.name, to: rest.name };
+    if (rest.price !== undefined && Number(rest.price) !== Number(existingProduct.price)) changes.price = { from: Number(existingProduct.price), to: Number(rest.price) };
+    if (rest.stock !== undefined && rest.stock !== existingProduct.stock) changes.stock = { from: existingProduct.stock, to: rest.stock };
+    if (sku !== undefined && (sku || null) !== existingProduct.sku) changes.sku = { from: existingProduct.sku, to: sku || null };
+    if (category !== undefined && (category || null) !== existingProduct.category) changes.category = { from: existingProduct.category, to: category || null };
+
     await logAudit({
       action: "PRODUCT_UPDATED",
       entityType: "Product",
       entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { name: existingProduct.name },
+      details: changes,
     });
 
     revalidatePath("/dashboard/products");
