@@ -18,7 +18,7 @@ export default async function AppointmentsPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canManage = hasPermission(userRole, "appointments:create");
 
   // Get settings first to determine timezone, then compute week range

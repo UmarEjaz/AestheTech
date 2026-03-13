@@ -20,7 +20,7 @@ import { cacheGet, cacheSet } from "@/lib/redis";
 async function checkAuth(): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
   if (!session?.user) return null;
-  return { userId: session.user.id, role: session.user.role as Role };
+  return { userId: session.user.id, role: session.user.salonRole as Role };
 }
 
 // Dashboard stats

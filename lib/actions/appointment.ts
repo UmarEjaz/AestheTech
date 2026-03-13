@@ -18,16 +18,19 @@ import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for appointment list
@@ -260,6 +263,7 @@ export async function createAppointment(
 
     const appointment = await prisma.appointment.create({
       data: {
+        salonId: authResult.salonId,
         clientId,
         serviceId,
         staffId,
@@ -704,18 +708,25 @@ export async function getStaffForAppointments(): Promise<ActionResult<{
   }
 
   try {
-    const staff = await prisma.user.findMany({
+    const members = await prisma.salonMember.findMany({
       where: {
+        salonId: authResult.salonId,
         isActive: true,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
-      orderBy: { firstName: "asc" },
+      orderBy: { user: { firstName: "asc" } },
     });
+
+    const staff = members.map((m) => m.user);
 
     return { success: true, data: staff };
   } catch (error) {

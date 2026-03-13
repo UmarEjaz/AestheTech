@@ -39,92 +39,93 @@ const navItems: NavItem[] = [
     title: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Appointments",
     href: "/dashboard/appointments",
     icon: Calendar,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Clients",
     href: "/dashboard/clients",
     icon: Users,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Services",
     href: "/dashboard/services",
     icon: Scissors,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Products",
     href: "/dashboard/products",
     icon: Package,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Sales",
     href: "/dashboard/sales",
     icon: DollarSign,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Invoices",
     href: "/dashboard/invoices",
     icon: FileText,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Schedules",
     href: "/dashboard/schedules",
     icon: Clock,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
   },
   {
     title: "Staff",
     href: "/dashboard/staff",
     icon: UserCog,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
   },
   {
     title: "Reports",
     href: "/dashboard/reports",
     icon: BarChart3,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN],
+    roles: [Role.OWNER, Role.ADMIN],
   },
   {
     title: "Loyalty",
     href: "/dashboard/loyalty",
     icon: Gift,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
+    roles: [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
   },
   {
     title: "Settings",
     href: "/dashboard/settings",
     icon: Settings,
-    roles: [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN],
+    roles: [Role.OWNER, Role.ADMIN],
   },
   {
     title: "Audit Log",
     href: "/dashboard/audit-log",
     icon: ShieldCheck,
-    roles: [Role.SUPER_ADMIN, Role.OWNER],
+    roles: [Role.OWNER],
   },
 ];
 
 interface SidebarProps {
-  userRole: Role;
+  userRole: Role | null;
+  isSuperAdmin?: boolean;
   collapsed?: boolean;
 }
 
-export function Sidebar({ userRole, collapsed = false }: SidebarProps) {
+export function Sidebar({ userRole, isSuperAdmin = false, collapsed = false }: SidebarProps) {
   const pathname = usePathname();
-  const filteredNavItems = navItems.filter((item) =>
-    item.roles.includes(userRole)
-  );
+  const filteredNavItems = isSuperAdmin
+    ? navItems
+    : navItems.filter((item) => userRole != null && item.roles.includes(userRole));
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -198,11 +199,11 @@ export function Sidebar({ userRole, collapsed = false }: SidebarProps) {
   );
 }
 
-export function MobileSidebar({ userRole }: { userRole: Role }) {
+export function MobileSidebar({ userRole, isSuperAdmin = false }: { userRole: Role | null; isSuperAdmin?: boolean }) {
   const pathname = usePathname();
-  const filteredNavItems = navItems.filter((item) =>
-    item.roles.includes(userRole)
-  );
+  const filteredNavItems = isSuperAdmin
+    ? navItems
+    : navItems.filter((item) => userRole != null && item.roles.includes(userRole));
 
   return (
     <nav className="flex flex-col gap-1 p-2">

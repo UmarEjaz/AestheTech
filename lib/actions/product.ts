@@ -16,16 +16,19 @@ import { logAudit } from "./audit";
 
 type ProductPermission = "products:view" | "products:manage";
 
-async function checkAuth(permission: ProductPermission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: ProductPermission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 const productListInclude = Prisma.validator<Prisma.ProductInclude>()({
@@ -160,6 +163,7 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
     const product = await prisma.product.create({
       data: {
         ...rest,
+        salonId: authResult.salonId,
         description: description || null,
         category: category || null,
         sku: sku || null,

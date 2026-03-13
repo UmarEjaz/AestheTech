@@ -22,8 +22,8 @@ export async function POST(request: NextRequest) {
   }
 
   // RBAC check — only users who can manage clients may upload
-  const role = session.user.role as Role;
-  if (!hasPermission(role, "clients:update")) {
+  const role = session.user.salonRole as Role;
+  if (!hasPermission(role, "clients:update", session.user.isSuperAdmin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -84,8 +84,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const role = session.user.role as Role;
-  if (!hasPermission(role, "clients:update")) {
+  const role = session.user.salonRole as Role;
+  if (!hasPermission(role, "clients:update", session.user.isSuperAdmin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

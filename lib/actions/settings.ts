@@ -9,16 +9,19 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 export interface SettingsData {
@@ -53,12 +56,21 @@ export interface SettingsData {
 /** Fetches salon settings, creating defaults if none exist. */
 export async function getSettings(): Promise<ActionResult<SettingsData>> {
   try {
-    const settings = await prisma.settings.findFirst();
+    const session = await auth();
+    const salonId = session?.user?.salonId;
+
+    const settings = salonId
+      ? await prisma.settings.findUnique({ where: { salonId } })
+      : await prisma.settings.findFirst();
 
     if (!settings) {
+      if (!salonId) {
+        return { success: false, error: "No settings found and no salon context available" };
+      }
       // Create default settings if none exist
       const defaultSettings = await prisma.settings.create({
         data: {
+          salonId,
           salonName: "AestheTech Salon",
           salonAddress: null,
           salonPhone: null,

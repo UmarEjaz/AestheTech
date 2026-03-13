@@ -22,7 +22,7 @@ export default async function EditServicePage({ params }: PageProps) {
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canManage = hasPermission(userRole, "services:manage");
 
   if (!canManage) {

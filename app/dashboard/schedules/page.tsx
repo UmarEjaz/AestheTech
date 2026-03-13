@@ -14,7 +14,7 @@ export default async function SchedulesPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canManage = hasPermission(userRole, "schedules:manage");
 
   const staffResult = await getStaffWithSchedules();

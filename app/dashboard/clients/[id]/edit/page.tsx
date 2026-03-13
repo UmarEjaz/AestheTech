@@ -21,7 +21,7 @@ export default async function EditClientPage({ params }: PageProps) {
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canEdit = hasPermission(userRole, "clients:update");
 
   if (!canEdit) {

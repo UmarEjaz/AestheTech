@@ -17,7 +17,7 @@ export default async function NewProductPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canManage = hasPermission(userRole, "products:manage");
 
   if (!canManage) {

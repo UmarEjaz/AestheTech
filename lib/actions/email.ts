@@ -17,7 +17,7 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "sales:view")) {
     return { success: false, error: "Unauthorized" };
   }
@@ -91,7 +91,7 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       entityType: "Sale",
       entityId: saleId,
       userId: session.user.id,
-      userRole: session.user.role as string,
+      userRole: session.user.salonRole as string,
       details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 
@@ -107,7 +107,7 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "invoices:view")) {
     return { success: false, error: "Unauthorized" };
   }
@@ -186,7 +186,7 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       entityType: "Sale",
       entityId: saleId,
       userId: session.user.id,
-      userRole: session.user.role as string,
+      userRole: session.user.salonRole as string,
       details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 

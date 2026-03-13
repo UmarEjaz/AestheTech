@@ -21,7 +21,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canCreate = hasPermission(userRole, "appointments:create");
 
   if (!canCreate) {
@@ -51,18 +51,22 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       },
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({
+    prisma.salonMember.findMany({
       where: {
-        isActive: true,
+        salonId: session.user.salonId!,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
+        isActive: true,
       },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
-      orderBy: { firstName: "asc" },
-    }),
+    }).then((members) => members.map((m) => m.user)),
   ]);
 
   // Parse initial date from URL if provided

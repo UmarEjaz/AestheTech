@@ -16,7 +16,7 @@ export default async function ReportsPage() {
   }
 
   const { user } = session;
-  const userRole = user.role as Role;
+  const userRole = user.salonRole as Role;
 
   // Check permission to view reports
   if (!hasPermission(userRole, "reports:view")) {

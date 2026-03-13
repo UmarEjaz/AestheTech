@@ -66,7 +66,7 @@ export async function getAuditLogs(
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
     return { success: false, error: "Unauthorized" };
   }
@@ -124,7 +124,7 @@ export async function getAuditActions(): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
     return { success: false, error: "Unauthorized" };
   }
@@ -148,7 +148,7 @@ export async function getAuditEntityTypes(): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
     return { success: false, error: "Unauthorized" };
   }

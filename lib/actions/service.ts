@@ -14,16 +14,19 @@ import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 
-async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: string): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission as "services:view" | "services:manage")) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
@@ -144,6 +147,7 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
   const service = await prisma.service.create({
     data: {
       ...rest,
+      salonId: authResult.salonId,
       description: description || null,
       category: category || null,
     },

@@ -21,16 +21,19 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for invoice list
@@ -213,7 +216,7 @@ export async function getInvoiceByNumber(invoiceNumber: string): Promise<ActionR
 
   try {
     const invoice = await prisma.invoice.findUnique({
-      where: { invoiceNumber },
+      where: { salonId_invoiceNumber: { salonId: authResult.salonId, invoiceNumber } },
       include: invoiceListInclude,
     });
 
@@ -624,6 +627,7 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
           // Record the adjustment transaction
           await tx.loyaltyTransaction.create({
             data: {
+              salonId: authResult.salonId,
               clientId: invoice.sale.clientId,
               saleId: invoice.saleId,
               points: -pointsToReverse,

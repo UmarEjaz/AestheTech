@@ -30,16 +30,19 @@ import {
 } from "@/lib/utils/recurring";
 import { ActionResult } from "@/lib/types";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for recurring series
@@ -177,6 +180,7 @@ export async function createRecurringSeries(
     // Create the series
     const series = await prisma.recurringAppointmentSeries.create({
       data: {
+        salonId: authResult.salonId,
         clientId: validData.clientId,
         serviceId: validData.serviceId,
         staffId: validData.staffId,
@@ -260,6 +264,7 @@ export async function createRecurringSeries(
 
         await prisma.appointment.create({
           data: {
+            salonId: authResult.salonId,
             clientId: validData.clientId,
             serviceId: validData.serviceId,
             staffId: altStaffId,
@@ -292,6 +297,7 @@ export async function createRecurringSeries(
 
       await prisma.appointment.create({
         data: {
+          salonId: authResult.salonId,
           clientId: validData.clientId,
           serviceId: validData.serviceId,
           staffId: validData.staffId,
@@ -877,6 +883,7 @@ export async function extendSeries(
 
       await prisma.appointment.create({
         data: {
+          salonId: series.salonId,
           clientId: series.clientId,
           serviceId: series.serviceId,
           staffId: series.staffId,

@@ -22,7 +22,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canUpdate = hasPermission(userRole, "appointments:update");
 
   if (!canUpdate) {
@@ -66,18 +66,22 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       },
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({
+    prisma.salonMember.findMany({
       where: {
-        isActive: true,
+        salonId: session.user.salonId!,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
+        isActive: true,
       },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
-      orderBy: { firstName: "asc" },
-    }),
+    }).then((members) => members.map((m) => m.user)),
   ]);
 
   return (

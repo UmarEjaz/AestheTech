@@ -15,8 +15,8 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const role = session.user.role as Role;
-    if (!hasPermission(role, "appointments:view")) {
+    const role = session.user.salonRole as Role;
+    if (!hasPermission(role, "appointments:view", session.user.isSuperAdmin)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

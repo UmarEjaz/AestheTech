@@ -13,7 +13,7 @@ export default async function SettingsPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canView = hasPermission(userRole, "settings:view");
   const canManage = hasPermission(userRole, "settings:manage");
 

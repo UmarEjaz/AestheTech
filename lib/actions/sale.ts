@@ -21,16 +21,19 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for sale list
@@ -326,6 +329,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     // Create sale with items
     const sale = await prisma.sale.create({
       data: {
+        salonId: authResult.salonId,
         clientId,
         staffId: authResult.userId,
         totalAmount,
@@ -333,6 +337,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
         finalAmount,
         items: {
           create: items.map((item) => ({
+            salonId: authResult.salonId,
             serviceId: item.serviceId || null,
             staffId: item.staffId || null,
             productId: item.productId || null,
@@ -514,6 +519,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       // Create invoice
       const invoice = await tx.invoice.create({
         data: {
+          salonId: authResult.salonId,
           invoiceNumber,
           saleId,
           clientId: sale.clientId,
@@ -575,6 +581,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
           await tx.loyaltyPoints.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               balance: totalPointsGained,
               tier,
@@ -586,6 +593,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         if (redeemPoints > 0) {
           await tx.loyaltyTransaction.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               saleId,
               points: -redeemPoints,
@@ -599,6 +607,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
           const multiplierNote = tierMultiplier > 1 ? ` (${tierMultiplier}x ${currentTier} bonus)` : "";
           await tx.loyaltyTransaction.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               saleId,
               points: pointsEarned,
@@ -612,6 +621,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         if (birthdayBonusPoints > 0) {
           await tx.loyaltyTransaction.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               saleId,
               points: birthdayBonusPoints,

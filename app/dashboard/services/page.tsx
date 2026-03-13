@@ -26,7 +26,7 @@ export default async function ServicesPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canManage = hasPermission(userRole, "services:manage");
 
   const page = parseInt(params.page || "1", 10);
