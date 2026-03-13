@@ -61,6 +61,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
 
   try {
     const where = {
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -81,7 +82,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
       }),
       prisma.service.count({ where }),
       prisma.service.findMany({
-        where: { isActive: true },
+        where: { salonId: authResult.salonId, isActive: true },
         select: { category: true },
         distinct: ["category"],
       }),
@@ -115,8 +116,8 @@ export async function getService(id: string): Promise<ActionResult<ServiceListIt
   }
 
   try {
-    const service = await prisma.service.findUnique({
-      where: { id },
+    const service = await prisma.service.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: serviceListInclude,
     });
 
@@ -181,8 +182,8 @@ export async function updateService(
 
   const { id, description, category, ...rest } = validationResult.data;
 
-  const existingService = await prisma.service.findUnique({
-    where: { id },
+  const existingService = await prisma.service.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!existingService) {
@@ -223,8 +224,8 @@ export async function deleteService(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const service = await prisma.service.findUnique({
-    where: { id },
+  const service = await prisma.service.findFirst({
+    where: { id, salonId: authResult.salonId },
     include: {
       _count: {
         select: {
@@ -264,8 +265,8 @@ export async function restoreService(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const service = await prisma.service.findUnique({
-    where: { id },
+  const service = await prisma.service.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!service) {
@@ -298,7 +299,7 @@ export async function getAllCategories(): Promise<ActionResult<string[]>> {
 
   try {
     const services = await prisma.service.findMany({
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: { category: true },
       distinct: ["category"],
     });

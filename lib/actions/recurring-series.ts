@@ -97,11 +97,13 @@ async function checkConflict(
   staffId: string,
   startTime: Date,
   endTime: Date,
-  excludeId?: string
+  excludeId?: string,
+  salonId?: string
 ): Promise<boolean> {
   const conflict = await prisma.appointment.findFirst({
     where: {
       staffId,
+      ...(salonId && { salonId }),
       id: excludeId ? { not: excludeId } : undefined,
       status: { notIn: ["CANCELLED", "NO_SHOW"] },
       OR: [
@@ -253,7 +255,7 @@ export async function createRecurringSeries(
         const altStaffId = alternative.staffId;
 
         // Verify alternative slot is still available
-        const altHasConflict = await checkConflict(altStaffId, altStartTime, altEndTime);
+        const altHasConflict = await checkConflict(altStaffId, altStartTime, altEndTime, undefined, authResult.salonId);
         if (altHasConflict) {
           skippedDates.push({
             date: formatInTz(date, "MMM d, yyyy", tz),
@@ -285,7 +287,7 @@ export async function createRecurringSeries(
       endTime.setMinutes(endTime.getMinutes() + serviceDuration);
 
       // Check for conflicts
-      const hasConflict = await checkConflict(validData.staffId, startTime, endTime);
+      const hasConflict = await checkConflict(validData.staffId, startTime, endTime, undefined, authResult.salonId);
 
       if (hasConflict) {
         skippedDates.push({
@@ -366,6 +368,7 @@ export async function getRecurringSeries(params?: {
   try {
     const series = await prisma.recurringAppointmentSeries.findMany({
       where: {
+        salonId: authResult.salonId,
         ...(clientId && { clientId }),
         ...(activeOnly && { isActive: true }),
         ...(!includePaused && { isPaused: false }),
@@ -391,8 +394,8 @@ export async function getRecurringSeriesById(id: string): Promise<ActionResult<R
   }
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: recurringSeriesInclude,
     });
 
@@ -425,8 +428,8 @@ export async function updateRecurringSeries(
   }
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
     });
 
     if (!series) {
@@ -500,8 +503,8 @@ export async function updateSeriesAppointments(
   const tz = await getTimezone();
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
       include: {
         service: { select: { duration: true } },
         appointments: {
@@ -550,7 +553,8 @@ export async function updateSeriesAppointments(
           staffId || series.staffId,
           newStartTime,
           newEndTime,
-          appointment.id
+          appointment.id,
+          authResult.salonId
         );
 
         if (!hasConflict) {
@@ -606,8 +610,8 @@ export async function cancelRecurringSeries(seriesId: string): Promise<ActionRes
   }
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
     });
 
     if (!series) {
@@ -671,8 +675,8 @@ export async function pauseSeries(
   const { seriesId, pausedUntil } = validationResult.data;
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
     });
 
     if (!series) {
@@ -721,8 +725,8 @@ export async function resumeSeries(seriesId: string): Promise<ActionResult<Recur
   }
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
     });
 
     if (!series) {
@@ -783,8 +787,8 @@ export async function extendSeries(
   const tz = await getTimezone();
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
       include: {
         service: { select: { duration: true } },
         appointments: {
@@ -859,6 +863,7 @@ export async function extendSeries(
       // Skip if appointment already exists for this date
       const existingForDate = await prisma.appointment.findFirst({
         where: {
+          salonId: authResult.salonId,
           seriesId,
           startTime: {
             gte: startOfDay(date),
@@ -874,7 +879,7 @@ export async function extendSeries(
       endTime.setMinutes(endTime.getMinutes() + serviceDuration);
 
       // Check for conflicts
-      const hasConflict = await checkConflict(series.staffId, startTime, endTime);
+      const hasConflict = await checkConflict(series.staffId, startTime, endTime, undefined, authResult.salonId);
 
       if (hasConflict) {
         skippedDates.push(formatInTz(date, "MMM d, yyyy", tz));
@@ -937,8 +942,8 @@ export async function cloneSeries(
   const { seriesId, newClientId, newStaffId, newTimeOfDay } = validationResult.data;
 
   try {
-    const originalSeries = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const originalSeries = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
     });
 
     if (!originalSeries) {
@@ -1006,8 +1011,8 @@ export async function addExceptionDate(
   const { seriesId, date, reason } = validationResult.data;
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
     });
 
     if (!series) {
@@ -1078,8 +1083,8 @@ export async function removeExceptionDate(exceptionId: string): Promise<ActionRe
   }
 
   try {
-    const exception = await prisma.recurringSeriesException.findUnique({
-      where: { id: exceptionId },
+    const exception = await prisma.recurringSeriesException.findFirst({
+      where: { id: exceptionId, series: { salonId: authResult.salonId } },
       include: { series: true },
     });
 
@@ -1121,7 +1126,7 @@ export async function getExceptionDates(seriesId: string): Promise<ActionResult<
 
   try {
     const exceptions = await prisma.recurringSeriesException.findMany({
-      where: { seriesId },
+      where: { seriesId, series: { salonId: authResult.salonId } },
       orderBy: { date: "asc" },
     });
 
@@ -1146,8 +1151,8 @@ export async function detachOccurrence(appointmentId: string): Promise<ActionRes
   }
 
   try {
-    const appointment = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: appointmentId, salonId: authResult.salonId },
       include: { series: true },
     });
 
@@ -1201,8 +1206,8 @@ export async function cancelFromDate(
   const { seriesId, fromDate } = validationResult.data;
 
   try {
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId: authResult.salonId },
     });
 
     if (!series) {
@@ -1363,7 +1368,9 @@ export async function previewRecurringConflicts(
     }
 
     // Get business hours
-    const settings = await prisma.settings.findFirst();
+    const settings = await prisma.settings.findFirst({
+      where: { salonId: authResult.salonId },
+    });
     const businessStart = settings?.businessHoursStart || "09:00";
     const businessEnd = settings?.businessHoursEnd || "19:00";
 
@@ -1394,7 +1401,7 @@ export async function previewRecurringConflicts(
       endTime.setMinutes(endTime.getMinutes() + serviceDuration);
 
       // Check for conflicts
-      const hasConflict = await checkConflict(validData.staffId, startTime, endTime);
+      const hasConflict = await checkConflict(validData.staffId, startTime, endTime, undefined, authResult.salonId);
 
       if (hasConflict) {
         // Find alternative slots for this date
@@ -1405,7 +1412,8 @@ export async function previewRecurringConflicts(
           serviceDuration,
           validData.timeOfDay,
           businessStart,
-          businessEnd
+          businessEnd,
+          authResult.salonId
         );
 
         conflicts.push({
@@ -1442,7 +1450,8 @@ async function findAlternativeSlotsForDate(
   serviceDuration: number,
   preferredTime: string,
   businessStart: string,
-  businessEnd: string
+  businessEnd: string,
+  salonId?: string
 ): Promise<ConflictPreview["alternatives"]> {
   const [startHour, startMin = 0] = businessStart.split(":").map(Number);
   const [endHour, endMin = 0] = businessEnd.split(":").map(Number);
@@ -1456,6 +1465,7 @@ async function findAlternativeSlotsForDate(
 
   const existingAppointments = await prisma.appointment.findMany({
     where: {
+      ...(salonId && { salonId }),
       staffId,
       startTime: { gte: dayStart, lt: dayEnd },
       status: { notIn: ["CANCELLED", "NO_SHOW"] },
@@ -1540,7 +1550,9 @@ export async function getAlternativeSlots(params: {
     }
 
     // Get business hours from settings
-    const settings = await prisma.settings.findFirst();
+    const settings = await prisma.settings.findFirst({
+      where: { salonId: authResult.salonId },
+    });
     const businessStart = settings?.businessHoursStart || "09:00";
     const businessEnd = settings?.businessHoursEnd || "19:00";
 
@@ -1556,6 +1568,7 @@ export async function getAlternativeSlots(params: {
 
     const existingAppointments = await prisma.appointment.findMany({
       where: {
+        salonId: authResult.salonId,
         staffId,
         startTime: { gte: dayStart, lt: dayEnd },
         status: { notIn: ["CANCELLED", "NO_SHOW"] },

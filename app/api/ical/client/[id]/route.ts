@@ -20,11 +20,16 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const salonId = session.user.salonId;
+    if (!salonId) {
+      return NextResponse.json({ error: "No salon context" }, { status: 400 });
+    }
+
     const { id: clientId } = await params;
 
     // Fetch the client to get their name
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, salonId },
       select: {
         firstName: true,
         lastName: true,
@@ -40,6 +45,7 @@ export async function GET(
     const allSeries = await prisma.recurringAppointmentSeries.findMany({
       where: {
         clientId,
+        salonId,
         isActive: true,
       },
       include: {

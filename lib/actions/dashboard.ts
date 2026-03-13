@@ -17,10 +17,12 @@ import {
 import { ActionResult } from "@/lib/types";
 import { cacheGet, cacheSet } from "@/lib/redis";
 
-async function checkAuth(): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
-  return { userId: session.user.id, role: session.user.salonRole as Role };
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+  return { userId: session.user.id, role: session.user.salonRole as Role, salonId };
 }
 
 // Dashboard stats
@@ -83,7 +85,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
     // Check cache first
-    const cacheKey = `dashboard:stats:${tz}`;
+    const cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}`;
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
       return { success: true, data: cached };
@@ -115,6 +117,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       prisma.appointment.groupBy({
         by: ["status"],
         where: {
+          salonId: authResult.salonId,
           startTime: { gte: todayStart, lt: todayEnd },
         },
         _count: { id: true },
@@ -123,6 +126,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       // Today's sales (completed)
       prisma.sale.findMany({
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: todayStart, lt: todayEnd },
           invoice: { isNot: null },
         },
@@ -132,6 +136,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       // Yesterday's sales for comparison
       prisma.sale.findMany({
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: yesterdayStart, lt: yesterdayEnd },
           invoice: { isNot: null },
         },
@@ -139,11 +144,12 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       }),
 
       // Total active clients
-      prisma.client.count({ where: { isActive: true } }),
+      prisma.client.count({ where: { salonId: authResult.salonId, isActive: true } }),
 
       // New clients this week
       prisma.client.count({
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: weekStart },
           isActive: true,
         },
@@ -152,6 +158,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       // New clients this month
       prisma.client.count({
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: monthStart },
           isActive: true,
         },
@@ -161,6 +168,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       prisma.saleItem.groupBy({
         by: ["serviceId"],
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: monthStart },
           serviceId: { not: null },
         },
@@ -172,7 +180,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
 
       // Recent sales
       prisma.sale.findMany({
-        where: { invoice: { isNot: null } },
+        where: { salonId: authResult.salonId, invoice: { isNot: null } },
         include: {
           client: { select: { firstName: true, lastName: true } },
           invoice: { select: { invoiceNumber: true } },
@@ -184,6 +192,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       // Upcoming appointments (today and tomorrow)
       prisma.appointment.findMany({
         where: {
+          salonId: authResult.salonId,
           startTime: { gte: new Date() },
           status: { in: ["SCHEDULED", "CONFIRMED"] },
         },
@@ -200,6 +209,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       prisma.saleItem.groupBy({
         by: ["staffId"],
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: monthStart },
           staffId: { not: null },
         },
@@ -232,7 +242,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     // Get service names for top services
     const serviceIds = topServicesData.map((s) => s.serviceId).filter((id): id is string => id !== null);
     const services = await prisma.service.findMany({
-      where: { id: { in: serviceIds } },
+      where: { salonId: authResult.salonId, id: { in: serviceIds } },
       select: { id: true, name: true },
     });
     const serviceMap = new Map(services.map((s) => [s.id, s.name]));
@@ -352,7 +362,7 @@ export async function getReportData(params: {
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
     // Check cache first
-    const cacheKey = `reports:${tz}:${startDate.toISOString()}:${endDate.toISOString()}`;
+    const cacheKey = `salon:${authResult.salonId}:reports:${tz}:${startDate.toISOString()}:${endDate.toISOString()}`;
     const cached = await cacheGet<ReportData>(cacheKey);
     if (cached) {
       return { success: true, data: cached };
@@ -368,6 +378,7 @@ export async function getReportData(params: {
       // Sales in date range
       prisma.sale.findMany({
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: startDate, lte: endDate },
           invoice: { isNot: null },
         },
@@ -381,6 +392,7 @@ export async function getReportData(params: {
       // Appointments in date range
       prisma.appointment.findMany({
         where: {
+          salonId: authResult.salonId,
           startTime: { gte: startDate, lte: endDate },
         },
         select: { status: true, startTime: true },
@@ -389,6 +401,7 @@ export async function getReportData(params: {
       // Clients created in date range
       prisma.client.findMany({
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: startDate, lte: endDate },
         },
         select: { createdAt: true },
@@ -398,6 +411,7 @@ export async function getReportData(params: {
       // Sale items for service/product breakdown
       prisma.saleItem.findMany({
         where: {
+          salonId: authResult.salonId,
           createdAt: { gte: startDate, lte: endDate },
         },
         include: {
@@ -475,7 +489,7 @@ export async function getReportData(params: {
 
     // Get total clients before start date
     const clientsBeforeStart = await prisma.client.count({
-      where: { createdAt: { lt: startDate } },
+      where: { salonId: authResult.salonId, createdAt: { lt: startDate } },
     });
 
     let runningTotal = clientsBeforeStart;

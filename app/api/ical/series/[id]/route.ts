@@ -20,13 +20,18 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const salonId = session.user.salonId;
+    if (!salonId) {
+      return NextResponse.json({ error: "No salon context" }, { status: 400 });
+    }
+
     const { id: seriesId } = await params;
     const searchParams = request.nextUrl.searchParams;
     const exportType = searchParams.get("type") || "series"; // "series" or "appointments"
 
     // Fetch the recurring series with all related data
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId },
       include: {
         service: { select: { name: true, duration: true } },
         staff: { select: { firstName: true, lastName: true } },

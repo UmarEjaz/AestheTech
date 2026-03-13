@@ -143,6 +143,7 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
   }
 
   const where: Prisma.InvoiceWhereInput = {
+    salonId: authResult.salonId,
     ...(dateFilter && { createdAt: dateFilter }),
     ...(clientId && { clientId }),
     ...(status && { status }),
@@ -191,8 +192,8 @@ export async function getInvoice(id: string): Promise<ActionResult<InvoiceListIt
   }
 
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id },
+    const invoice = await prisma.invoice.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: invoiceListInclude,
     });
 
@@ -246,8 +247,8 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
   const { invoiceId, amount, method } = validationResult.data;
 
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, salonId: authResult.salonId },
       include: { payments: true },
     });
 
@@ -308,7 +309,7 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
     });
 
     revalidatePath("/dashboard/invoices");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: updatedInvoice! };
   } catch (error) {
     console.error("Error adding payment:", error);
@@ -332,8 +333,8 @@ export async function updateInvoiceStatus(
   }
 
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id },
+    const invoice = await prisma.invoice.findFirst({
+      where: { id, salonId: authResult.salonId },
       select: { status: true },
     });
 
@@ -382,7 +383,7 @@ export async function updateInvoiceStatus(
     });
 
     revalidatePath("/dashboard/invoices");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: updatedInvoice };
   } catch (error) {
     console.error("Error updating invoice status:", error);
@@ -398,8 +399,8 @@ export async function cancelInvoice(id: string): Promise<ActionResult<InvoiceLis
   }
 
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id },
+    const invoice = await prisma.invoice.findFirst({
+      where: { id, salonId: authResult.salonId },
       select: { status: true },
     });
 
@@ -431,7 +432,7 @@ export async function cancelInvoice(id: string): Promise<ActionResult<InvoiceLis
     });
 
     revalidatePath("/dashboard/invoices");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: updatedInvoice };
   } catch (error) {
     console.error("Error cancelling invoice:", error);
@@ -448,7 +449,7 @@ export async function getClientInvoices(clientId: string): Promise<ActionResult<
 
   try {
     const invoices = await prisma.invoice.findMany({
-      where: { clientId },
+      where: { clientId, salonId: authResult.salonId },
       include: invoiceListInclude,
       orderBy: { createdAt: "desc" },
       take: 20,
@@ -476,11 +477,11 @@ export async function getInvoiceStats(): Promise<ActionResult<{
   try {
     const [pendingInvoices, overdueInvoices] = await Promise.all([
       prisma.invoice.findMany({
-        where: { status: InvoiceStatus.PENDING },
+        where: { salonId: authResult.salonId, status: InvoiceStatus.PENDING },
         select: { total: true },
       }),
       prisma.invoice.findMany({
-        where: { status: InvoiceStatus.OVERDUE },
+        where: { salonId: authResult.salonId, status: InvoiceStatus.OVERDUE },
         select: { total: true },
       }),
     ]);
@@ -528,8 +529,8 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
     // Execute transaction with Serializable isolation to prevent race conditions
     const result = await prisma.$transaction(async (tx) => {
       // Get the invoice with sale and loyalty transaction info (inside transaction)
-      const invoice = await tx.invoice.findUnique({
-        where: { id: invoiceId },
+      const invoice = await tx.invoice.findFirst({
+        where: { id: invoiceId, salonId: authResult.salonId },
         include: {
           sale: {
             include: {
@@ -673,7 +674,7 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
     revalidatePath("/dashboard/sales");
     revalidatePath(`/dashboard/sales/${result.saleId}`);
     revalidatePath(`/dashboard/clients/${result.clientId}`);
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
 
     return { success: true, data: { refundId: result.refundId, pointsReversed: result.pointsReversed } };
   } catch (error) {

@@ -62,6 +62,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
 
   try {
     const where: Prisma.ProductWhereInput = {
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -84,7 +85,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
       }),
       lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
       prisma.product.findMany({
-        where: { isActive: true },
+        where: { salonId: authResult.salonId, isActive: true },
         select: { category: true },
         distinct: ["category"],
       }),
@@ -130,8 +131,8 @@ export async function getProduct(id: string): Promise<ActionResult<ProductListIt
   }
 
   try {
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: productListInclude,
     });
 
@@ -210,8 +211,8 @@ export async function updateProduct(
   const { id, description, category, sku, cost, ...rest } = validationResult.data;
 
   try {
-    const existingProduct = await prisma.product.findUnique({
-      where: { id },
+    const existingProduct = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
     });
 
     if (!existingProduct) {
@@ -266,8 +267,8 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
   }
 
   try {
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
     });
 
     if (!product) {
@@ -304,8 +305,8 @@ export async function restoreProduct(id: string): Promise<ActionResult> {
   }
 
   try {
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
     });
 
     if (!product) {
@@ -342,7 +343,7 @@ export async function getAllProductCategories(): Promise<ActionResult<string[]>>
 
   try {
     const products = await prisma.product.findMany({
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: { category: true },
       distinct: ["category"],
     });
@@ -376,7 +377,7 @@ export async function getActiveProducts(): Promise<ActionResult<{
 
   try {
     const products = await prisma.product.findMany({
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: {
         id: true,
         name: true,

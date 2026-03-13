@@ -57,6 +57,7 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
 
   try {
     const where = {
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -174,8 +175,8 @@ export async function getClient(id: string): Promise<ActionResult<ClientWithRela
   }
 
   try {
-    const client = await prisma.client.findUnique({
-      where: { id },
+    const client = await prisma.client.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: getClientInclude(),
     });
 
@@ -243,7 +244,7 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: { id: client.id } };
 }
 
@@ -305,7 +306,7 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: { id: client.id, firstName: client.firstName } };
 }
 
@@ -322,9 +323,9 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
 
   const { id, birthday, email, photoUrl, ...rest } = validationResult.data;
 
-  // Check if client exists
-  const existingClient = await prisma.client.findUnique({
-    where: { id },
+  // Check if client exists and belongs to this salon
+  const existingClient = await prisma.client.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!existingClient) {
@@ -369,7 +370,7 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
 
   revalidatePath("/dashboard/clients");
   revalidatePath(`/dashboard/clients/${id}`);
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: undefined };
 }
 
@@ -379,8 +380,8 @@ export async function deleteClient(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const client = await prisma.client.findUnique({
-    where: { id },
+  const client = await prisma.client.findFirst({
+    where: { id, salonId: authResult.salonId },
     include: {
       _count: {
         select: {
@@ -411,7 +412,7 @@ export async function deleteClient(id: string): Promise<ActionResult> {
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: undefined };
 }
 
@@ -421,8 +422,8 @@ export async function restoreClient(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const client = await prisma.client.findUnique({
-    where: { id },
+  const client = await prisma.client.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!client) {
@@ -444,7 +445,7 @@ export async function restoreClient(id: string): Promise<ActionResult> {
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: undefined };
 }
 
@@ -457,7 +458,7 @@ export async function getAllTags(): Promise<ActionResult<string[]>> {
   try {
     const clients = await prisma.client.findMany({
       select: { tags: true },
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
     });
 
     const allTags = new Set<string>();
