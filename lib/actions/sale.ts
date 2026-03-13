@@ -19,6 +19,7 @@ import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalt
 import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { invalidateDashboardCache } from "@/lib/redis";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -353,6 +354,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     });
 
     revalidatePath("/dashboard/sales");
+    await invalidateDashboardCache();
     return { success: true, data: sale };
   } catch (error) {
     console.error("Error creating sale:", error);
@@ -640,6 +642,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     revalidatePath("/dashboard/sales");
     revalidatePath("/dashboard/invoices");
     revalidatePath(`/dashboard/clients/${sale.clientId}`);
+    await invalidateDashboardCache();
 
     return {
       success: true,
@@ -719,6 +722,7 @@ export async function deleteSale(id: string): Promise<ActionResult<void>> {
     });
 
     revalidatePath("/dashboard/sales");
+    await invalidateDashboardCache();
     return { success: true, data: undefined };
   } catch (error) {
     console.error("Error deleting sale:", error);

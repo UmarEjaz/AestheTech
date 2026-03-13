@@ -15,6 +15,7 @@ import {
   formatInTz,
 } from "@/lib/utils/timezone";
 import { ActionResult } from "@/lib/types";
+import { cacheGet, cacheSet } from "@/lib/redis";
 
 async function checkAuth(): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -80,6 +81,13 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     const settingsResult = await getSettings();
     const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
+
+    // Check cache first
+    const cacheKey = `dashboard:stats:${tz}`;
+    const cached = await cacheGet<DashboardStats>(cacheKey);
+    if (cached) {
+      return { success: true, data: cached };
+    }
 
     const { start: todayStart, end: todayEnd } = getTodayRange(tz);
     const { start: weekStart } = getWeekRange(tz);
@@ -272,32 +280,33 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
-    return {
-      success: true,
-      data: {
-        todaysAppointments: {
-          total: totalAppointments,
-          completed: completedAppointments,
-          remaining: remainingAppointments,
-          cancelled: cancelledAppointments,
-        },
-        todaysRevenue: {
-          amount: todaysRevenue,
-          salesCount: todaysSales.length,
-          comparison: Math.round(revenueComparison * 10) / 10,
-        },
-        clients: {
-          total: totalClients,
-          newThisWeek: newClientsThisWeek,
-          newThisMonth: newClientsThisMonth,
-        },
-        topServices,
-        recentSales,
-        upcomingAppointments,
-        staffPerformance,
-        currencySymbol,
+    const data: DashboardStats = {
+      todaysAppointments: {
+        total: totalAppointments,
+        completed: completedAppointments,
+        remaining: remainingAppointments,
+        cancelled: cancelledAppointments,
       },
+      todaysRevenue: {
+        amount: todaysRevenue,
+        salesCount: todaysSales.length,
+        comparison: Math.round(revenueComparison * 10) / 10,
+      },
+      clients: {
+        total: totalClients,
+        newThisWeek: newClientsThisWeek,
+        newThisMonth: newClientsThisMonth,
+      },
+      topServices,
+      recentSales,
+      upcomingAppointments,
+      staffPerformance,
+      currencySymbol,
     };
+
+    await cacheSet(cacheKey, data, 300); // 5 min TTL
+
+    return { success: true, data };
   } catch (error) {
     console.error("Error fetching dashboard stats:", error);
     return { success: false, error: "Failed to fetch dashboard statistics" };
@@ -341,6 +350,13 @@ export async function getReportData(params: {
     const settingsResult = await getSettings();
     const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
+
+    // Check cache first
+    const cacheKey = `reports:${tz}:${startDate.toISOString()}:${endDate.toISOString()}`;
+    const cached = await cacheGet<ReportData>(cacheKey);
+    if (cached) {
+      return { success: true, data: cached };
+    }
 
     // Fetch all report data in parallel
     const [
@@ -489,19 +505,20 @@ export async function getReportData(params: {
       newClients: clientsData.length,
     };
 
-    return {
-      success: true,
-      data: {
-        revenueByDay,
-        revenueByItem,
-        revenueByStaff,
-        appointmentsByStatus,
-        clientGrowth,
-        peakHours,
-        totals,
-        currencySymbol,
-      },
+    const data: ReportData = {
+      revenueByDay,
+      revenueByItem,
+      revenueByStaff,
+      appointmentsByStatus,
+      clientGrowth,
+      peakHours,
+      totals,
+      currencySymbol,
     };
+
+    await cacheSet(cacheKey, data, 600); // 10 min TTL
+
+    return { success: true, data };
   } catch (error) {
     console.error("Error fetching report data:", error);
     return { success: false, error: "Failed to fetch report data" };

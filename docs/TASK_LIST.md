@@ -218,7 +218,7 @@
 - [x] Add date range selector for reports
 - [x] Implement report export (PDF, CSV)
 - [x] Add charts and visualizations (use recharts or similar)
-- [ ] Cache report data for performance
+- [x] Cache report data for performance
 - [x] Test all reports
 - [x] Add permission checks
 
