@@ -53,7 +53,6 @@ export function StaffForm({ user, mode, currentUserRole }: StaffFormProps) {
   // Filter available roles based on current user's role hierarchy
   const getAvailableRoles = () => {
     const roleHierarchy: Record<Role, number> = {
-      SUPER_ADMIN: 5,
       OWNER: 4,
       ADMIN: 3,
       STAFF: 2,

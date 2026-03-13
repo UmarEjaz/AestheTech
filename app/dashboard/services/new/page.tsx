@@ -17,7 +17,7 @@ export default async function NewServicePage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canManage = hasPermission(userRole, "services:manage");
 
   if (!canManage) {

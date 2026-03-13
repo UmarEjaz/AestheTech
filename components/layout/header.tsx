@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet";
 import { MobileSidebar } from "@/components/layout/sidebar";
+import { SalonSwitcher } from "@/components/layout/salon-switcher";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
@@ -31,7 +32,8 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
     ? `${session.user.firstName?.[0] || ""}${session.user.lastName?.[0] || ""}`
     : "U";
 
-  const userRole = session?.user?.role || "STAFF";
+  const userRole = session?.user?.salonRole || null;
+  const isSuperAdmin = session?.user?.isSuperAdmin || false;
 
   return (
     <header
@@ -60,7 +62,7 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
                 <span className="text-xl font-bold text-primary">AestheTech</span>
               </SheetTitle>
             </SheetHeader>
-            <MobileSidebar userRole={userRole as "SUPER_ADMIN" | "OWNER" | "ADMIN" | "STAFF" | "RECEPTIONIST"} />
+            <MobileSidebar userRole={userRole} isSuperAdmin={isSuperAdmin} />
           </SheetContent>
         </Sheet>
 
@@ -78,6 +80,7 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
 
       {/* Right side actions */}
       <div className="flex items-center gap-2">
+        <SalonSwitcher />
         <ThemeToggle />
 
         {/* Notifications */}
@@ -101,7 +104,7 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
                   {session?.user?.name || "User"}
                 </span>
                 <span className="text-xs text-muted-foreground capitalize">
-                  {userRole.toLowerCase().replace("_", " ")}
+                  {isSuperAdmin ? "super admin" : (userRole?.toLowerCase().replace("_", " ") || "staff")}
                 </span>
               </div>
               <ChevronDown className="h-4 w-4 hidden md:block" />

@@ -12,6 +12,7 @@ interface LogAuditParams {
   entityId?: string | null;
   userId: string;
   userRole: string;
+  salonId?: string | null;
   details?: Prisma.InputJsonValue | null;
 }
 
@@ -27,6 +28,7 @@ export async function logAudit(params: LogAuditParams): Promise<void> {
         entityId: params.entityId ?? null,
         userId: params.userId,
         userRole: params.userRole,
+        salonId: params.salonId ?? null,
         details: params.details ?? undefined,
       },
     });
@@ -66,16 +68,22 @@ export async function getAuditLogs(
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
     return { success: false, error: "Unauthorized" };
   }
+
+  const salonId = session.user.salonId;
 
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 50;
   const skip = (page - 1) * pageSize;
 
   const where: Record<string, unknown> = {};
+
+  if (salonId) {
+    where.salonId = salonId;
+  }
 
   if (params.action) {
     where.action = params.action;
@@ -124,13 +132,16 @@ export async function getAuditActions(): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
     return { success: false, error: "Unauthorized" };
   }
 
+  const salonId = session.user.salonId;
+
   try {
     const results = await prisma.auditLog.findMany({
+      where: salonId ? { salonId } : undefined,
       distinct: ["action"],
       select: { action: true },
       orderBy: { action: "asc" },
@@ -148,13 +159,16 @@ export async function getAuditEntityTypes(): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
     return { success: false, error: "Unauthorized" };
   }
 
+  const salonId = session.user.salonId;
+
   try {
     const results = await prisma.auditLog.findMany({
+      where: salonId ? { salonId } : undefined,
       distinct: ["entityType"],
       select: { entityType: true },
       orderBy: { entityType: "asc" },

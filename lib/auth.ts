@@ -11,7 +11,9 @@ declare module "next-auth" {
     email: string;
     firstName: string;
     lastName: string;
-    role: Role;
+    isSuperAdmin: boolean;
+    salonId: string | null;
+    salonRole: Role | null;
   }
 
   interface Session {
@@ -21,9 +23,22 @@ declare module "next-auth" {
       name: string;
       firstName: string;
       lastName: string;
-      role: Role;
+      isSuperAdmin: boolean;
+      salonId: string | null;
+      salonRole: Role | null;
     };
   }
+}
+
+// Extend JWT token type
+interface CustomJWT {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  isSuperAdmin: boolean;
+  salonId: string | null;
+  salonRole: Role | null;
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -44,6 +59,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const user = await prisma.user.findUnique({
           where: { email },
+          include: {
+            salonMembers: {
+              where: { isActive: true },
+              include: { salon: { select: { isActive: true } } },
+            },
+          },
         });
 
         if (!user || !user.isActive) {
@@ -56,35 +77,68 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
+        // Filter to only active salon memberships in active salons
+        const activeMembers = user.salonMembers.filter((m) => m.salon.isActive);
+
+        // Auto-select salon if user has exactly 1 active membership
+        let salonId: string | null = null;
+        let salonRole: Role | null = null;
+
+        if (activeMembers.length === 1) {
+          salonId = activeMembers[0].salonId;
+          salonRole = activeMembers[0].role;
+        }
+        // Multiple memberships or SUPER_ADMIN with none → salonId stays null
+        // Middleware will redirect to /select-salon
+
         return {
           id: user.id,
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          role: user.role,
+          isSuperAdmin: user.isSuperAdmin,
+          salonId,
+          salonRole,
         };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
+        // Initial login
         token.id = user.id;
-        token.email = user.email;
+        token.email = user.email!;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
-        token.role = user.role;
+        token.isSuperAdmin = user.isSuperAdmin;
+        token.salonId = user.salonId;
+        token.salonRole = user.salonRole;
       }
+
+      // Handle session update (salon switching)
+      if (trigger === "update" && session) {
+        if (session.salonId !== undefined) {
+          token.salonId = session.salonId;
+        }
+        if (session.salonRole !== undefined) {
+          token.salonRole = session.salonRole;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
       if (token) {
-        session.user.id = token.id as string;
-        session.user.email = token.email as string;
-        session.user.firstName = token.firstName as string;
-        session.user.lastName = token.lastName as string;
-        session.user.name = `${token.firstName} ${token.lastName}`;
-        session.user.role = token.role as Role;
+        const t = token as unknown as CustomJWT;
+        session.user.id = t.id;
+        session.user.email = t.email;
+        session.user.firstName = t.firstName;
+        session.user.lastName = t.lastName;
+        session.user.name = `${t.firstName} ${t.lastName}`;
+        session.user.isSuperAdmin = t.isSuperAdmin;
+        session.user.salonId = t.salonId;
+        session.user.salonRole = t.salonRole;
       }
       return session;
     },

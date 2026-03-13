@@ -17,13 +17,16 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return { success: false, error: "No salon context" };
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "sales:view")) {
     return { success: false, error: "Unauthorized" };
   }
 
-  const sale = await prisma.sale.findUnique({
-    where: { id: saleId },
+  const sale = await prisma.sale.findFirst({
+    where: { id: saleId, salonId },
     include: {
       client: { select: { firstName: true, lastName: true, email: true } },
       items: {
@@ -91,7 +94,8 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       entityType: "Sale",
       entityId: saleId,
       userId: session.user.id,
-      userRole: session.user.role as string,
+      userRole: session.user.salonRole as string,
+      salonId,
       details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 
@@ -107,13 +111,16 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return { success: false, error: "No salon context" };
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, "invoices:view")) {
     return { success: false, error: "Unauthorized" };
   }
 
-  const sale = await prisma.sale.findUnique({
-    where: { id: saleId },
+  const sale = await prisma.sale.findFirst({
+    where: { id: saleId, salonId },
     include: {
       client: { select: { firstName: true, lastName: true, email: true } },
       items: {
@@ -186,7 +193,8 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       entityType: "Sale",
       entityId: saleId,
       userId: session.user.id,
-      userRole: session.user.role as string,
+      userRole: session.user.salonRole as string,
+      salonId,
       details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 

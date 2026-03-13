@@ -14,7 +14,7 @@ export default async function StaffPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
 
   // Check if user can view staff
   if (!hasPermission(userRole, "staff:view")) {

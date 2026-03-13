@@ -8,17 +8,18 @@ import { cn } from "@/lib/utils";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  userRole: Role;
+  userRole: Role | null;
+  isSuperAdmin?: boolean;
 }
 
-export function DashboardLayout({ children, userRole }: DashboardLayoutProps) {
+export function DashboardLayout({ children, userRole, isSuperAdmin = false }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
     <div className="min-h-screen bg-background">
       {/* Desktop Sidebar */}
       <div className="hidden md:block">
-        <Sidebar userRole={userRole} collapsed={sidebarCollapsed} />
+        <Sidebar userRole={userRole} isSuperAdmin={isSuperAdmin} collapsed={sidebarCollapsed} />
       </div>
 
       {/* Header */}

@@ -10,16 +10,19 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: string): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission as "clients:view" | "clients:create" | "clients:update" | "clients:delete")) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 const clientListInclude = Prisma.validator<Prisma.ClientInclude>()({
@@ -54,6 +57,7 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
 
   try {
     const where = {
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -171,8 +175,8 @@ export async function getClient(id: string): Promise<ActionResult<ClientWithRela
   }
 
   try {
-    const client = await prisma.client.findUnique({
-      where: { id },
+    const client = await prisma.client.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: getClientInclude(),
     });
 
@@ -200,23 +204,29 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
 
   const { birthday, email, photoUrl, ...rest } = validationResult.data;
 
-  // Check for duplicate phone number
-  const existingClient = await prisma.client.findUnique({
-    where: { phone: rest.phone },
-  });
+  const { salonId } = authResult;
 
-  if (existingClient) {
-    return { success: false, error: "A client with this phone number already exists" };
+  // Check for duplicate phone number
+  if (rest.phone) {
+    const existingClient = await prisma.client.findUnique({
+      where: { salonId_phone: { salonId, phone: rest.phone } },
+    });
+
+    if (existingClient) {
+      return { success: false, error: "A client with this phone number already exists" };
+    }
   }
 
   const client = await prisma.client.create({
     data: {
       ...rest,
+      salonId,
       email: email || null,
       photoUrl: photoUrl || null,
       birthday: birthday ? new Date(birthday) : null,
       loyaltyPoints: {
         create: {
+          salonId,
           balance: 0,
           tier: "SILVER",
         },
@@ -234,7 +244,7 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: { id: client.id } };
 }
 
@@ -252,11 +262,12 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
 
   const { firstName, phone } = validationResult.data;
   const normalizedPhone = phone && phone.trim() !== "" ? phone : null;
+  const { salonId } = authResult;
 
   // Check for duplicate phone number if phone is provided
   if (normalizedPhone) {
     const existingClient = await prisma.client.findUnique({
-      where: { phone: normalizedPhone },
+      where: { salonId_phone: { salonId, phone: normalizedPhone } },
     });
 
     if (existingClient) {
@@ -270,12 +281,14 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
 
   const client = await prisma.client.create({
     data: {
+      salonId,
       firstName,
       lastName: null,
       phone: normalizedPhone,
       isWalkIn: true,
       loyaltyPoints: {
         create: {
+          salonId,
           balance: 0,
           tier: "SILVER",
         },
@@ -293,7 +306,7 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: { id: client.id, firstName: client.firstName } };
 }
 
@@ -310,9 +323,9 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
 
   const { id, birthday, email, photoUrl, ...rest } = validationResult.data;
 
-  // Check if client exists
-  const existingClient = await prisma.client.findUnique({
-    where: { id },
+  // Check if client exists and belongs to this salon
+  const existingClient = await prisma.client.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!existingClient) {
@@ -322,7 +335,7 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
   // Check for duplicate phone number if phone is being updated
   if (rest.phone && rest.phone !== existingClient.phone) {
     const duplicatePhone = await prisma.client.findUnique({
-      where: { phone: rest.phone },
+      where: { salonId_phone: { salonId: authResult.salonId, phone: rest.phone } },
     });
 
     if (duplicatePhone) {
@@ -357,7 +370,7 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
 
   revalidatePath("/dashboard/clients");
   revalidatePath(`/dashboard/clients/${id}`);
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: undefined };
 }
 
@@ -367,8 +380,8 @@ export async function deleteClient(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const client = await prisma.client.findUnique({
-    where: { id },
+  const client = await prisma.client.findFirst({
+    where: { id, salonId: authResult.salonId },
     include: {
       _count: {
         select: {
@@ -399,7 +412,7 @@ export async function deleteClient(id: string): Promise<ActionResult> {
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: undefined };
 }
 
@@ -409,8 +422,8 @@ export async function restoreClient(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const client = await prisma.client.findUnique({
-    where: { id },
+  const client = await prisma.client.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!client) {
@@ -432,7 +445,7 @@ export async function restoreClient(id: string): Promise<ActionResult> {
   });
 
   revalidatePath("/dashboard/clients");
-  await invalidateDashboardCache();
+  await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: undefined };
 }
 
@@ -445,7 +458,7 @@ export async function getAllTags(): Promise<ActionResult<string[]>> {
   try {
     const clients = await prisma.client.findMany({
       select: { tags: true },
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
     });
 
     const allTags = new Set<string>();

@@ -34,7 +34,6 @@ import { hasPermission } from "@/lib/permissions";
 import { PasswordResetDialog } from "@/components/staff/password-reset-dialog";
 
 const ROLE_COLORS: Record<Role, string> = {
-  SUPER_ADMIN: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
   OWNER: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
   ADMIN: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   STAFF: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
@@ -42,7 +41,6 @@ const ROLE_COLORS: Record<Role, string> = {
 };
 
 const ROLE_LABELS: Record<Role, string> = {
-  SUPER_ADMIN: "Super Admin",
   OWNER: "Owner",
   ADMIN: "Admin",
   STAFF: "Staff",
@@ -72,7 +70,7 @@ export default async function StaffDetailPage({
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
 
   if (!hasPermission(userRole, "staff:view")) {
     redirect("/dashboard/access-denied");

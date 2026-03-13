@@ -15,9 +15,14 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const role = session.user.role as Role;
-    if (!hasPermission(role, "appointments:view")) {
+    const role = session.user.salonRole as Role;
+    if (!hasPermission(role, "appointments:view", session.user.isSuperAdmin)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const salonId = session.user.salonId;
+    if (!salonId) {
+      return NextResponse.json({ error: "No salon context" }, { status: 400 });
     }
 
     const { id: seriesId } = await params;
@@ -25,8 +30,8 @@ export async function GET(
     const exportType = searchParams.get("type") || "series"; // "series" or "appointments"
 
     // Fetch the recurring series with all related data
-    const series = await prisma.recurringAppointmentSeries.findUnique({
-      where: { id: seriesId },
+    const series = await prisma.recurringAppointmentSeries.findFirst({
+      where: { id: seriesId, salonId },
       include: {
         service: { select: { name: true, duration: true } },
         staff: { select: { firstName: true, lastName: true } },

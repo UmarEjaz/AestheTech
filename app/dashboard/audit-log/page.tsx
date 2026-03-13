@@ -25,7 +25,7 @@ export default async function AuditLogPage({
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
 
   if (!hasPermission(userRole, "audit:view")) {
     redirect("/dashboard/access-denied");

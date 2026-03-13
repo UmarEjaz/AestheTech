@@ -18,16 +18,19 @@ import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for appointment list
@@ -114,6 +117,7 @@ export async function getAppointments(params: {
   }
 
   const where: Prisma.AppointmentWhereInput = {
+    salonId: authResult.salonId,
     ...(dateFilter && { startTime: dateFilter }),
     ...(staffId && { staffId }),
     ...(clientId && { clientId }),
@@ -155,8 +159,8 @@ export async function getAppointment(id: string): Promise<ActionResult<Appointme
   }
 
   try {
-    const appointment = await prisma.appointment.findUnique({
-      where: { id },
+    const appointment = await prisma.appointment.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: appointmentListInclude,
     });
 
@@ -176,11 +180,13 @@ async function checkConflict(
   staffId: string,
   startTime: Date,
   endTime: Date,
-  excludeId?: string
+  excludeId?: string,
+  salonId?: string
 ): Promise<boolean> {
   const conflict = await prisma.appointment.findFirst({
     where: {
       staffId,
+      ...(salonId && { salonId }),
       id: excludeId ? { not: excludeId } : undefined,
       status: { notIn: ["CANCELLED", "NO_SHOW"] },
       OR: [
@@ -233,7 +239,7 @@ export async function createAppointment(
     endTime.setMinutes(endTime.getMinutes() + service.duration);
 
     // Check for conflicts
-    const hasConflict = await checkConflict(staffId, startTime, endTime);
+    const hasConflict = await checkConflict(staffId, startTime, endTime, undefined, authResult.salonId);
     if (hasConflict) {
       return { success: false, error: "This time slot conflicts with another appointment" };
     }
@@ -260,6 +266,7 @@ export async function createAppointment(
 
     const appointment = await prisma.appointment.create({
       data: {
+        salonId: authResult.salonId,
         clientId,
         serviceId,
         staffId,
@@ -281,7 +288,7 @@ export async function createAppointment(
     });
 
     revalidatePath("/dashboard/appointments");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error creating appointment:", error);
@@ -307,8 +314,8 @@ export async function updateAppointment(
   const { clientId, serviceId, staffId, startTime, notes } = validationResult.data;
 
   try {
-    const existing = await prisma.appointment.findUnique({
-      where: { id },
+    const existing = await prisma.appointment.findFirst({
+      where: { id, salonId: authResult.salonId },
       select: { status: true },
     });
 
@@ -335,7 +342,7 @@ export async function updateAppointment(
     endTime.setMinutes(endTime.getMinutes() + service.duration);
 
     // Check for conflicts (excluding this appointment)
-    const hasConflict = await checkConflict(staffId, startTime, endTime, id);
+    const hasConflict = await checkConflict(staffId, startTime, endTime, id, authResult.salonId);
     if (hasConflict) {
       return { success: false, error: "This time slot conflicts with another appointment" };
     }
@@ -363,7 +370,7 @@ export async function updateAppointment(
     });
 
     revalidatePath("/dashboard/appointments");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error updating appointment:", error);
@@ -387,8 +394,8 @@ export async function updateAppointmentStatus(
   }
 
   try {
-    const existing = await prisma.appointment.findUnique({
-      where: { id },
+    const existing = await prisma.appointment.findFirst({
+      where: { id, salonId: authResult.salonId },
       select: { status: true },
     });
 
@@ -430,7 +437,7 @@ export async function updateAppointmentStatus(
     });
 
     revalidatePath("/dashboard/appointments");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error updating appointment status:", error);
@@ -456,8 +463,8 @@ export async function rescheduleAppointment(
   const { startTime, staffId: newStaffId } = validationResult.data;
 
   try {
-    const existing = await prisma.appointment.findUnique({
-      where: { id },
+    const existing = await prisma.appointment.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: { service: { select: { duration: true } } },
     });
 
@@ -476,7 +483,7 @@ export async function rescheduleAppointment(
     endTime.setMinutes(endTime.getMinutes() + existing.service.duration);
 
     // Check for conflicts
-    const hasConflict = await checkConflict(staffId, startTime, endTime, id);
+    const hasConflict = await checkConflict(staffId, startTime, endTime, id, authResult.salonId);
     if (hasConflict) {
       return { success: false, error: "This time slot conflicts with another appointment" };
     }
@@ -501,7 +508,7 @@ export async function rescheduleAppointment(
     });
 
     revalidatePath("/dashboard/appointments");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error rescheduling appointment:", error);
@@ -517,8 +524,8 @@ export async function cancelAppointment(id: string): Promise<ActionResult<Appoin
   }
 
   try {
-    const existing = await prisma.appointment.findUnique({
-      where: { id },
+    const existing = await prisma.appointment.findFirst({
+      where: { id, salonId: authResult.salonId },
       select: { status: true },
     });
 
@@ -549,7 +556,7 @@ export async function cancelAppointment(id: string): Promise<ActionResult<Appoin
     });
 
     revalidatePath("/dashboard/appointments");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error cancelling appointment:", error);
@@ -565,9 +572,18 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
   }
 
   try {
-    const appointment = await prisma.appointment.delete({
+    // Verify appointment belongs to this salon before deleting
+    const existing = await prisma.appointment.findFirst({
+      where: { id, salonId: authResult.salonId },
+      select: { id: true, clientId: true, staffId: true, startTime: true },
+    });
+
+    if (!existing) {
+      return { success: false, error: "Appointment not found" };
+    }
+
+    await prisma.appointment.delete({
       where: { id },
-      select: { clientId: true, staffId: true, startTime: true },
     });
 
     await logAudit({
@@ -576,11 +592,11 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
       entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { clientId: appointment.clientId, staffId: appointment.staffId, startTime: appointment.startTime },
+      details: { clientId: existing.clientId, staffId: existing.staffId, startTime: existing.startTime },
     });
 
     revalidatePath("/dashboard/appointments");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: undefined };
   } catch (error) {
     console.error("Error deleting appointment:", error);
@@ -642,6 +658,7 @@ export async function getAvailableSlots(params: {
     // Get existing appointments for the staff on that day
     const existingAppointments = await prisma.appointment.findMany({
       where: {
+        salonId: authResult.salonId,
         staffId,
         startTime: { gte: dayStart, lt: dayEnd },
         status: { notIn: ["CANCELLED", "NO_SHOW"] },
@@ -704,18 +721,25 @@ export async function getStaffForAppointments(): Promise<ActionResult<{
   }
 
   try {
-    const staff = await prisma.user.findMany({
+    const members = await prisma.salonMember.findMany({
       where: {
+        salonId: authResult.salonId,
         isActive: true,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
-      orderBy: { firstName: "asc" },
+      orderBy: { user: { firstName: "asc" } },
     });
+
+    const staff = members.map((m) => m.user);
 
     return { success: true, data: staff };
   } catch (error) {
@@ -740,6 +764,7 @@ export async function getAppointmentsForCalendar(params: {
   try {
     const appointments = await prisma.appointment.findMany({
       where: {
+        salonId: authResult.salonId,
         startTime: { gte: startDate, lte: endDate },
         ...(staffId && { staffId }),
       },

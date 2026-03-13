@@ -14,16 +14,19 @@ import { Role, Prisma, ShiftType } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for schedule list
@@ -34,14 +37,31 @@ const scheduleListInclude = Prisma.validator<Prisma.ScheduleInclude>()({
       firstName: true,
       lastName: true,
       email: true,
-      role: true,
+      salonMembers: {
+        select: { role: true, salonId: true },
+      },
     },
   },
 });
 
-export type ScheduleListItem = Prisma.ScheduleGetPayload<{
+type RawScheduleListItem = Prisma.ScheduleGetPayload<{
   include: typeof scheduleListInclude;
 }>;
+
+// Public type that the UI consumes — staff includes a derived `role` field
+export type ScheduleListItem = Omit<RawScheduleListItem, "staff"> & {
+  staff: Omit<RawScheduleListItem["staff"], "salonMembers"> & { role: Role };
+};
+
+/** Map a raw query result to the public ScheduleListItem shape. */
+function mapScheduleItem(item: RawScheduleListItem, salonId: string): ScheduleListItem {
+  const member = item.staff.salonMembers.find((m) => m.salonId === salonId);
+  const { salonMembers: _, ...staffRest } = item.staff;
+  return {
+    ...item,
+    staff: { ...staffRest, role: member?.role ?? Role.STAFF },
+  };
+}
 
 // Day names for internal use
 const DAY_NAMES = [
@@ -67,6 +87,7 @@ export async function getSchedules(params: {
   const { staffId, dayOfWeek } = params;
 
   const where: Prisma.ScheduleWhereInput = {
+    salonId: authResult.salonId,
     ...(staffId && { staffId }),
     ...(dayOfWeek !== undefined && { dayOfWeek }),
   };
@@ -78,7 +99,7 @@ export async function getSchedules(params: {
       orderBy: [{ staffId: "asc" }, { dayOfWeek: "asc" }],
     });
 
-    return { success: true, data: schedules };
+    return { success: true, data: schedules.map((s) => mapScheduleItem(s, authResult.salonId)) };
   } catch (error) {
     console.error("Error fetching schedules:", error);
     return { success: false, error: "Failed to fetch schedules" };
@@ -94,12 +115,12 @@ export async function getStaffSchedule(staffId: string): Promise<ActionResult<Sc
 
   try {
     const schedules = await prisma.schedule.findMany({
-      where: { staffId },
+      where: { staffId, salonId: authResult.salonId },
       include: scheduleListInclude,
       orderBy: { dayOfWeek: "asc" },
     });
 
-    return { success: true, data: schedules };
+    return { success: true, data: schedules.map((s) => mapScheduleItem(s, authResult.salonId)) };
   } catch (error) {
     console.error("Error fetching staff schedule:", error);
     return { success: false, error: "Failed to fetch staff schedule" };
@@ -119,11 +140,11 @@ export async function getSchedule(id: string): Promise<ActionResult<ScheduleList
       include: scheduleListInclude,
     });
 
-    if (!schedule) {
+    if (!schedule || schedule.salonId !== authResult.salonId) {
       return { success: false, error: "Schedule not found" };
     }
 
-    return { success: true, data: schedule };
+    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
   } catch (error) {
     console.error("Error fetching schedule:", error);
     return { success: false, error: "Failed to fetch schedule" };
@@ -216,6 +237,7 @@ export async function createSchedule(data: ScheduleFormData): Promise<ActionResu
 
       return tx.schedule.create({
         data: {
+          salonId: authResult.salonId,
           staffId,
           dayOfWeek,
           startTime,
@@ -237,7 +259,7 @@ export async function createSchedule(data: ScheduleFormData): Promise<ActionResu
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: schedule };
+    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
   } catch (error) {
     console.error("Error creating schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to create schedule";
@@ -300,7 +322,7 @@ export async function updateSchedule(
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: schedule };
+    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
   } catch (error) {
     console.error("Error updating schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to update schedule";
@@ -383,13 +405,14 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
     // Atomic delete + create inside a transaction
     const createdSchedules = await prisma.$transaction(async (tx) => {
       await tx.schedule.deleteMany({
-        where: { staffId },
+        where: { staffId, salonId: authResult.salonId },
       });
 
-      const results: ScheduleListItem[] = [];
+      const results: RawScheduleListItem[] = [];
       for (const schedule of schedules) {
         const created = await tx.schedule.create({
           data: {
+            salonId: authResult.salonId,
             staffId,
             dayOfWeek: schedule.dayOfWeek,
             startTime: schedule.startTime,
@@ -404,16 +427,18 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
       return results;
     });
 
+    const mapped = createdSchedules.map((s) => mapScheduleItem(s, authResult.salonId));
+
     await logAudit({
       action: "WEEK_SCHEDULE_SET",
       entityType: "Schedule",
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { staffId, shiftsCount: createdSchedules.length },
+      details: { staffId, shiftsCount: mapped.length },
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: createdSchedules };
+    return { success: true, data: mapped };
   } catch (error) {
     console.error("Error setting week schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to set week schedule";
@@ -438,7 +463,7 @@ export async function toggleScheduleAvailability(id: string): Promise<ActionResu
       return { success: false, error: "Schedule not found" };
     }
 
-    const schedule = await prisma.schedule.update({
+    const rawSchedule = await prisma.schedule.update({
       where: { id },
       data: { isAvailable: !existing.isAvailable },
       include: scheduleListInclude,
@@ -454,7 +479,7 @@ export async function toggleScheduleAvailability(id: string): Promise<ActionResu
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: schedule };
+    return { success: true, data: mapScheduleItem(rawSchedule, authResult.salonId) };
   } catch (error) {
     console.error("Error toggling availability:", error);
     return { success: false, error: "Failed to toggle availability" };
@@ -483,31 +508,48 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
   }
 
   try {
-    const staff = await prisma.user.findMany({
+    const members = await prisma.salonMember.findMany({
       where: {
+        salonId: authResult.salonId,
         isActive: true,
         role: { in: [Role.STAFF, Role.ADMIN, Role.OWNER] },
       },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        role: true,
-        schedules: {
+      include: {
+        user: {
           select: {
             id: true,
-            dayOfWeek: true,
-            startTime: true,
-            endTime: true,
-            shiftType: true,
-            isAvailable: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            isActive: true,
+            schedules: {
+              where: { salonId: authResult.salonId },
+              select: {
+                id: true,
+                dayOfWeek: true,
+                startTime: true,
+                endTime: true,
+                shiftType: true,
+                isAvailable: true,
+              },
+              orderBy: { dayOfWeek: "asc" },
+            },
           },
-          orderBy: { dayOfWeek: "asc" },
         },
       },
-      orderBy: { firstName: "asc" },
     });
+
+    const staff = members
+      .filter((m) => m.user.isActive)
+      .map((m) => ({
+        id: m.user.id,
+        firstName: m.user.firstName,
+        lastName: m.user.lastName,
+        email: m.user.email,
+        role: m.role,
+        schedules: m.user.schedules,
+      }))
+      .sort((a, b) => a.firstName.localeCompare(b.firstName));
 
     return { success: true, data: staff };
   } catch (error) {
@@ -529,7 +571,7 @@ export async function copySchedule(
   try {
     // Get source schedules
     const sourceSchedules = await prisma.schedule.findMany({
-      where: { staffId: fromStaffId },
+      where: { staffId: fromStaffId, salonId: authResult.salonId },
     });
 
     if (sourceSchedules.length === 0) {
@@ -538,14 +580,15 @@ export async function copySchedule(
 
     // Delete existing schedules for target staff
     await prisma.schedule.deleteMany({
-      where: { staffId: toStaffId },
+      where: { staffId: toStaffId, salonId: authResult.salonId },
     });
 
     // Copy schedules
-    const copiedSchedules = await Promise.all(
+    const rawCopied = await Promise.all(
       sourceSchedules.map((schedule) =>
         prisma.schedule.create({
           data: {
+            salonId: authResult.salonId,
             staffId: toStaffId,
             dayOfWeek: schedule.dayOfWeek,
             startTime: schedule.startTime,
@@ -557,6 +600,8 @@ export async function copySchedule(
         })
       )
     );
+
+    const copiedSchedules = rawCopied.map((s) => mapScheduleItem(s, authResult.salonId));
 
     await logAudit({
       action: "SCHEDULE_COPIED",
@@ -628,7 +673,7 @@ export async function reassignSchedule(
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: schedule };
+    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
   } catch (error) {
     console.error("Error reassigning schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to reassign schedule";
@@ -653,7 +698,7 @@ export async function getAvailabilityForDate(date: Date): Promise<ActionResult<{
 
   try {
     const schedules = await prisma.schedule.findMany({
-      where: { dayOfWeek },
+      where: { dayOfWeek, salonId: authResult.salonId },
       include: {
         staff: {
           select: {

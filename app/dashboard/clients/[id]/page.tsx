@@ -48,7 +48,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canEdit = hasPermission(userRole, "clients:update");
 
   const [result, settingsResult] = await Promise.all([

@@ -15,7 +15,6 @@ datasource db {
 // ============================================
 
 enum Role {
-  SUPER_ADMIN
   OWNER
   ADMIN
   STAFF
@@ -74,41 +73,96 @@ enum RecurrencePattern {
   BIWEEKLY
   MONTHLY
   CUSTOM
-  SPECIFIC_DAYS   // Mon/Wed/Fri style
-  NTH_WEEKDAY     // "2nd Tuesday of month"
+  SPECIFIC_DAYS // Mon/Wed/Fri style
+  NTH_WEEKDAY // "2nd Tuesday of month"
 }
 
 enum RecurrenceEndType {
-  NEVER           // Ongoing until cancelled
-  AFTER_COUNT     // End after N occurrences
-  BY_DATE         // End by specific date
+  NEVER // Ongoing until cancelled
+  AFTER_COUNT // End after N occurrences
+  BY_DATE // End by specific date
 }
 
 // ============================================
 // MODELS
 // ============================================
 
-// User model for staff/admin accounts
-model User {
+// Salon model — top-level tenant entity
+model Salon {
+  id                    String    @id @default(cuid())
+  name                  String
+  slug                  String    @unique
+  address               String?
+  phone                 String?
+  email                 String?
+  logo                  String?
+  subscriptionStatus    String    @default("TRIAL") // TRIAL, ACTIVE, SUSPENDED, CANCELLED
+  subscriptionPlan      String? // BASIC, PRO, ENTERPRISE
+  subscriptionExpiresAt DateTime?
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  members                    SalonMember[]
+  settings                   Settings?
+  clients                    Client[]
+  services                   Service[]
+  products                   Product[]
+  appointments               Appointment[]
+  sales                      Sale[]
+  saleItems                  SaleItem[]
+  invoices                   Invoice[]
+  schedules                  Schedule[]
+  loyaltyPoints              LoyaltyPoints[]
+  loyaltyTransactions        LoyaltyTransaction[]
+  recurringAppointmentSeries RecurringAppointmentSeries[]
+  auditLogs                  AuditLog[]
+
+  @@map("salons")
+}
+
+// SalonMember join table — user-salon relationship with per-salon role
+model SalonMember {
   id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  role      Role
-  firstName String
-  lastName  String
-  phone     String?
+  userId    String
+  salonId   String
+  role      Role // OWNER, ADMIN, STAFF, RECEPTIONIST
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  appointments       Appointment[] @relation("StaffAppointments")
-  schedules          Schedule[]
-  sales              Sale[]
-  saleItems          SaleItem[]
-  refunds            Refund[]
-  recurringSeries    RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
-  auditLogs          AuditLog[]
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, salonId])
+  @@index([salonId])
+  @@map("salon_members")
+}
+
+// User model for staff/admin accounts — platform-level entity
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String
+  firstName    String
+  lastName     String
+  phone        String?
+  isSuperAdmin Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  salonMembers    SalonMember[]
+  appointments    Appointment[]                @relation("StaffAppointments")
+  schedules       Schedule[]
+  sales           Sale[]
+  saleItems       SaleItem[]
+  refunds         Refund[]
+  recurringSeries RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
+  auditLogs       AuditLog[]
 
   @@map("users")
 }
@@ -116,10 +170,11 @@ model User {
 // Client model for customers
 model Client {
   id          String    @id @default(cuid())
+  salonId     String
   firstName   String
   lastName    String?
   email       String?
-  phone       String?   @unique
+  phone       String?
   photoUrl    String?
   birthday    DateTime?
   address     String?
@@ -133,6 +188,7 @@ model Client {
   updatedAt   DateTime  @updatedAt
 
   // Relations
+  salon               Salon                        @relation(fields: [salonId], references: [id], onDelete: Cascade)
   appointments        Appointment[]
   sales               Sale[]
   invoices            Invoice[]
@@ -140,6 +196,8 @@ model Client {
   loyaltyTransactions LoyaltyTransaction[]
   recurringSeries     RecurringAppointmentSeries[]
 
+  @@unique([salonId, phone])
+  @@index([salonId])
   @@index([isWalkIn])
   @@map("clients")
 }
@@ -147,9 +205,10 @@ model Client {
 // Service model
 model Service {
   id          String   @id @default(cuid())
+  salonId     String
   name        String
   description String?
-  duration    Int      // in minutes
+  duration    Int // in minutes
   price       Decimal  @db.Decimal(10, 2)
   points      Int      @default(0) // loyalty points earned
   category    String?
@@ -158,19 +217,22 @@ model Service {
   updatedAt   DateTime @updatedAt
 
   // Relations
+  salon           Salon                        @relation(fields: [salonId], references: [id], onDelete: Cascade)
   appointments    Appointment[]
   saleItems       SaleItem[]
   recurringSeries RecurringAppointmentSeries[]
 
+  @@index([salonId])
   @@map("services")
 }
 
 // Product model (physical products for retail)
 model Product {
   id                String   @id @default(cuid())
+  salonId           String
   name              String
   description       String?
-  sku               String?  @unique
+  sku               String?
   price             Decimal  @db.Decimal(10, 2)
   cost              Decimal? @db.Decimal(10, 2) // wholesale cost
   stock             Int      @default(0)
@@ -182,8 +244,11 @@ model Product {
   updatedAt         DateTime @updatedAt
 
   // Relations
+  salon     Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
   saleItems SaleItem[]
 
+  @@unique([salonId, sku])
+  @@index([salonId])
   @@index([category])
   @@index([isActive])
   @@map("products")
@@ -192,6 +257,7 @@ model Product {
 // Appointment model
 model Appointment {
   id                   String            @id @default(cuid())
+  salonId              String
   clientId             String
   serviceId            String
   staffId              String
@@ -205,21 +271,25 @@ model Appointment {
   updatedAt            DateTime          @updatedAt
 
   // Relations
+  salon   Salon                       @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client  Client                      @relation(fields: [clientId], references: [id], onDelete: Cascade)
   service Service                     @relation(fields: [serviceId], references: [id])
   staff   User                        @relation("StaffAppointments", fields: [staffId], references: [id])
   series  RecurringAppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
+  @@index([salonId])
   @@index([clientId])
   @@index([staffId])
   @@index([startTime])
   @@index([seriesId])
+  @@index([salonId, startTime])
   @@map("appointments")
 }
 
 // Sale model
 model Sale {
   id          String   @id @default(cuid())
+  salonId     String
   clientId    String
   staffId     String
   totalAmount Decimal  @db.Decimal(10, 2)
@@ -229,15 +299,18 @@ model Sale {
   updatedAt   DateTime @updatedAt
 
   // Relations
+  salon               Salon                @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client              Client               @relation(fields: [clientId], references: [id])
   staff               User                 @relation(fields: [staffId], references: [id])
   items               SaleItem[]
   invoice             Invoice?
   loyaltyTransactions LoyaltyTransaction[]
 
+  @@index([salonId])
   @@index([clientId])
   @@index([staffId])
   @@index([createdAt])
+  @@index([salonId, createdAt])
   @@map("sales")
 }
 
@@ -251,20 +324,23 @@ model Sale {
 // Currently enforced at the app level via Zod XOR validation in lib/validations/sale.ts
 model SaleItem {
   id        String   @id @default(cuid())
+  salonId   String
   saleId    String
   serviceId String?
-  staffId   String?  // staff who performed the service
+  staffId   String? // staff who performed the service
   productId String?
   quantity  Int      @default(1)
   price     Decimal  @db.Decimal(10, 2)
   createdAt DateTime @default(now())
 
   // Relations
+  salon   Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
   sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
   service Service? @relation(fields: [serviceId], references: [id])
   staff   User?    @relation(fields: [staffId], references: [id])
   product Product? @relation(fields: [productId], references: [id])
 
+  @@index([salonId])
   @@index([saleId])
   @@index([productId])
   @@map("sale_items")
@@ -273,7 +349,8 @@ model SaleItem {
 // Invoice model
 model Invoice {
   id            String        @id @default(cuid())
-  invoiceNumber String        @unique
+  salonId       String
+  invoiceNumber String
   saleId        String        @unique
   clientId      String
   amount        Decimal       @db.Decimal(10, 2)
@@ -287,13 +364,15 @@ model Invoice {
   updatedAt     DateTime      @updatedAt
 
   // Relations
+  salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
   sale     Sale      @relation(fields: [saleId], references: [id])
   client   Client    @relation(fields: [clientId], references: [id])
   payments Payment[]
   refunds  Refund[]
 
+  @@unique([salonId, invoiceNumber])
+  @@index([salonId])
   @@index([clientId])
-  @@index([invoiceNumber])
   @@index([status])
   @@map("invoices")
 }
@@ -316,13 +395,13 @@ model Payment {
 
 // Refund model
 model Refund {
-  id              String        @id @default(cuid())
-  invoiceId       String
-  amount          Decimal       @db.Decimal(10, 2)
-  reason          String?
-  refundedById    String
-  pointsReversed  Int           @default(0)
-  createdAt       DateTime      @default(now())
+  id             String   @id @default(cuid())
+  invoiceId      String
+  amount         Decimal  @db.Decimal(10, 2)
+  reason         String?
+  refundedById   String
+  pointsReversed Int      @default(0)
+  createdAt      DateTime @default(now())
 
   // Relations
   invoice    Invoice @relation(fields: [invoiceId], references: [id])
@@ -335,18 +414,21 @@ model Refund {
 // Schedule model
 model Schedule {
   id          String    @id @default(cuid())
+  salonId     String
   staffId     String
-  dayOfWeek   Int       // 0 = Sunday, 6 = Saturday
-  startTime   String    // HH:mm format
-  endTime     String    // HH:mm format
+  dayOfWeek   Int // 0 = Sunday, 6 = Saturday
+  startTime   String // HH:mm format
+  endTime     String // HH:mm format
   shiftType   ShiftType @default(REGULAR)
   isAvailable Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   // Relations
-  staff User @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  staff User  @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
+  @@index([salonId])
   @@index([staffId])
   @@map("schedules")
 }
@@ -354,6 +436,7 @@ model Schedule {
 // LoyaltyPoints model
 model LoyaltyPoints {
   id        String      @id @default(cuid())
+  salonId   String
   clientId  String      @unique
   balance   Int         @default(0)
   tier      LoyaltyTier @default(SILVER)
@@ -361,14 +444,17 @@ model LoyaltyPoints {
   updatedAt DateTime    @updatedAt
 
   // Relations
+  salon  Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  @@index([salonId])
   @@map("loyalty_points")
 }
 
 // LoyaltyTransaction model
 model LoyaltyTransaction {
   id          String                 @id @default(cuid())
+  salonId     String
   clientId    String
   saleId      String?
   points      Int
@@ -378,9 +464,11 @@ model LoyaltyTransaction {
   createdAt   DateTime               @default(now())
 
   // Relations
+  salon  Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
   sale   Sale?  @relation(fields: [saleId], references: [id])
 
+  @@index([salonId])
   @@index([clientId])
   @@index([expiresAt])
   @@map("loyalty_transactions")
@@ -388,52 +476,55 @@ model LoyaltyTransaction {
 
 // Recurring appointment series model
 model RecurringAppointmentSeries {
-  id          String            @id @default(cuid())
-  clientId    String
-  serviceId   String
-  staffId     String
+  id        String @id @default(cuid())
+  salonId   String
+  clientId  String
+  serviceId String
+  staffId   String
 
   // Recurrence config
   pattern     RecurrencePattern
-  customWeeks Int?              // For CUSTOM: every N weeks
-  dayOfWeek   Int               // 0-6 (Sun-Sat) - primary day for WEEKLY/BIWEEKLY/MONTHLY/NTH_WEEKDAY
-  timeOfDay   String            // "HH:mm" format
+  customWeeks Int? // For CUSTOM: every N weeks
+  dayOfWeek   Int // 0-6 (Sun-Sat) - primary day for WEEKLY/BIWEEKLY/MONTHLY/NTH_WEEKDAY
+  timeOfDay   String // "HH:mm" format
   notes       String?
 
   // Extended pattern config
-  specificDays      Int[]             // For SPECIFIC_DAYS: [1,3,5] = Mon,Wed,Fri (0=Sun, 6=Sat)
-  nthWeek           Int?              // For NTH_WEEKDAY: 1-5 (1st, 2nd, 3rd, 4th, 5=last)
+  specificDays Int[] // For SPECIFIC_DAYS: [1,3,5] = Mon,Wed,Fri (0=Sun, 6=Sat)
+  nthWeek      Int? // For NTH_WEEKDAY: 1-5 (1st, 2nd, 3rd, 4th, 5=last)
 
   // End conditions
-  endType           RecurrenceEndType @default(NEVER)
-  endAfterCount     Int?              // For AFTER_COUNT: end after N occurrences
-  endByDate         DateTime?         // For BY_DATE: end by specific date
-  occurrencesCreated Int              @default(0) // Track how many created
+  endType            RecurrenceEndType @default(NEVER)
+  endAfterCount      Int? // For AFTER_COUNT: end after N occurrences
+  endByDate          DateTime? // For BY_DATE: end by specific date
+  occurrencesCreated Int               @default(0) // Track how many created
 
   // Price lock
-  lockedPrice       Decimal?          @db.Decimal(10, 2) // Lock price at series creation
+  lockedPrice Decimal? @db.Decimal(10, 2) // Lock price at series creation
 
   // Buffer time
-  bufferMinutes     Int               @default(0) // Buffer between appointments
+  bufferMinutes Int @default(0) // Buffer between appointments
 
   // Pause/Resume
-  isPaused          Boolean           @default(false)
-  pausedAt          DateTime?
-  pausedUntil       DateTime?         // Optional: auto-resume date
+  isPaused    Boolean   @default(false)
+  pausedAt    DateTime?
+  pausedUntil DateTime? // Optional: auto-resume date
 
   // Status
-  isActive          Boolean           @default(true)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  client       Client                       @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  service      Service                      @relation(fields: [serviceId], references: [id])
-  staff        User                         @relation("RecurringStaffAppointments", fields: [staffId], references: [id])
+  salon        Salon                      @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  client       Client                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service      Service                    @relation(fields: [serviceId], references: [id])
+  staff        User                       @relation("RecurringStaffAppointments", fields: [staffId], references: [id])
   appointments Appointment[]
   exceptions   RecurringSeriesException[]
   auditLogs    RecurringSeriesAuditLog[]
 
+  @@index([salonId])
   @@index([clientId])
   @@index([serviceId])
   @@index([staffId])
@@ -447,7 +538,7 @@ model RecurringSeriesException {
   id        String   @id @default(cuid())
   seriesId  String
   date      DateTime @db.Date // The date to skip
-  reason    String?  // Optional reason (e.g., "Holiday", "Vacation")
+  reason    String? // Optional reason (e.g., "Holiday", "Vacation")
   createdAt DateTime @default(now())
 
   // Relations
@@ -462,9 +553,9 @@ model RecurringSeriesException {
 model RecurringSeriesAuditLog {
   id          String   @id @default(cuid())
   seriesId    String
-  action      String   // CREATED, UPDATED, PAUSED, RESUMED, CANCELLED, EXCEPTION_ADDED, EXCEPTION_REMOVED, etc.
-  changes     Json?    // What changed (before/after)
-  performedBy String   // User ID who made the change
+  action      String // CREATED, UPDATED, PAUSED, RESUMED, CANCELLED, EXCEPTION_ADDED, EXCEPTION_REMOVED, etc.
+  changes     Json? // What changed (before/after)
+  performedBy String // User ID who made the change
   createdAt   DateTime @default(now())
 
   // Relations
@@ -477,17 +568,20 @@ model RecurringSeriesAuditLog {
 
 model AuditLog {
   id         String   @id @default(cuid())
-  action     String   // e.g. REFUND_CREATED, SALE_COMPLETED, SETTINGS_UPDATED, USER_CREATED
-  entityType String   // e.g. Invoice, Sale, Settings, User, Client, Product, Service, Appointment
-  entityId   String?  // ID of the affected entity (nullable for bulk/settings actions)
-  userId     String   // Who performed the action
-  userRole   String   // Role at the time of action
-  details    Json?    // Additional context (before/after values, amounts, etc.)
+  salonId    String? // Nullable — SUPER_ADMIN platform-level logs have no salon
+  action     String // e.g. REFUND_CREATED, SALE_COMPLETED, SETTINGS_UPDATED, USER_CREATED
+  entityType String // e.g. Invoice, Sale, Settings, User, Client, Product, Service, Appointment
+  entityId   String? // ID of the affected entity (nullable for bulk/settings actions)
+  userId     String // Who performed the action
+  userRole   String // Role at the time of action
+  details    Json? // Additional context (before/after values, amounts, etc.)
   createdAt  DateTime @default(now())
 
   // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salon Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([salonId])
   @@index([action])
   @@index([entityType])
   @@index([userId])
@@ -501,47 +595,51 @@ enum Currency {
   PKR
 }
 
-// Settings model for salon configuration
+// Settings model for salon configuration — 1:1 with Salon
 model Settings {
-  id                   String   @id @default(cuid())
-  salonName            String   @default("AestheTech Salon")
-  salonAddress         String?  // Full address for invoices
-  salonPhone           String?  // Contact phone for invoices
-  salonEmail           String?  // Contact email for invoices
-  salonLogo            String?  // Base64 encoded logo for invoices
-  timezone             String   @default("UTC") // IANA timezone e.g. "Asia/Karachi"
-  currency             Currency @default(USD)
-  currencySymbol       String   @default("$")
-  taxRate              Decimal  @default(0) @db.Decimal(5, 2) // percentage
-  businessHoursStart   String   @default("09:00") // HH:mm format
-  businessHoursEnd     String   @default("19:00") // HH:mm format
-  appointmentInterval  Int      @default(30) // minutes
-  allowOnlineBooking   Boolean  @default(true)
-  loyaltyProgramEnabled Boolean @default(true)
-  loyaltyPointsPerDollar Int    @default(1)
+  id                     String   @id @default(cuid())
+  salonId                String   @unique
+  salonName              String   @default("AestheTech Salon")
+  salonAddress           String? // Full address for invoices
+  salonPhone             String? // Contact phone for invoices
+  salonEmail             String? // Contact email for invoices
+  salonLogo              String? // Base64 encoded logo for invoices
+  timezone               String   @default("UTC") // IANA timezone e.g. "Asia/Karachi"
+  currency               Currency @default(USD)
+  currencySymbol         String   @default("$")
+  taxRate                Decimal  @default(0) @db.Decimal(5, 2) // percentage
+  businessHoursStart     String   @default("09:00") // HH:mm format
+  businessHoursEnd       String   @default("19:00") // HH:mm format
+  appointmentInterval    Int      @default(30) // minutes
+  allowOnlineBooking     Boolean  @default(true)
+  loyaltyProgramEnabled  Boolean  @default(true)
+  loyaltyPointsPerDollar Int      @default(1)
 
   // Loyalty tier thresholds
-  goldThreshold        Int      @default(500)
-  platinumThreshold    Int      @default(1000)
+  goldThreshold     Int @default(500)
+  platinumThreshold Int @default(1000)
 
   // Tier benefit multipliers
-  silverMultiplier     Decimal  @default(1.0) @db.Decimal(4, 2)
-  goldMultiplier       Decimal  @default(1.5) @db.Decimal(4, 2)
-  platinumMultiplier   Decimal  @default(2.0) @db.Decimal(4, 2)
+  silverMultiplier   Decimal @default(1.0) @db.Decimal(4, 2)
+  goldMultiplier     Decimal @default(1.5) @db.Decimal(4, 2)
+  platinumMultiplier Decimal @default(2.0) @db.Decimal(4, 2)
 
   // Redemption rate (points per currency unit)
-  pointsPerDollar      Int      @default(100)
+  pointsPerDollar Int @default(100)
 
   // Birthday bonus
-  birthdayBonusEnabled  Boolean  @default(true)
-  birthdayBonusPoints   Int      @default(50)
+  birthdayBonusEnabled Boolean @default(true)
+  birthdayBonusPoints  Int     @default(50)
 
   // Points expiration
-  pointsExpiryEnabled   Boolean  @default(false)
-  pointsExpiryMonths    Int      @default(12)
+  pointsExpiryEnabled Boolean @default(false)
+  pointsExpiryMonths  Int     @default(12)
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
 
   @@map("settings")
 }

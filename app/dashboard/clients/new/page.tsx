@@ -15,7 +15,7 @@ export default async function NewClientPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canCreate = hasPermission(userRole, "clients:create");
 
   if (!canCreate) {

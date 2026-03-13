@@ -9,16 +9,19 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 export interface SettingsData {
@@ -53,12 +56,21 @@ export interface SettingsData {
 /** Fetches salon settings, creating defaults if none exist. */
 export async function getSettings(): Promise<ActionResult<SettingsData>> {
   try {
-    const settings = await prisma.settings.findFirst();
+    const session = await auth();
+    const salonId = session?.user?.salonId;
+
+    const settings = salonId
+      ? await prisma.settings.findUnique({ where: { salonId } })
+      : await prisma.settings.findFirst();
 
     if (!settings) {
+      if (!salonId) {
+        return { success: false, error: "No settings found and no salon context available" };
+      }
       // Create default settings if none exist
       const defaultSettings = await prisma.settings.create({
         data: {
+          salonId,
           salonName: "AestheTech Salon",
           salonAddress: null,
           salonPhone: null,
@@ -125,7 +137,9 @@ export async function updateSettings(
   }
 
   try {
-    const existingSettings = await prisma.settings.findFirst();
+    const existingSettings = await prisma.settings.findUnique({
+      where: { salonId: authResult.salonId },
+    });
 
     if (!existingSettings) {
       return { success: false, error: "Settings not found" };
@@ -190,17 +204,18 @@ export async function updateSettings(
       data.goldThreshold !== undefined || data.platinumThreshold !== undefined;
     if (thresholdsChanged) {
       await prisma.loyaltyPoints.updateMany({
-        where: { balance: { gte: updatedSettings.platinumThreshold } },
+        where: { salonId: authResult.salonId, balance: { gte: updatedSettings.platinumThreshold } },
         data: { tier: "PLATINUM" },
       });
       await prisma.loyaltyPoints.updateMany({
         where: {
+          salonId: authResult.salonId,
           balance: { gte: updatedSettings.goldThreshold, lt: updatedSettings.platinumThreshold },
         },
         data: { tier: "GOLD" },
       });
       await prisma.loyaltyPoints.updateMany({
-        where: { balance: { lt: updatedSettings.goldThreshold } },
+        where: { salonId: authResult.salonId, balance: { lt: updatedSettings.goldThreshold } },
         data: { tier: "SILVER" },
       });
     }
@@ -220,12 +235,13 @@ export async function updateSettings(
       entityId: existingSettings.id,
       userId: authResult.userId,
       userRole: authResult.role,
+      salonId: authResult.salonId,
       details: changes,
     });
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/settings");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
 
     return {
       success: true,

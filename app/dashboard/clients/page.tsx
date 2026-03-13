@@ -14,7 +14,7 @@ export default async function ClientsPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
   const canCreate = hasPermission(userRole, "clients:create");
   const canEdit = hasPermission(userRole, "clients:update");
   const canDelete = hasPermission(userRole, "clients:delete");
