@@ -69,20 +69,26 @@ export async function cacheSet(key: string, data: unknown, ttlSeconds: number): 
   }
 }
 
+async function scanAndDelete(redis: Redis, pattern: string): Promise<void> {
+  let cursor = "0";
+  do {
+    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 200);
+    cursor = nextCursor;
+    if (keys.length > 0) {
+      await redis.unlink(...keys);
+    }
+  } while (cursor !== "0");
+}
+
 export async function invalidateDashboardCache(): Promise<void> {
   const redis = getRedis();
   if (!redis) return;
 
   try {
-    const [dashboardKeys, reportKeys] = await Promise.all([
-      redis.keys("dashboard:*"),
-      redis.keys("reports:*"),
+    await Promise.all([
+      scanAndDelete(redis, "dashboard:*"),
+      scanAndDelete(redis, "reports:*"),
     ]);
-
-    const allKeys = [...dashboardKeys, ...reportKeys];
-    if (allKeys.length > 0) {
-      await redis.del(...allKeys);
-    }
   } catch {
     // Silent failure
   }
