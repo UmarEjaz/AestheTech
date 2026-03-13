@@ -29,7 +29,7 @@ export function getRedis(): Redis | null {
   if (globalForRedis.redis) return globalForRedis.redis;
 
   const client = createRedisClient();
-  if (client && process.env.NODE_ENV !== "production") {
+  if (client) {
     globalForRedis.redis = client;
   }
 
