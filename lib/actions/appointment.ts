@@ -16,6 +16,7 @@ import { Role, Prisma, AppointmentStatus } from "@prisma/client";
 import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
+import { invalidateDashboardCache } from "@/lib/redis";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -280,6 +281,7 @@ export async function createAppointment(
     });
 
     revalidatePath("/dashboard/appointments");
+    await invalidateDashboardCache();
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error creating appointment:", error);
@@ -361,6 +363,7 @@ export async function updateAppointment(
     });
 
     revalidatePath("/dashboard/appointments");
+    await invalidateDashboardCache();
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error updating appointment:", error);
@@ -427,6 +430,7 @@ export async function updateAppointmentStatus(
     });
 
     revalidatePath("/dashboard/appointments");
+    await invalidateDashboardCache();
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error updating appointment status:", error);
@@ -497,6 +501,7 @@ export async function rescheduleAppointment(
     });
 
     revalidatePath("/dashboard/appointments");
+    await invalidateDashboardCache();
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error rescheduling appointment:", error);
@@ -544,6 +549,7 @@ export async function cancelAppointment(id: string): Promise<ActionResult<Appoin
     });
 
     revalidatePath("/dashboard/appointments");
+    await invalidateDashboardCache();
     return { success: true, data: appointment };
   } catch (error) {
     console.error("Error cancelling appointment:", error);
@@ -574,6 +580,7 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
     });
 
     revalidatePath("/dashboard/appointments");
+    await invalidateDashboardCache();
     return { success: true, data: undefined };
   } catch (error) {
     console.error("Error deleting appointment:", error);

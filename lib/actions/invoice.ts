@@ -19,6 +19,7 @@ import { getSettings } from "./settings";
 import { calculateTier } from "@/lib/utils/loyalty";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { invalidateDashboardCache } from "@/lib/redis";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -304,6 +305,7 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
     });
 
     revalidatePath("/dashboard/invoices");
+    await invalidateDashboardCache();
     return { success: true, data: updatedInvoice! };
   } catch (error) {
     console.error("Error adding payment:", error);
@@ -377,6 +379,7 @@ export async function updateInvoiceStatus(
     });
 
     revalidatePath("/dashboard/invoices");
+    await invalidateDashboardCache();
     return { success: true, data: updatedInvoice };
   } catch (error) {
     console.error("Error updating invoice status:", error);
@@ -425,6 +428,7 @@ export async function cancelInvoice(id: string): Promise<ActionResult<InvoiceLis
     });
 
     revalidatePath("/dashboard/invoices");
+    await invalidateDashboardCache();
     return { success: true, data: updatedInvoice };
   } catch (error) {
     console.error("Error cancelling invoice:", error);
@@ -665,6 +669,7 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
     revalidatePath("/dashboard/sales");
     revalidatePath(`/dashboard/sales/${result.saleId}`);
     revalidatePath(`/dashboard/clients/${result.clientId}`);
+    await invalidateDashboardCache();
 
     return { success: true, data: { refundId: result.refundId, pointsReversed: result.pointsReversed } };
   } catch (error) {

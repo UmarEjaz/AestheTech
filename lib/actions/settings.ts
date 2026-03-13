@@ -7,6 +7,7 @@ import { hasPermission, Permission } from "@/lib/permissions";
 import { Role, Currency } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { invalidateDashboardCache } from "@/lib/redis";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -224,6 +225,7 @@ export async function updateSettings(
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/settings");
+    await invalidateDashboardCache();
 
     return {
       success: true,

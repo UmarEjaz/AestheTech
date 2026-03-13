@@ -8,6 +8,7 @@ import { clientSchema, clientUpdateSchema, walkInClientSchema, ClientFormData, C
 import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { invalidateDashboardCache } from "@/lib/redis";
 
 async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -233,6 +234,7 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
   });
 
   revalidatePath("/dashboard/clients");
+  await invalidateDashboardCache();
   return { success: true, data: { id: client.id } };
 }
 
@@ -291,6 +293,7 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
   });
 
   revalidatePath("/dashboard/clients");
+  await invalidateDashboardCache();
   return { success: true, data: { id: client.id, firstName: client.firstName } };
 }
 
@@ -354,6 +357,7 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
 
   revalidatePath("/dashboard/clients");
   revalidatePath(`/dashboard/clients/${id}`);
+  await invalidateDashboardCache();
   return { success: true, data: undefined };
 }
 
@@ -395,6 +399,7 @@ export async function deleteClient(id: string): Promise<ActionResult> {
   });
 
   revalidatePath("/dashboard/clients");
+  await invalidateDashboardCache();
   return { success: true, data: undefined };
 }
 
@@ -427,6 +432,7 @@ export async function restoreClient(id: string): Promise<ActionResult> {
   });
 
   revalidatePath("/dashboard/clients");
+  await invalidateDashboardCache();
   return { success: true, data: undefined };
 }
 
