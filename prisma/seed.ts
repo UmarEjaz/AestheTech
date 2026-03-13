@@ -6,11 +6,15 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("🌱 Starting seed...");
 
-  // Clean existing data
-  await prisma.settings.deleteMany();
+  // Clean existing data (order matters for foreign keys)
+  await prisma.auditLog.deleteMany();
+  await prisma.recurringSeriesAuditLog.deleteMany();
+  await prisma.recurringSeriesException.deleteMany();
+  await prisma.recurringAppointmentSeries.deleteMany();
   await prisma.loyaltyTransaction.deleteMany();
   await prisma.loyaltyPoints.deleteMany();
   await prisma.payment.deleteMany();
+  await prisma.refund.deleteMany();
   await prisma.invoice.deleteMany();
   await prisma.saleItem.deleteMany();
   await prisma.sale.deleteMany();
@@ -19,13 +23,32 @@ async function main() {
   await prisma.product.deleteMany();
   await prisma.service.deleteMany();
   await prisma.client.deleteMany();
+  await prisma.settings.deleteMany();
+  await prisma.salonMember.deleteMany();
+  await prisma.salon.deleteMany();
   await prisma.user.deleteMany();
 
   console.log("🗑️  Cleared existing data");
 
-  // Create Settings
+  // Create Default Salon
+  const salon = await prisma.salon.create({
+    data: {
+      name: "AestheTech Salon",
+      slug: "aesthetech-salon",
+      address: "123 Beauty Street, Suite 100",
+      phone: "+1234567890",
+      email: "info@aesthetech.com",
+      subscriptionStatus: "ACTIVE",
+      subscriptionPlan: "PRO",
+    },
+  });
+
+  console.log("🏪 Created salon");
+
+  // Create Settings (1:1 with Salon)
   await prisma.settings.create({
     data: {
+      salonId: salon.id,
       salonName: "AestheTech Salon",
       currency: Currency.USD,
       currencySymbol: "$",
@@ -40,19 +63,19 @@ async function main() {
 
   console.log("⚙️  Created settings");
 
-  // Create Users (Staff)
+  // Create Users (Staff) — no role on User anymore, role lives on SalonMember
   const hashedPassword = await bcrypt.hash("password123", 10);
   const superAdminPassword = await bcrypt.hash("umar111", 10);
 
-  // Create Super Admin
+  // Create Super Admin (platform-level flag, not a salon role)
   const superAdmin = await prisma.user.create({
     data: {
       email: "itsumarejaz@gmail.com",
       password: superAdminPassword,
-      role: Role.SUPER_ADMIN,
       firstName: "Umar",
       lastName: "Ejaz",
       phone: "+923001234567",
+      isSuperAdmin: true,
     },
   });
 
@@ -60,7 +83,6 @@ async function main() {
     data: {
       email: "owner@aesthetech.com",
       password: hashedPassword,
-      role: Role.OWNER,
       firstName: "Sarah",
       lastName: "Johnson",
       phone: "+1234567890",
@@ -71,7 +93,6 @@ async function main() {
     data: {
       email: "admin@aesthetech.com",
       password: hashedPassword,
-      role: Role.ADMIN,
       firstName: "Michael",
       lastName: "Chen",
       phone: "+1234567891",
@@ -82,7 +103,6 @@ async function main() {
     data: {
       email: "emma@aesthetech.com",
       password: hashedPassword,
-      role: Role.STAFF,
       firstName: "Emma",
       lastName: "Wilson",
       phone: "+1234567892",
@@ -93,7 +113,6 @@ async function main() {
     data: {
       email: "james@aesthetech.com",
       password: hashedPassword,
-      role: Role.STAFF,
       firstName: "James",
       lastName: "Brown",
       phone: "+1234567893",
@@ -104,7 +123,6 @@ async function main() {
     data: {
       email: "lisa@aesthetech.com",
       password: hashedPassword,
-      role: Role.RECEPTIONIST,
       firstName: "Lisa",
       lastName: "Martinez",
       phone: "+1234567894",
@@ -113,10 +131,36 @@ async function main() {
 
   console.log("👤 Created users");
 
-  // Create Services
+  // Create SalonMembers — assign roles per salon
+  await Promise.all([
+    // Super admin is also an OWNER of the default salon
+    prisma.salonMember.create({
+      data: { userId: superAdmin.id, salonId: salon.id, role: Role.OWNER },
+    }),
+    prisma.salonMember.create({
+      data: { userId: owner.id, salonId: salon.id, role: Role.OWNER },
+    }),
+    prisma.salonMember.create({
+      data: { userId: admin.id, salonId: salon.id, role: Role.ADMIN },
+    }),
+    prisma.salonMember.create({
+      data: { userId: staff1.id, salonId: salon.id, role: Role.STAFF },
+    }),
+    prisma.salonMember.create({
+      data: { userId: staff2.id, salonId: salon.id, role: Role.STAFF },
+    }),
+    prisma.salonMember.create({
+      data: { userId: receptionist.id, salonId: salon.id, role: Role.RECEPTIONIST },
+    }),
+  ]);
+
+  console.log("🔗 Created salon memberships");
+
+  // Create Services (salon-scoped)
   const services = await Promise.all([
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Haircut - Women",
         description: "Professional haircut for women including wash and style",
         duration: 60,
@@ -127,6 +171,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Haircut - Men",
         description: "Professional haircut for men",
         duration: 30,
@@ -137,6 +182,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Hair Coloring",
         description: "Full hair coloring service",
         duration: 120,
@@ -147,6 +193,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Highlights",
         description: "Partial or full highlights",
         duration: 90,
@@ -157,6 +204,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Blowout",
         description: "Professional blow dry and styling",
         duration: 45,
@@ -167,6 +215,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Manicure",
         description: "Classic manicure with polish",
         duration: 30,
@@ -177,6 +226,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Pedicure",
         description: "Classic pedicure with polish",
         duration: 45,
@@ -187,6 +237,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Gel Nails",
         description: "Gel manicure with UV cure",
         duration: 60,
@@ -197,6 +248,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Facial - Basic",
         description: "Basic facial treatment",
         duration: 60,
@@ -207,6 +259,7 @@ async function main() {
     }),
     prisma.service.create({
       data: {
+        salonId: salon.id,
         name: "Facial - Premium",
         description: "Premium facial with advanced treatments",
         duration: 90,
@@ -219,10 +272,11 @@ async function main() {
 
   console.log("💇 Created services");
 
-  // Create Products
+  // Create Products (salon-scoped)
   await Promise.all([
     prisma.product.create({
       data: {
+        salonId: salon.id,
         name: "Argan Oil Shampoo",
         description: "Nourishing shampoo with argan oil for smooth, shiny hair",
         sku: "PROD-001",
@@ -236,6 +290,7 @@ async function main() {
     }),
     prisma.product.create({
       data: {
+        salonId: salon.id,
         name: "Deep Conditioning Mask",
         description: "Intensive repair treatment for damaged hair",
         sku: "PROD-002",
@@ -249,6 +304,7 @@ async function main() {
     }),
     prisma.product.create({
       data: {
+        salonId: salon.id,
         name: "Gel Nail Polish Set",
         description: "Set of 6 trending gel nail colors",
         sku: "PROD-003",
@@ -262,6 +318,7 @@ async function main() {
     }),
     prisma.product.create({
       data: {
+        salonId: salon.id,
         name: "Cuticle Oil",
         description: "Vitamin E enriched cuticle moisturizer",
         sku: "PROD-004",
@@ -275,6 +332,7 @@ async function main() {
     }),
     prisma.product.create({
       data: {
+        salonId: salon.id,
         name: "Hyaluronic Acid Serum",
         description: "Professional-grade hydrating serum",
         sku: "PROD-005",
@@ -288,6 +346,7 @@ async function main() {
     }),
     prisma.product.create({
       data: {
+        salonId: salon.id,
         name: "SPF 50 Sunscreen",
         description: "Lightweight daily sun protection",
         sku: "PROD-006",
@@ -303,10 +362,11 @@ async function main() {
 
   console.log("📦 Created products");
 
-  // Create Clients
+  // Create Clients (salon-scoped)
   const clients = await Promise.all([
     prisma.client.create({
       data: {
+        salonId: salon.id,
         firstName: "Jennifer",
         lastName: "Smith",
         email: "jennifer.smith@email.com",
@@ -318,6 +378,7 @@ async function main() {
     }),
     prisma.client.create({
       data: {
+        salonId: salon.id,
         firstName: "David",
         lastName: "Lee",
         email: "david.lee@email.com",
@@ -329,6 +390,7 @@ async function main() {
     }),
     prisma.client.create({
       data: {
+        salonId: salon.id,
         firstName: "Maria",
         lastName: "Garcia",
         email: "maria.garcia@email.com",
@@ -340,6 +402,7 @@ async function main() {
     }),
     prisma.client.create({
       data: {
+        salonId: salon.id,
         firstName: "Robert",
         lastName: "Taylor",
         email: "robert.taylor@email.com",
@@ -350,6 +413,7 @@ async function main() {
     }),
     prisma.client.create({
       data: {
+        salonId: salon.id,
         firstName: "Amanda",
         lastName: "White",
         email: "amanda.white@email.com",
@@ -362,11 +426,12 @@ async function main() {
 
   console.log("👥 Created clients");
 
-  // Create Loyalty Points for clients
+  // Create Loyalty Points for clients (salon-scoped)
   await Promise.all(
     clients.map((client, index) =>
       prisma.loyaltyPoints.create({
         data: {
+          salonId: salon.id,
           clientId: client.id,
           balance: [500, 250, 100, 750, 1200][index],
           tier: [
@@ -383,12 +448,13 @@ async function main() {
 
   console.log("⭐ Created loyalty points");
 
-  // Create Staff Schedules
+  // Create Staff Schedules (salon-scoped)
   const daysOfWeek = [1, 2, 3, 4, 5]; // Monday to Friday
   for (const staff of [staff1, staff2]) {
     for (const day of daysOfWeek) {
       await prisma.schedule.create({
         data: {
+          salonId: salon.id,
           staffId: staff.id,
           dayOfWeek: day,
           startTime: "09:00",
@@ -402,13 +468,14 @@ async function main() {
 
   console.log("📅 Created staff schedules");
 
-  // Create some sample appointments for today and upcoming days
+  // Create some sample appointments for today and upcoming days (salon-scoped)
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   await prisma.appointment.create({
     data: {
+      salonId: salon.id,
       clientId: clients[0].id,
       serviceId: services[0].id, // Women's haircut
       staffId: staff1.id,
@@ -420,6 +487,7 @@ async function main() {
 
   await prisma.appointment.create({
     data: {
+      salonId: salon.id,
       clientId: clients[1].id,
       serviceId: services[1].id, // Men's haircut
       staffId: staff2.id,
@@ -431,6 +499,7 @@ async function main() {
 
   await prisma.appointment.create({
     data: {
+      salonId: salon.id,
       clientId: clients[2].id,
       serviceId: services[8].id, // Basic facial
       staffId: staff1.id,
