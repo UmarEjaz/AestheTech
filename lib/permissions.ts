@@ -56,6 +56,9 @@ export const permissions: Record<string, Role[]> = {
   // Loyalty
   "loyalty:view": [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
   "loyalty:manage": [Role.SUPER_ADMIN, Role.OWNER, Role.ADMIN],
+
+  // Audit
+  "audit:view": [Role.SUPER_ADMIN, Role.OWNER],
 };
 
 export type Permission = keyof typeof permissions;

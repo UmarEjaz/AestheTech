@@ -13,6 +13,7 @@ import {
   RescheduleFormData,
 } from "@/lib/validations/appointment";
 import { Role, Prisma, AppointmentStatus } from "@prisma/client";
+import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
 
@@ -269,6 +270,15 @@ export async function createAppointment(
       include: appointmentListInclude,
     });
 
+    await logAudit({
+      action: "APPOINTMENT_CREATED",
+      entityType: "Appointment",
+      entityId: appointment.id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { clientId, serviceId, staffId, startTime: startTime.toISOString() },
+    });
+
     revalidatePath("/dashboard/appointments");
     return { success: true, data: appointment };
   } catch (error) {
@@ -341,6 +351,15 @@ export async function updateAppointment(
       include: appointmentListInclude,
     });
 
+    await logAudit({
+      action: "APPOINTMENT_UPDATED",
+      entityType: "Appointment",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { clientId, serviceId, staffId, startTime: startTime.toISOString() },
+    });
+
     revalidatePath("/dashboard/appointments");
     return { success: true, data: appointment };
   } catch (error) {
@@ -396,6 +415,15 @@ export async function updateAppointmentStatus(
       where: { id },
       data: { status: validationResult.data.status },
       include: appointmentListInclude,
+    });
+
+    await logAudit({
+      action: "APPOINTMENT_STATUS_CHANGED",
+      entityType: "Appointment",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { from: existing.status, to: validationResult.data.status },
     });
 
     revalidatePath("/dashboard/appointments");
@@ -459,6 +487,15 @@ export async function rescheduleAppointment(
       include: appointmentListInclude,
     });
 
+    await logAudit({
+      action: "APPOINTMENT_RESCHEDULED",
+      entityType: "Appointment",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { newStartTime: startTime.toISOString(), staffId },
+    });
+
     revalidatePath("/dashboard/appointments");
     return { success: true, data: appointment };
   } catch (error) {
@@ -498,6 +535,14 @@ export async function cancelAppointment(id: string): Promise<ActionResult<Appoin
       include: appointmentListInclude,
     });
 
+    await logAudit({
+      action: "APPOINTMENT_CANCELLED",
+      entityType: "Appointment",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+    });
+
     revalidatePath("/dashboard/appointments");
     return { success: true, data: appointment };
   } catch (error) {
@@ -514,7 +559,19 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
   }
 
   try {
-    await prisma.appointment.delete({ where: { id } });
+    const appointment = await prisma.appointment.delete({
+      where: { id },
+      select: { clientId: true, staffId: true, startTime: true },
+    });
+
+    await logAudit({
+      action: "APPOINTMENT_DELETED",
+      entityType: "Appointment",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { clientId: appointment.clientId, staffId: appointment.staffId, startTime: appointment.startTime },
+    });
 
     revalidatePath("/dashboard/appointments");
     return { success: true, data: undefined };

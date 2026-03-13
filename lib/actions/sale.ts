@@ -18,6 +18,7 @@ import { getSettings } from "./settings";
 import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
 import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -342,6 +343,15 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       include: saleListInclude,
     });
 
+    await logAudit({
+      action: "SALE_CREATED",
+      entityType: "Sale",
+      entityId: sale.id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { clientId, itemsCount: items.length, totalAmount, finalAmount },
+    });
+
     revalidatePath("/dashboard/sales");
     return { success: true, data: sale };
   } catch (error) {
@@ -618,6 +628,15 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       include: saleListInclude,
     });
 
+    await logAudit({
+      action: "SALE_COMPLETED",
+      entityType: "Sale",
+      entityId: saleId,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { invoiceNumber, subtotal: Number(sale.finalAmount), redeemPoints, tax: Number(tax), total: Number(totalWithTax), pointsEarned, birthdayBonus: birthdayBonusPoints },
+    });
+
     revalidatePath("/dashboard/sales");
     revalidatePath("/dashboard/invoices");
     revalidatePath(`/dashboard/clients/${sale.clientId}`);
@@ -689,6 +708,15 @@ export async function deleteSale(id: string): Promise<ActionResult<void>> {
     }
 
     await prisma.sale.delete({ where: { id } });
+
+    await logAudit({
+      action: "SALE_DELETED",
+      entityType: "Sale",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { clientId: sale.clientId, totalAmount: Number(sale.totalAmount) },
+    });
 
     revalidatePath("/dashboard/sales");
     return { success: true, data: undefined };

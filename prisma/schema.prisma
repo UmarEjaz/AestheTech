@@ -108,6 +108,7 @@ model User {
   saleItems          SaleItem[]
   refunds            Refund[]
   recurringSeries    RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
+  auditLogs          AuditLog[]
 
   @@map("users")
 }
@@ -472,6 +473,26 @@ model RecurringSeriesAuditLog {
   @@index([seriesId])
   @@index([performedBy])
   @@map("recurring_series_audit_logs")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String   // e.g. REFUND_CREATED, SALE_COMPLETED, SETTINGS_UPDATED, USER_CREATED
+  entityType String   // e.g. Invoice, Sale, Settings, User, Client, Product, Service, Appointment
+  entityId   String?  // ID of the affected entity (nullable for bulk/settings actions)
+  userId     String   // Who performed the action
+  userRole   String   // Role at the time of action
+  details    Json?    // Additional context (before/after values, amounts, etc.)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([action])
+  @@index([entityType])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 // Currency enum

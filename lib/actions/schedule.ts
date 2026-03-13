@@ -12,6 +12,7 @@ import {
 } from "@/lib/validations/schedule";
 import { Role, Prisma, ShiftType } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
   const session = await auth();
@@ -226,6 +227,15 @@ export async function createSchedule(data: ScheduleFormData): Promise<ActionResu
       });
     });
 
+    await logAudit({
+      action: "SCHEDULE_CREATED",
+      entityType: "Schedule",
+      entityId: schedule.id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { staffId, dayOfWeek, startTime, endTime, shiftType },
+    });
+
     revalidatePath("/dashboard/schedules");
     return { success: true, data: schedule };
   } catch (error) {
@@ -280,6 +290,15 @@ export async function updateSchedule(
       });
     });
 
+    await logAudit({
+      action: "SCHEDULE_UPDATED",
+      entityType: "Schedule",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { startTime, endTime, shiftType },
+    });
+
     revalidatePath("/dashboard/schedules");
     return { success: true, data: schedule };
   } catch (error) {
@@ -297,7 +316,19 @@ export async function deleteSchedule(id: string): Promise<ActionResult<void>> {
   }
 
   try {
-    await prisma.schedule.delete({ where: { id } });
+    const schedule = await prisma.schedule.delete({
+      where: { id },
+      select: { staffId: true, dayOfWeek: true, startTime: true, endTime: true },
+    });
+
+    await logAudit({
+      action: "SCHEDULE_DELETED",
+      entityType: "Schedule",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { staffId: schedule.staffId, dayOfWeek: schedule.dayOfWeek },
+    });
 
     revalidatePath("/dashboard/schedules");
     return { success: true, data: undefined };
@@ -373,6 +404,14 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
       return results;
     });
 
+    await logAudit({
+      action: "WEEK_SCHEDULE_SET",
+      entityType: "Schedule",
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { staffId, shiftsCount: createdSchedules.length },
+    });
+
     revalidatePath("/dashboard/schedules");
     return { success: true, data: createdSchedules };
   } catch (error) {
@@ -403,6 +442,15 @@ export async function toggleScheduleAvailability(id: string): Promise<ActionResu
       where: { id },
       data: { isAvailable: !existing.isAvailable },
       include: scheduleListInclude,
+    });
+
+    await logAudit({
+      action: "SCHEDULE_AVAILABILITY_TOGGLED",
+      entityType: "Schedule",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { isAvailable: !existing.isAvailable },
     });
 
     revalidatePath("/dashboard/schedules");
@@ -510,6 +558,14 @@ export async function copySchedule(
       )
     );
 
+    await logAudit({
+      action: "SCHEDULE_COPIED",
+      entityType: "Schedule",
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { fromStaffId, toStaffId, shiftsCount: copiedSchedules.length },
+    });
+
     revalidatePath("/dashboard/schedules");
     return { success: true, data: copiedSchedules };
   } catch (error) {
@@ -560,6 +616,15 @@ export async function reassignSchedule(
         data: { dayOfWeek: newDayOfWeek },
         include: scheduleListInclude,
       });
+    });
+
+    await logAudit({
+      action: "SCHEDULE_REASSIGNED",
+      entityType: "Schedule",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { newDayOfWeek },
     });
 
     revalidatePath("/dashboard/schedules");

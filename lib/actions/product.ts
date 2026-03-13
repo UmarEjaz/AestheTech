@@ -12,6 +12,7 @@ import {
 } from "@/lib/validations/product";
 import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { logAudit } from "./audit";
 
 type ProductPermission = "products:view" | "products:manage";
 
@@ -166,6 +167,15 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
       },
     });
 
+    await logAudit({
+      action: "PRODUCT_CREATED",
+      entityType: "Product",
+      entityId: product.id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { name: rest.name, price: rest.price, stock: rest.stock, sku },
+    });
+
     revalidatePath("/dashboard/products");
     return { success: true, data: { id: product.id } };
   } catch (error) {
@@ -215,6 +225,22 @@ export async function updateProduct(
       },
     });
 
+    const changes: Record<string, { from: string | number | null; to: string | number | null }> = {};
+    if (rest.name !== undefined && rest.name !== existingProduct.name) changes.name = { from: existingProduct.name, to: rest.name };
+    if (rest.price !== undefined && Number(rest.price) !== Number(existingProduct.price)) changes.price = { from: Number(existingProduct.price), to: Number(rest.price) };
+    if (rest.stock !== undefined && rest.stock !== existingProduct.stock) changes.stock = { from: existingProduct.stock, to: rest.stock };
+    if (sku !== undefined && (sku || null) !== existingProduct.sku) changes.sku = { from: existingProduct.sku, to: sku || null };
+    if (category !== undefined && (category || null) !== existingProduct.category) changes.category = { from: existingProduct.category, to: category || null };
+
+    await logAudit({
+      action: "PRODUCT_UPDATED",
+      entityType: "Product",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: changes,
+    });
+
     revalidatePath("/dashboard/products");
     return { success: true, data: undefined };
   } catch (error) {
@@ -250,6 +276,15 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
       data: { isActive: false },
     });
 
+    await logAudit({
+      action: "PRODUCT_DELETED",
+      entityType: "Product",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { name: product.name, sku: product.sku },
+    });
+
     revalidatePath("/dashboard/products");
     return { success: true, data: undefined };
   } catch (error) {
@@ -276,6 +311,15 @@ export async function restoreProduct(id: string): Promise<ActionResult> {
     await prisma.product.update({
       where: { id },
       data: { isActive: true },
+    });
+
+    await logAudit({
+      action: "PRODUCT_RESTORED",
+      entityType: "Product",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { name: product.name, sku: product.sku },
     });
 
     revalidatePath("/dashboard/products");
