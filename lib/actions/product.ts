@@ -1,32 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   productSchema,
   productUpdateSchema,
   ProductFormData,
   ProductSearchParams,
 } from "@/lib/validations/product";
-import { Role, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
-
-type ProductPermission = "products:view" | "products:manage";
-
-async function checkAuth(permission: ProductPermission): Promise<{ userId: string; role: Role } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const role = session.user.role as Role;
-  if (!hasPermission(role, permission)) {
-    return null;
-  }
-
-  return { userId: session.user.id, role };
-}
 
 const productListInclude = Prisma.validator<Prisma.ProductInclude>()({
   _count: {
@@ -59,6 +44,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
 
   try {
     const where: Prisma.ProductWhereInput = {
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -81,7 +67,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
       }),
       lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
       prisma.product.findMany({
-        where: { isActive: true },
+        where: { salonId: authResult.salonId, isActive: true },
         select: { category: true },
         distinct: ["category"],
       }),
@@ -127,8 +113,8 @@ export async function getProduct(id: string): Promise<ActionResult<ProductListIt
   }
 
   try {
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: productListInclude,
     });
 
@@ -160,6 +146,7 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
     const product = await prisma.product.create({
       data: {
         ...rest,
+        salonId: authResult.salonId,
         description: description || null,
         category: category || null,
         sku: sku || null,
@@ -206,8 +193,8 @@ export async function updateProduct(
   const { id, description, category, sku, cost, ...rest } = validationResult.data;
 
   try {
-    const existingProduct = await prisma.product.findUnique({
-      where: { id },
+    const existingProduct = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
     });
 
     if (!existingProduct) {
@@ -262,8 +249,8 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
   }
 
   try {
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
     });
 
     if (!product) {
@@ -300,8 +287,8 @@ export async function restoreProduct(id: string): Promise<ActionResult> {
   }
 
   try {
-    const product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: { id, salonId: authResult.salonId },
     });
 
     if (!product) {
@@ -338,7 +325,7 @@ export async function getAllProductCategories(): Promise<ActionResult<string[]>>
 
   try {
     const products = await prisma.product.findMany({
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: { category: true },
       distinct: ["category"],
     });
@@ -372,7 +359,7 @@ export async function getActiveProducts(): Promise<ActionResult<{
 
   try {
     const products = await prisma.product.findMany({
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: {
         id: true,
         name: true,

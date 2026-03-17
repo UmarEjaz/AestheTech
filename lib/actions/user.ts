@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, canManageRole } from "@/lib/permissions";
+import { canManageRole } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   userSchema,
   userUpdateSchema,
@@ -13,44 +13,63 @@ import {
   PasswordChangeData,
   UserSearchParams,
 } from "@/lib/validations/user";
-import { Role, Prisma } from "@prisma/client";
+import { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 
-async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const role = session.user.role as Role;
-  if (!hasPermission(role, permission as "staff:view" | "staff:create" | "staff:update" | "staff:delete")) {
-    return null;
-  }
-
-  return { userId: session.user.id, role };
-}
-
-const userListSelect = Prisma.validator<Prisma.UserSelect>()({
-  id: true,
-  firstName: true,
-  lastName: true,
-  email: true,
-  phone: true,
-  role: true,
-  isActive: true,
-  createdAt: true,
-  updatedAt: true,
+export type UserListItem = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  role: Role;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
   _count: {
-    select: {
-      appointments: true,
-      sales: true,
-    },
-  },
-});
+    appointments: number;
+    sales: number;
+  };
+};
 
-export type UserListItem = Prisma.UserGetPayload<{
-  select: typeof userListSelect;
-}>;
+export type UserDetail = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  role: Role;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  appointments: {
+    id: string;
+    startTime: Date;
+    endTime: Date;
+    status: string;
+    client: {
+      firstName: string;
+      lastName: string | null;
+      isWalkIn: boolean;
+    };
+    service: {
+      name: string;
+    };
+  }[];
+  schedules: {
+    id: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    isAvailable: boolean;
+  }[];
+  _count: {
+    appointments: number;
+    sales: number;
+  };
+};
 
 export async function getUsers(params: UserSearchParams = {}): Promise<ActionResult<{
   users: UserListItem[];
@@ -69,14 +88,15 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
   const skip = (safePage - 1) * safeLimit;
 
   try {
-    const where: Prisma.UserWhereInput = {
-      ...(isActive !== undefined && { isActive }),
+    const where = {
+      salonId: authResult.salonId,
       ...(role && { role }),
+      ...(isActive !== undefined && { isActive }),
       ...(query && {
         OR: [
-          { firstName: { contains: query, mode: "insensitive" } },
-          { lastName: { contains: query, mode: "insensitive" } },
-          { email: { contains: query, mode: "insensitive" } },
+          { firstName: { contains: query, mode: "insensitive" as const } },
+          { lastName: { contains: query, mode: "insensitive" as const } },
+          { email: { contains: query, mode: "insensitive" as const } },
           { phone: { contains: query } },
         ],
       }),
@@ -88,7 +108,23 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
         orderBy: { createdAt: "desc" },
         skip,
         take: safeLimit,
-        select: userListSelect,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: {
+            select: {
+              appointments: { where: { salonId: authResult.salonId } },
+              sales: { where: { salonId: authResult.salonId } },
+            },
+          },
+        },
       }),
       prisma.user.count({ where }),
     ]);
@@ -96,7 +132,7 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
     return {
       success: true,
       data: {
-        users,
+        users: users as UserListItem[],
         total,
         page: safePage,
         totalPages: Math.max(1, Math.ceil(total / safeLimit)),
@@ -108,54 +144,6 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
   }
 }
 
-const userDetailSelect = Prisma.validator<Prisma.UserSelect>()({
-  id: true,
-  firstName: true,
-  lastName: true,
-  email: true,
-  phone: true,
-  role: true,
-  isActive: true,
-  createdAt: true,
-  updatedAt: true,
-  appointments: {
-    orderBy: { startTime: "desc" },
-    take: 10,
-    select: {
-      id: true,
-      startTime: true,
-      endTime: true,
-      status: true,
-      client: {
-        select: { firstName: true, lastName: true, isWalkIn: true },
-      },
-      service: {
-        select: { name: true },
-      },
-    },
-  },
-  schedules: {
-    orderBy: { dayOfWeek: "asc" },
-    select: {
-      id: true,
-      dayOfWeek: true,
-      startTime: true,
-      endTime: true,
-      isAvailable: true,
-    },
-  },
-  _count: {
-    select: {
-      appointments: true,
-      sales: true,
-    },
-  },
-});
-
-export type UserDetail = Prisma.UserGetPayload<{
-  select: typeof userDetailSelect;
-}>;
-
 export async function getUserById(id: string): Promise<ActionResult<UserDetail>> {
   const authResult = await checkAuth("staff:view");
   if (!authResult) {
@@ -165,14 +153,82 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
   try {
     const user = await prisma.user.findUnique({
       where: { id },
-      select: userDetailSelect,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        role: true,
+        salonId: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        appointments: {
+          where: { salonId: authResult.salonId },
+          orderBy: { startTime: "desc" },
+          take: 10,
+          select: {
+            id: true,
+            startTime: true,
+            endTime: true,
+            status: true,
+            client: {
+              select: { firstName: true, lastName: true, isWalkIn: true },
+            },
+            service: {
+              select: { name: true },
+            },
+          },
+        },
+        schedules: {
+          where: { salonId: authResult.salonId },
+          orderBy: { dayOfWeek: "asc" },
+          select: {
+            id: true,
+            dayOfWeek: true,
+            startTime: true,
+            endTime: true,
+            isAvailable: true,
+          },
+        },
+        _count: {
+          select: {
+            appointments: { where: { salonId: authResult.salonId } },
+            sales: { where: { salonId: authResult.salonId } },
+          },
+        },
+      },
     });
 
     if (!user) {
       return { success: false, error: "User not found" };
     }
 
-    return { success: true, data: user };
+    if (user.salonId !== authResult.salonId) {
+      return { success: false, error: "User is not a member of this salon" };
+    }
+
+    if (!user.role) {
+      return { success: false, error: "User has no role assigned" };
+    }
+
+    const result: UserDetail = {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      appointments: user.appointments,
+      schedules: user.schedules,
+      _count: user._count,
+    };
+
+    return { success: true, data: result };
   } catch (error) {
     console.error("Error fetching user:", error);
     return { success: false, error: "Failed to fetch user" };
@@ -191,10 +247,11 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { confirmPassword, ...userData } = validationResult.data;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { confirmPassword, role, ...userData } = validationResult.data;
 
   // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, userData.role)) {
+  if (!canManageRole(authResult.role, role, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot create a user with this role" };
   }
 
@@ -210,12 +267,16 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
   // Hash password
   const hashedPassword = await bcrypt.hash(userData.password, 12);
 
-  // Create user
+  // Create user with salon and role
   const user = await prisma.user.create({
     data: {
-      ...userData,
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      email: userData.email,
       password: hashedPassword,
       phone: userData.phone || null,
+      salonId: authResult.salonId,
+      role,
     },
   });
 
@@ -225,7 +286,7 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
     entityId: user.id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { email: userData.email, role: userData.role, firstName: userData.firstName, lastName: userData.lastName },
+    details: { email: userData.email, role, firstName: userData.firstName, lastName: userData.lastName },
   });
 
   revalidatePath("/dashboard/staff");
@@ -245,7 +306,7 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { id, ...updateData } = validationResult.data;
+  const { id, role: newRole, ...updateData } = validationResult.data;
 
   // Get current user data
   const existingUser = await prisma.user.findUnique({
@@ -256,14 +317,23 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     return { success: false, error: "User not found" };
   }
 
+  if (existingUser.salonId !== authResult.salonId) {
+    return { success: false, error: "User is not a member of this salon" };
+  }
+
+  const existingRole = existingUser.role;
+  if (!existingRole) {
+    return { success: false, error: "User has no role assigned" };
+  }
+
   // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, existingUser.role)) {
+  if (!canManageRole(authResult.role, existingRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot modify this user" };
   }
 
   // If changing role, check if can assign new role
-  if (updateData.role && updateData.role !== existingUser.role) {
-    if (!canManageRole(authResult.role, updateData.role)) {
+  if (newRole && newRole !== existingRole) {
+    if (!canManageRole(authResult.role, newRole, authResult.isSuperAdmin)) {
       return { success: false, error: "You cannot assign this role" };
     }
   }
@@ -280,16 +350,20 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
 
   // Update user
   await prisma.user.update({
-    where: { id },
+    where: { id, salonId: authResult.salonId },
     data: {
-      ...updateData,
+      firstName: updateData.firstName,
+      lastName: updateData.lastName,
+      email: updateData.email,
       phone: updateData.phone || null,
+      ...(newRole && newRole !== existingRole && { role: newRole }),
+      ...(updateData.isActive !== undefined && { isActive: updateData.isActive }),
     },
   });
 
   const changes: Record<string, { from: string; to: string }> = {};
   if (updateData.email !== existingUser.email) changes.email = { from: existingUser.email, to: updateData.email };
-  if (updateData.role && updateData.role !== existingUser.role) changes.role = { from: existingUser.role, to: updateData.role };
+  if (newRole && newRole !== existingRole) changes.role = { from: existingRole, to: newRole };
   if (updateData.firstName !== existingUser.firstName) changes.firstName = { from: existingUser.firstName, to: updateData.firstName };
   if (updateData.lastName !== existingUser.lastName) changes.lastName = { from: existingUser.lastName, to: updateData.lastName };
 
@@ -331,8 +405,17 @@ export async function changePassword(data: PasswordChangeData): Promise<ActionRe
     return { success: false, error: "User not found" };
   }
 
+  if (existingUser.salonId !== authResult.salonId) {
+    return { success: false, error: "User is not a member of this salon" };
+  }
+
+  const targetRole = existingUser.role;
+  if (!targetRole) {
+    return { success: false, error: "User has no role assigned" };
+  }
+
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, existingUser.role)) {
+  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot modify this user's password" };
   }
 
@@ -341,7 +424,7 @@ export async function changePassword(data: PasswordChangeData): Promise<ActionRe
 
   // Update password
   await prisma.user.update({
-    where: { id: userId },
+    where: { id: userId, salonId: authResult.salonId },
     data: { password: hashedPassword },
   });
 
@@ -372,8 +455,17 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
     return { success: false, error: "User not found" };
   }
 
+  if (existingUser.salonId !== authResult.salonId) {
+    return { success: false, error: "User is not a member of this salon" };
+  }
+
+  const targetRole = existingUser.role;
+  if (!targetRole) {
+    return { success: false, error: "User has no role assigned" };
+  }
+
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, existingUser.role)) {
+  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot modify this user" };
   }
 
@@ -384,7 +476,7 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
 
   // Toggle active status
   const updatedUser = await prisma.user.update({
-    where: { id },
+    where: { id, salonId: authResult.salonId },
     data: { isActive: !existingUser.isActive },
   });
 
@@ -394,7 +486,7 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
     entityId: id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { targetUser: existingUser.email, targetRole: existingUser.role },
+    details: { targetUser: existingUser.email, targetRole },
   });
 
   revalidatePath("/dashboard/staff");
@@ -415,8 +507,9 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     include: {
       _count: {
         select: {
-          appointments: true,
-          sales: true,
+          appointments: { where: { salonId: authResult.salonId } },
+          sales: { where: { salonId: authResult.salonId } },
+          recurringSeries: { where: { salonId: authResult.salonId } },
         },
       },
     },
@@ -426,8 +519,17 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     return { success: false, error: "User not found" };
   }
 
+  if (existingUser.salonId !== authResult.salonId) {
+    return { success: false, error: "User is not a member of this salon" };
+  }
+
+  const targetRole = existingUser.role;
+  if (!targetRole) {
+    return { success: false, error: "User has no role assigned" };
+  }
+
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, existingUser.role)) {
+  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot delete this user" };
   }
 
@@ -437,16 +539,16 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   }
 
   // Check for existing data - recommend deactivation instead
-  if (existingUser._count.appointments > 0 || existingUser._count.sales > 0) {
+  if (existingUser._count.appointments > 0 || existingUser._count.sales > 0 || existingUser._count.recurringSeries > 0) {
     return {
       success: false,
-      error: "This user has associated appointments or sales. Please deactivate the account instead of deleting.",
+      error: "This user has associated appointments, sales, or recurring series. Please deactivate the account instead of deleting.",
     };
   }
 
-  // Delete user
+  // Delete the user
   await prisma.user.delete({
-    where: { id },
+    where: { id, salonId: authResult.salonId },
   });
 
   await logAudit({
@@ -455,7 +557,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     entityId: id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { email: existingUser.email, role: existingUser.role, firstName: existingUser.firstName, lastName: existingUser.lastName },
+    details: { email: existingUser.email, role: targetRole, firstName: existingUser.firstName, lastName: existingUser.lastName },
   });
 
   revalidatePath("/dashboard/staff");
@@ -465,14 +567,17 @@ export async function deleteUser(id: string): Promise<ActionResult> {
 
 // Get all active staff members (for dropdowns)
 export async function getActiveStaff(): Promise<ActionResult<{ id: string; firstName: string; lastName: string; role: Role }[]>> {
-  const session = await auth();
-  if (!session?.user) {
+  const authResult = await checkAuth("staff:view");
+  if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
     const staff = await prisma.user.findMany({
-      where: { isActive: true },
+      where: {
+        salonId: authResult.salonId,
+        isActive: true,
+      },
       select: {
         id: true,
         firstName: true,
@@ -482,7 +587,7 @@ export async function getActiveStaff(): Promise<ActionResult<{ id: string; first
       orderBy: { firstName: "asc" },
     });
 
-    return { success: true, data: staff };
+    return { success: true, data: staff as { id: string; firstName: string; lastName: string; role: Role }[] };
   } catch (error) {
     console.error("Error fetching staff:", error);
     return { success: false, error: "Failed to fetch staff" };

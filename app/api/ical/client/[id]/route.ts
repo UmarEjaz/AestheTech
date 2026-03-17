@@ -15,16 +15,21 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const role = session.user.role as Role;
-    if (!hasPermission(role, "clients:view")) {
+    const role = session.user.salonRole as Role;
+    if (!hasPermission(role, "clients:view", session.user.isSuperAdmin)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const salonId = session.user.salonId;
+    if (!salonId) {
+      return NextResponse.json({ error: "No salon context" }, { status: 400 });
     }
 
     const { id: clientId } = await params;
 
     // Fetch the client to get their name
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, salonId },
       select: {
         firstName: true,
         lastName: true,
@@ -40,6 +45,7 @@ export async function GET(
     const allSeries = await prisma.recurringAppointmentSeries.findMany({
       where: {
         clientId,
+        salonId,
         isActive: true,
       },
       include: {

@@ -1,9 +1,7 @@
 "use server";
 
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission } from "@/lib/permissions";
-import { Role } from "@prisma/client";
+import { checkAuth } from "@/lib/auth-helpers";
 import { sendEmail } from "@/lib/email";
 import { receiptEmailHtml, invoiceEmailHtml } from "@/lib/email-templates";
 import { getSettings } from "./settings";
@@ -14,16 +12,13 @@ import { PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 import { PaymentMethod } from "@prisma/client";
 
 export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ emailId: string }>> {
-  const session = await auth();
-  if (!session?.user) return { success: false, error: "Unauthorized" };
+  const authResult = await checkAuth("sales:view");
+  if (!authResult) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
-  if (!hasPermission(role, "sales:view")) {
-    return { success: false, error: "Unauthorized" };
-  }
+  const { salonId, userId, role } = authResult;
 
-  const sale = await prisma.sale.findUnique({
-    where: { id: saleId },
+  const sale = await prisma.sale.findFirst({
+    where: { id: saleId, salonId },
     include: {
       client: { select: { firstName: true, lastName: true, email: true } },
       items: {
@@ -90,8 +85,9 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       action: "RECEIPT_EMAIL_SENT",
       entityType: "Sale",
       entityId: saleId,
-      userId: session.user.id,
-      userRole: session.user.role as string,
+      userId,
+      userRole: role as string,
+      salonId,
       details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 
@@ -104,16 +100,13 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
 }
 
 export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ emailId: string }>> {
-  const session = await auth();
-  if (!session?.user) return { success: false, error: "Unauthorized" };
+  const invoiceAuth = await checkAuth("invoices:view");
+  if (!invoiceAuth) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.role as Role;
-  if (!hasPermission(role, "invoices:view")) {
-    return { success: false, error: "Unauthorized" };
-  }
+  const { salonId, userId: invoiceUserId, role: invoiceRole } = invoiceAuth;
 
-  const sale = await prisma.sale.findUnique({
-    where: { id: saleId },
+  const sale = await prisma.sale.findFirst({
+    where: { id: saleId, salonId },
     include: {
       client: { select: { firstName: true, lastName: true, email: true } },
       items: {
@@ -185,8 +178,9 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       action: "INVOICE_EMAIL_SENT",
       entityType: "Sale",
       entityId: saleId,
-      userId: session.user.id,
-      userRole: session.user.role as string,
+      userId: invoiceUserId,
+      userRole: invoiceRole as string,
+      salonId,
       details: { clientId: sale.clientId, invoiceNumber: sale.invoice.invoiceNumber },
     });
 

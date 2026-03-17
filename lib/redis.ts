@@ -80,15 +80,24 @@ async function scanAndDelete(redis: Redis, pattern: string): Promise<void> {
   } while (cursor !== "0");
 }
 
-export async function invalidateDashboardCache(): Promise<void> {
+export async function invalidateDashboardCache(salonId?: string): Promise<void> {
   const redis = getRedis();
   if (!redis) return;
 
   try {
-    await Promise.all([
-      scanAndDelete(redis, "dashboard:*"),
-      scanAndDelete(redis, "reports:*"),
-    ]);
+    if (salonId) {
+      // Invalidate only this salon's cache
+      await Promise.all([
+        scanAndDelete(redis, `salon:${salonId}:dashboard:*`),
+        scanAndDelete(redis, `salon:${salonId}:reports:*`),
+      ]);
+    } else {
+      // Fallback: invalidate all salon caches
+      await Promise.all([
+        scanAndDelete(redis, "salon:*:dashboard:*"),
+        scanAndDelete(redis, "salon:*:reports:*"),
+      ]);
+    }
   } catch {
     // Silent failure
   }

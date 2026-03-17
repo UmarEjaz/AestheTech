@@ -21,9 +21,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const salonId = session.user.salonId;
+  if (!salonId) {
+    return NextResponse.json({ error: "No salon context" }, { status: 400 });
+  }
+
   // RBAC check — only users who can manage clients may upload
-  const role = session.user.role as Role;
-  if (!hasPermission(role, "clients:update")) {
+  const role = session.user.salonRole as Role;
+  if (!hasPermission(role, "clients:update", session.user.isSuperAdmin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -61,8 +66,8 @@ export async function POST(request: NextRequest) {
     // Generate unique filename using crypto UUID
     const filename = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
-    // Ensure upload directory exists
-    const uploadDir = path.join(process.cwd(), "public", "uploads", folder);
+    // Ensure upload directory exists (namespaced by salonId)
+    const uploadDir = path.join(process.cwd(), "public", "uploads", salonId, folder);
     await mkdir(uploadDir, { recursive: true });
 
     // Write file
@@ -70,7 +75,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     await writeFile(path.join(uploadDir, filename), buffer);
 
-    const url = `/uploads/${folder}/${filename}`;
+    const url = `/uploads/${salonId}/${folder}/${filename}`;
     return NextResponse.json({ url });
   } catch (error) {
     console.error("Upload error:", error);
@@ -84,8 +89,13 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const role = session.user.role as Role;
-  if (!hasPermission(role, "clients:update")) {
+  const salonId = session.user.salonId;
+  if (!salonId) {
+    return NextResponse.json({ error: "No salon context" }, { status: 400 });
+  }
+
+  const role = session.user.salonRole as Role;
+  if (!hasPermission(role, "clients:update", session.user.isSuperAdmin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -96,9 +106,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    // Validate the URL matches the expected upload path pattern
-    const match = url.match(/^\/uploads\/(clients)\/[A-Za-z0-9._-]+$/);
-    if (!match || !ALLOWED_FOLDERS.has(match[1])) {
+    // Validate the URL matches the expected salon-namespaced upload path pattern
+    const match = url.match(/^\/uploads\/([^/]+)\/(clients)\/[A-Za-z0-9._-]+$/);
+    if (!match || match[1] !== salonId || !ALLOWED_FOLDERS.has(match[2])) {
       return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
     }
 

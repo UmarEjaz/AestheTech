@@ -17,9 +17,10 @@ export default async function NewSalePage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "sales:create")) {
+  if (!hasPermission(userRole, "sales:create", isSuperAdmin)) {
     redirect("/dashboard/access-denied");
   }
 

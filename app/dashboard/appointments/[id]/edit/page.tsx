@@ -22,8 +22,9 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
-  const canUpdate = hasPermission(userRole, "appointments:update");
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canUpdate = hasPermission(userRole, "appointments:update", isSuperAdmin);
 
   if (!canUpdate) {
     redirect("/dashboard/access-denied");
@@ -41,6 +42,11 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   // Check if appointment can be edited
   if (appointment.status === "COMPLETED" || appointment.status === "CANCELLED") {
     redirect("/dashboard/appointments");
+  }
+
+  const salonId = session.user.salonId;
+  if (!salonId) {
+    redirect("/dashboard");
   }
 
   // Fetch clients, services, and staff for the form
@@ -68,8 +74,9 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     }),
     prisma.user.findMany({
       where: {
-        isActive: true,
+        salonId,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
+        isActive: true,
       },
       select: {
         id: true,

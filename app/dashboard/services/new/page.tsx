@@ -17,8 +17,9 @@ export default async function NewServicePage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
-  const canManage = hasPermission(userRole, "services:manage");
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canManage = hasPermission(userRole, "services:manage", isSuperAdmin);
 
   if (!canManage) {
     redirect("/dashboard/access-denied");

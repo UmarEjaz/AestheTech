@@ -1,30 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   serviceSchema,
   serviceUpdateSchema,
   ServiceFormData,
   ServiceSearchParams,
 } from "@/lib/validations/service";
-import { Role, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
-
-async function checkAuth(permission: string): Promise<{ userId: string; role: Role } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const role = session.user.role as Role;
-  if (!hasPermission(role, permission as "services:view" | "services:manage")) {
-    return null;
-  }
-
-  return { userId: session.user.id, role };
-}
 
 const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
   _count: {
@@ -58,6 +45,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
 
   try {
     const where = {
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -78,7 +66,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
       }),
       prisma.service.count({ where }),
       prisma.service.findMany({
-        where: { isActive: true },
+        where: { salonId: authResult.salonId, isActive: true },
         select: { category: true },
         distinct: ["category"],
       }),
@@ -112,8 +100,8 @@ export async function getService(id: string): Promise<ActionResult<ServiceListIt
   }
 
   try {
-    const service = await prisma.service.findUnique({
-      where: { id },
+    const service = await prisma.service.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: serviceListInclude,
     });
 
@@ -144,6 +132,7 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
   const service = await prisma.service.create({
     data: {
       ...rest,
+      salonId: authResult.salonId,
       description: description || null,
       category: category || null,
     },
@@ -177,8 +166,8 @@ export async function updateService(
 
   const { id, description, category, ...rest } = validationResult.data;
 
-  const existingService = await prisma.service.findUnique({
-    where: { id },
+  const existingService = await prisma.service.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!existingService) {
@@ -219,8 +208,8 @@ export async function deleteService(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const service = await prisma.service.findUnique({
-    where: { id },
+  const service = await prisma.service.findFirst({
+    where: { id, salonId: authResult.salonId },
     include: {
       _count: {
         select: {
@@ -260,8 +249,8 @@ export async function restoreService(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
-  const service = await prisma.service.findUnique({
-    where: { id },
+  const service = await prisma.service.findFirst({
+    where: { id, salonId: authResult.salonId },
   });
 
   if (!service) {
@@ -294,7 +283,7 @@ export async function getAllCategories(): Promise<ActionResult<string[]>> {
 
   try {
     const services = await prisma.service.findMany({
-      where: { isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: { category: true },
       distinct: ["category"],
     });

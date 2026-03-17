@@ -21,11 +21,17 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
-  const userRole = session.user.role as Role;
-  const canCreate = hasPermission(userRole, "appointments:create");
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canCreate = hasPermission(userRole, "appointments:create", isSuperAdmin);
 
   if (!canCreate) {
     redirect("/dashboard/access-denied");
+  }
+
+  const salonId = session.user.salonId;
+  if (!salonId) {
+    redirect("/dashboard");
   }
 
   // Fetch clients, services, and staff for the form
@@ -53,8 +59,9 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     }),
     prisma.user.findMany({
       where: {
-        isActive: true,
+        salonId,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
+        isActive: true,
       },
       select: {
         id: true,

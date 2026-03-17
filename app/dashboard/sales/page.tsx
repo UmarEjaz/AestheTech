@@ -14,8 +14,9 @@ export default async function SalesPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
-  const canCreate = hasPermission(userRole, "sales:create");
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canCreate = hasPermission(userRole, "sales:create", isSuperAdmin);
 
   const [salesResult, settingsResult, todaySummaryResult] = await Promise.all([
     getSales({ page: 1, limit: 15 }),

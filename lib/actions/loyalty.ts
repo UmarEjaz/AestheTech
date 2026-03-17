@@ -26,12 +26,12 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
   if (!options?.skipAuth) {
     const session = await auth();
     if (!session?.user) return { success: false, error: "Unauthorized" };
-    const role = session.user.role as Role;
-    if (!hasPermission(role, "settings:manage")) {
+    const role = session.user.salonRole as Role;
+    if (!hasPermission(role, "settings:manage", session.user.isSuperAdmin)) {
       return { success: false, error: "Unauthorized" };
     }
     actorUserId = session.user.id;
-    actorUserRole = session.user.role as string;
+    actorUserRole = session.user.salonRole as string;
   }
 
   try {
@@ -114,6 +114,7 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
 
         await tx.loyaltyTransaction.create({
           data: {
+            salonId: loyaltyPoints.salonId,
             clientId,
             points: -pointsToExpire,
             type: "EXPIRED",

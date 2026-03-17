@@ -15,9 +15,13 @@ export default async function NewStaffPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!session.user.salonRole && !isSuperAdmin) {
+    redirect("/dashboard/access-denied");
+  }
+  const userRole = session.user.salonRole as Role;
 
-  if (!hasPermission(userRole, "staff:create")) {
+  if (!hasPermission(userRole, "staff:create", isSuperAdmin)) {
     redirect("/dashboard/access-denied");
   }
 
@@ -40,7 +44,7 @@ export default async function NewStaffPage() {
         </div>
 
         {/* Form */}
-        <StaffForm mode="create" currentUserRole={userRole} />
+        <StaffForm mode="create" currentUserRole={userRole} isSuperAdmin={isSuperAdmin} />
       </div>
     </DashboardLayout>
   );

@@ -4,11 +4,11 @@ import { NextResponse } from "next/server";
 // Routes that don't require authentication
 const publicRoutes = ["/", "/login"];
 
-// Routes that require specific roles
-const roleBasedRoutes: Record<string, string[]> = {
-  "/admin": ["SUPER_ADMIN", "OWNER"],
-  "/settings": ["SUPER_ADMIN", "OWNER", "ADMIN"],
-};
+// Routes that require SUPER_ADMIN
+const superAdminRoutes = ["/admin"];
+
+// Routes that require a selected salon
+const salonRequiredPrefixes = ["/dashboard"];
 
 export default auth((req) => {
   const { nextUrl } = req;
@@ -31,12 +31,30 @@ export default auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Check role-based access
-  const userRole = req.auth?.user?.role;
-  for (const [route, allowedRoles] of Object.entries(roleBasedRoutes)) {
+  const user = req.auth?.user;
+  const isSuperAdmin = user?.isSuperAdmin ?? false;
+  const salonId = user?.salonId;
+
+  // SUPER_ADMIN routes (/admin/*)
+  for (const route of superAdminRoutes) {
     if (pathname.startsWith(route)) {
-      if (!userRole || !allowedRoles.includes(userRole)) {
+      if (!isSuperAdmin) {
         return NextResponse.redirect(new URL("/dashboard", nextUrl));
+      }
+      return NextResponse.next();
+    }
+  }
+
+  // Dashboard routes require a salon
+  for (const prefix of salonRequiredPrefixes) {
+    if (pathname.startsWith(prefix)) {
+      if (!salonId) {
+        // Super admins without a salon can access /admin instead
+        if (isSuperAdmin) {
+          return NextResponse.redirect(new URL("/admin", nextUrl));
+        }
+        // User has no salon — sign them out to avoid infinite redirect loop
+        return NextResponse.redirect(new URL("/api/auth/signout", nextUrl));
       }
     }
   }

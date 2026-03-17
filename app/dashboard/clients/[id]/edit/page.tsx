@@ -21,8 +21,9 @@ export default async function EditClientPage({ params }: PageProps) {
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
-  const canEdit = hasPermission(userRole, "clients:update");
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canEdit = hasPermission(userRole, "clients:update", isSuperAdmin);
 
   if (!canEdit) {
     redirect("/dashboard/access-denied");

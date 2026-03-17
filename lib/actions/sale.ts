@@ -21,16 +21,19 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for sale list
@@ -121,7 +124,7 @@ export type SaleListItem = Prisma.SaleGetPayload<{
 }>;
 
 // Generate invoice number
-async function generateInvoiceNumber(timezone: string): Promise<string> {
+async function generateInvoiceNumber(timezone: string, salonId: string): Promise<string> {
   const now = getNow(timezone);
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -131,6 +134,7 @@ async function generateInvoiceNumber(timezone: string): Promise<string> {
 
   const count = await prisma.invoice.count({
     where: {
+      salonId,
       createdAt: {
         gte: start,
         lte: end,
@@ -173,6 +177,7 @@ export async function getSales(params: SaleSearchParams = {}): Promise<ActionRes
   }
 
   const where: Prisma.SaleWhereInput = {
+    salonId: authResult.salonId,
     ...(dateFilter && { createdAt: dateFilter }),
     ...(clientId && { clientId }),
     ...(staffId && { staffId }),
@@ -221,8 +226,8 @@ export async function getSale(id: string): Promise<ActionResult<SaleListItem>> {
   }
 
   try {
-    const sale = await prisma.sale.findUnique({
-      where: { id },
+    const sale = await prisma.sale.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: saleListInclude,
     });
 
@@ -252,9 +257,9 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
   const { clientId, items, discount, discountType } = validationResult.data;
 
   try {
-    // Verify client exists
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
+    // Verify client exists and belongs to this salon
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, salonId: authResult.salonId },
       select: { isActive: true },
     });
 
@@ -269,13 +274,13 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     const [services, products] = await Promise.all([
       serviceIds.length > 0
         ? prisma.service.findMany({
-            where: { id: { in: serviceIds } },
+            where: { id: { in: serviceIds }, salonId: authResult.salonId },
             select: { id: true, price: true, isActive: true },
           })
         : [],
       productIds.length > 0
         ? prisma.product.findMany({
-            where: { id: { in: productIds } },
+            where: { id: { in: productIds }, salonId: authResult.salonId },
             select: { id: true, name: true, price: true, isActive: true, stock: true },
           })
         : [],
@@ -326,6 +331,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     // Create sale with items
     const sale = await prisma.sale.create({
       data: {
+        salonId: authResult.salonId,
         clientId,
         staffId: authResult.userId,
         totalAmount,
@@ -333,6 +339,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
         finalAmount,
         items: {
           create: items.map((item) => ({
+            salonId: authResult.salonId,
             serviceId: item.serviceId || null,
             staffId: item.staffId || null,
             productId: item.productId || null,
@@ -354,7 +361,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     });
 
     revalidatePath("/dashboard/sales");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: sale };
   } catch (error) {
     console.error("Error creating sale:", error);
@@ -383,8 +390,8 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
   try {
     // Get the sale
-    const sale = await prisma.sale.findUnique({
-      where: { id: saleId },
+    const sale = await prisma.sale.findFirst({
+      where: { id: saleId, salonId: authResult.salonId },
       include: {
         invoice: true,
         client: {
@@ -464,7 +471,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     }
 
     // Generate invoice number
-    const invoiceNumber = await generateInvoiceNumber(tz);
+    const invoiceNumber = await generateInvoiceNumber(tz, authResult.salonId);
 
     // Calculate points earned from this sale
     const currentTier = sale.client.loyaltyPoints?.tier ?? "SILVER";
@@ -514,6 +521,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       // Create invoice
       const invoice = await tx.invoice.create({
         data: {
+          salonId: authResult.salonId,
           invoiceNumber,
           saleId,
           clientId: sale.clientId,
@@ -575,6 +583,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
           await tx.loyaltyPoints.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               balance: totalPointsGained,
               tier,
@@ -586,6 +595,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         if (redeemPoints > 0) {
           await tx.loyaltyTransaction.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               saleId,
               points: -redeemPoints,
@@ -599,6 +609,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
           const multiplierNote = tierMultiplier > 1 ? ` (${tierMultiplier}x ${currentTier} bonus)` : "";
           await tx.loyaltyTransaction.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               saleId,
               points: pointsEarned,
@@ -612,6 +623,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         if (birthdayBonusPoints > 0) {
           await tx.loyaltyTransaction.create({
             data: {
+              salonId: authResult.salonId,
               clientId: sale.clientId,
               saleId,
               points: birthdayBonusPoints,
@@ -625,8 +637,8 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     });
 
     // Fetch updated sale
-    const updatedSale = await prisma.sale.findUnique({
-      where: { id: saleId },
+    const updatedSale = await prisma.sale.findFirst({
+      where: { id: saleId, salonId: authResult.salonId },
       include: saleListInclude,
     });
 
@@ -642,7 +654,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     revalidatePath("/dashboard/sales");
     revalidatePath("/dashboard/invoices");
     revalidatePath(`/dashboard/clients/${sale.clientId}`);
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
 
     return {
       success: true,
@@ -697,8 +709,8 @@ export async function deleteSale(id: string): Promise<ActionResult<void>> {
   }
 
   try {
-    const sale = await prisma.sale.findUnique({
-      where: { id },
+    const sale = await prisma.sale.findFirst({
+      where: { id, salonId: authResult.salonId },
       include: { invoice: true },
     });
 
@@ -722,7 +734,7 @@ export async function deleteSale(id: string): Promise<ActionResult<void>> {
     });
 
     revalidatePath("/dashboard/sales");
-    await invalidateDashboardCache();
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: undefined };
   } catch (error) {
     console.error("Error deleting sale:", error);
@@ -748,6 +760,7 @@ export async function getTodaysSalesSummary(): Promise<ActionResult<{
 
     const sales = await prisma.sale.findMany({
       where: {
+        salonId: authResult.salonId,
         createdAt: { gte: today, lt: tomorrow },
         invoice: { isNot: null },
       },
@@ -777,7 +790,7 @@ export async function getClientSales(clientId: string): Promise<ActionResult<Sal
 
   try {
     const sales = await prisma.sale.findMany({
-      where: { clientId },
+      where: { clientId, salonId: authResult.salonId },
       include: saleListInclude,
       orderBy: { createdAt: "desc" },
       take: 20,

@@ -21,9 +21,10 @@ export default async function EditStaffPage({
   }
 
   const { id } = await params;
-  const userRole = session.user.role as Role;
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "staff:update")) {
+  if (!hasPermission(userRole, "staff:update", isSuperAdmin)) {
     redirect("/dashboard/access-denied");
   }
 
@@ -66,6 +67,7 @@ export default async function EditStaffPage({
           }}
           mode="edit"
           currentUserRole={userRole}
+          isSuperAdmin={isSuperAdmin}
         />
       </div>
     </DashboardLayout>

@@ -14,10 +14,11 @@ export default async function ClientsPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.role as Role;
-  const canCreate = hasPermission(userRole, "clients:create");
-  const canEdit = hasPermission(userRole, "clients:update");
-  const canDelete = hasPermission(userRole, "clients:delete");
+  const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canCreate = hasPermission(userRole, "clients:create", isSuperAdmin);
+  const canEdit = hasPermission(userRole, "clients:update", isSuperAdmin);
+  const canDelete = hasPermission(userRole, "clients:delete", isSuperAdmin);
 
   const [clientsResult, settingsResult] = await Promise.all([
     getClients({ page: 1, limit: 15 }),

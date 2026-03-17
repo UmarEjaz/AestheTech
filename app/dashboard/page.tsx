@@ -19,8 +19,9 @@ export default async function DashboardPage() {
   }
 
   const { user } = session;
-  const userRole = user.role as Role;
-  const canViewReports = hasPermission(userRole, "reports:view");
+  const userRole = user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canViewReports = hasPermission(userRole, "reports:view", isSuperAdmin);
 
   const [statsResult, tz] = await Promise.all([getDashboardStats(), getTimezone()]);
 

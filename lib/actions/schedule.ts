@@ -14,16 +14,19 @@ import { Role, Prisma, ShiftType } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const role = session.user.role as Role;
+  const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
     return null;
   }
 
-  return { userId: session.user.id, role };
+  const salonId = session.user.salonId;
+  if (!salonId) return null;
+
+  return { userId: session.user.id, role, salonId };
 }
 
 // Include relations for schedule list
@@ -67,6 +70,7 @@ export async function getSchedules(params: {
   const { staffId, dayOfWeek } = params;
 
   const where: Prisma.ScheduleWhereInput = {
+    salonId: authResult.salonId,
     ...(staffId && { staffId }),
     ...(dayOfWeek !== undefined && { dayOfWeek }),
   };
@@ -94,7 +98,7 @@ export async function getStaffSchedule(staffId: string): Promise<ActionResult<Sc
 
   try {
     const schedules = await prisma.schedule.findMany({
-      where: { staffId },
+      where: { staffId, salonId: authResult.salonId },
       include: scheduleListInclude,
       orderBy: { dayOfWeek: "asc" },
     });
@@ -119,7 +123,7 @@ export async function getSchedule(id: string): Promise<ActionResult<ScheduleList
       include: scheduleListInclude,
     });
 
-    if (!schedule) {
+    if (!schedule || schedule.salonId !== authResult.salonId) {
       return { success: false, error: "Schedule not found" };
     }
 
@@ -216,6 +220,7 @@ export async function createSchedule(data: ScheduleFormData): Promise<ActionResu
 
       return tx.schedule.create({
         data: {
+          salonId: authResult.salonId,
           staffId,
           dayOfWeek,
           startTime,
@@ -383,13 +388,14 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
     // Atomic delete + create inside a transaction
     const createdSchedules = await prisma.$transaction(async (tx) => {
       await tx.schedule.deleteMany({
-        where: { staffId },
+        where: { staffId, salonId: authResult.salonId },
       });
 
       const results: ScheduleListItem[] = [];
       for (const schedule of schedules) {
         const created = await tx.schedule.create({
           data: {
+            salonId: authResult.salonId,
             staffId,
             dayOfWeek: schedule.dayOfWeek,
             startTime: schedule.startTime,
@@ -404,16 +410,18 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
       return results;
     });
 
+    const mapped = createdSchedules;
+
     await logAudit({
       action: "WEEK_SCHEDULE_SET",
       entityType: "Schedule",
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { staffId, shiftsCount: createdSchedules.length },
+      details: { staffId, shiftsCount: mapped.length },
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: createdSchedules };
+    return { success: true, data: mapped };
   } catch (error) {
     console.error("Error setting week schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to set week schedule";
@@ -438,7 +446,7 @@ export async function toggleScheduleAvailability(id: string): Promise<ActionResu
       return { success: false, error: "Schedule not found" };
     }
 
-    const schedule = await prisma.schedule.update({
+    const rawSchedule = await prisma.schedule.update({
       where: { id },
       data: { isAvailable: !existing.isAvailable },
       include: scheduleListInclude,
@@ -454,7 +462,7 @@ export async function toggleScheduleAvailability(id: string): Promise<ActionResu
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: schedule };
+    return { success: true, data: rawSchedule };
   } catch (error) {
     console.error("Error toggling availability:", error);
     return { success: false, error: "Failed to toggle availability" };
@@ -483,8 +491,9 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
   }
 
   try {
-    const staff = await prisma.user.findMany({
+    const users = await prisma.user.findMany({
       where: {
+        salonId: authResult.salonId,
         isActive: true,
         role: { in: [Role.STAFF, Role.ADMIN, Role.OWNER] },
       },
@@ -495,6 +504,7 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
         email: true,
         role: true,
         schedules: {
+          where: { salonId: authResult.salonId },
           select: {
             id: true,
             dayOfWeek: true,
@@ -508,6 +518,15 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
       },
       orderBy: { firstName: "asc" },
     });
+
+    const staff = users.map((u) => ({
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      role: u.role as Role,
+      schedules: u.schedules,
+    }));
 
     return { success: true, data: staff };
   } catch (error) {
@@ -529,7 +548,7 @@ export async function copySchedule(
   try {
     // Get source schedules
     const sourceSchedules = await prisma.schedule.findMany({
-      where: { staffId: fromStaffId },
+      where: { staffId: fromStaffId, salonId: authResult.salonId },
     });
 
     if (sourceSchedules.length === 0) {
@@ -538,14 +557,15 @@ export async function copySchedule(
 
     // Delete existing schedules for target staff
     await prisma.schedule.deleteMany({
-      where: { staffId: toStaffId },
+      where: { staffId: toStaffId, salonId: authResult.salonId },
     });
 
     // Copy schedules
-    const copiedSchedules = await Promise.all(
+    const rawCopied = await Promise.all(
       sourceSchedules.map((schedule) =>
         prisma.schedule.create({
           data: {
+            salonId: authResult.salonId,
             staffId: toStaffId,
             dayOfWeek: schedule.dayOfWeek,
             startTime: schedule.startTime,
@@ -557,6 +577,8 @@ export async function copySchedule(
         })
       )
     );
+
+    const copiedSchedules = rawCopied;
 
     await logAudit({
       action: "SCHEDULE_COPIED",
@@ -653,7 +675,7 @@ export async function getAvailabilityForDate(date: Date): Promise<ActionResult<{
 
   try {
     const schedules = await prisma.schedule.findMany({
-      where: { dayOfWeek },
+      where: { dayOfWeek, salonId: authResult.salonId },
       include: {
         staff: {
           select: {
