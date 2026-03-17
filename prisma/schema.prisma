@@ -131,7 +131,7 @@ model User {
   lastName     String
   phone        String?
   salonId      String?
-  role         Role?
+  role         Role
   isSuperAdmin Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())

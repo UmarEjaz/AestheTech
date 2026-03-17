@@ -350,7 +350,7 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
 
   // Update user
   await prisma.user.update({
-    where: { id },
+    where: { id, salonId: authResult.salonId },
     data: {
       firstName: updateData.firstName,
       lastName: updateData.lastName,
@@ -424,7 +424,7 @@ export async function changePassword(data: PasswordChangeData): Promise<ActionRe
 
   // Update password
   await prisma.user.update({
-    where: { id: userId },
+    where: { id: userId, salonId: authResult.salonId },
     data: { password: hashedPassword },
   });
 
@@ -476,7 +476,7 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
 
   // Toggle active status
   const updatedUser = await prisma.user.update({
-    where: { id },
+    where: { id, salonId: authResult.salonId },
     data: { isActive: !existingUser.isActive },
   });
 
@@ -547,7 +547,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
 
   // Delete the user
   await prisma.user.delete({
-    where: { id },
+    where: { id, salonId: authResult.salonId },
   });
 
   await logAudit({

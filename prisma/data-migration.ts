@@ -21,11 +21,11 @@ async function main() {
 
   // Step 1: Get current settings to populate salon info (read before transaction)
   const settings = await prisma.settings.findFirst();
-  const salonName = settings?.salonName ?? "Default Salon";
+  const salonName = settings?.salonName?.trim() || "Default Salon";
   const salonSlug = salonName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/^-|-$/g, "") || "default-salon";
 
   // Use raw query to read users — Prisma will crash if the DB has a SUPER_ADMIN
   // enum value that no longer exists in the schema's Role enum (P2023 error).
