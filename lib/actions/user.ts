@@ -509,6 +509,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
         select: {
           appointments: { where: { salonId: authResult.salonId } },
           sales: { where: { salonId: authResult.salonId } },
+          recurringSeries: { where: { salonId: authResult.salonId } },
         },
       },
     },
@@ -538,10 +539,10 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   }
 
   // Check for existing data - recommend deactivation instead
-  if (existingUser._count.appointments > 0 || existingUser._count.sales > 0) {
+  if (existingUser._count.appointments > 0 || existingUser._count.sales > 0 || existingUser._count.recurringSeries > 0) {
     return {
       success: false,
-      error: "This user has associated appointments or sales. Please deactivate the account instead of deleting.",
+      error: "This user has associated appointments, sales, or recurring series. Please deactivate the account instead of deleting.",
     };
   }
 
