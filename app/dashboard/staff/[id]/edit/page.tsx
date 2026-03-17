@@ -67,6 +67,7 @@ export default async function EditStaffPage({
           }}
           mode="edit"
           currentUserRole={userRole}
+          isSuperAdmin={isSuperAdmin}
         />
       </div>
     </DashboardLayout>

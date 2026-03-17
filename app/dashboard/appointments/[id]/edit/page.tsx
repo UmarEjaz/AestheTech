@@ -67,22 +67,19 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       },
       orderBy: { name: "asc" },
     }),
-    prisma.salonMember.findMany({
+    prisma.user.findMany({
       where: {
         salonId: session.user.salonId!,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
         isActive: true,
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
       },
-    }).then((members) => members.map((m) => m.user)),
+      orderBy: { firstName: "asc" },
+    }),
   ]);
 
   return (

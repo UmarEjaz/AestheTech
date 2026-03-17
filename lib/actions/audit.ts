@@ -59,7 +59,7 @@ interface AuditLogEntry {
     id: string;
     firstName: string;
     lastName: string;
-  };
+  } | null;
 }
 
 export async function getAuditLogs(

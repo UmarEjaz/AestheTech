@@ -35,7 +35,7 @@ interface AuditLogEntry {
     id: string;
     firstName: string;
     lastName: string;
-  };
+  } | null;
 }
 
 interface AuditLogClientProps {
@@ -277,7 +277,7 @@ export function AuditLogClient({
                       {formatDate(log.createdAt)}
                     </TableCell>
                     <TableCell className="font-medium">
-                      {log.user.firstName} {log.user.lastName}
+                      {log.user ? `${log.user.firstName} ${log.user.lastName}` : "Deleted user"}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">

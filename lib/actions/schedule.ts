@@ -37,31 +37,14 @@ const scheduleListInclude = Prisma.validator<Prisma.ScheduleInclude>()({
       firstName: true,
       lastName: true,
       email: true,
-      salonMembers: {
-        select: { role: true, salonId: true },
-      },
+      role: true,
     },
   },
 });
 
-type RawScheduleListItem = Prisma.ScheduleGetPayload<{
+export type ScheduleListItem = Prisma.ScheduleGetPayload<{
   include: typeof scheduleListInclude;
 }>;
-
-// Public type that the UI consumes — staff includes a derived `role` field
-export type ScheduleListItem = Omit<RawScheduleListItem, "staff"> & {
-  staff: Omit<RawScheduleListItem["staff"], "salonMembers"> & { role: Role };
-};
-
-/** Map a raw query result to the public ScheduleListItem shape. */
-function mapScheduleItem(item: RawScheduleListItem, salonId: string): ScheduleListItem {
-  const member = item.staff.salonMembers.find((m) => m.salonId === salonId);
-  const { salonMembers: _, ...staffRest } = item.staff;
-  return {
-    ...item,
-    staff: { ...staffRest, role: member?.role ?? Role.STAFF },
-  };
-}
 
 // Day names for internal use
 const DAY_NAMES = [
@@ -99,7 +82,7 @@ export async function getSchedules(params: {
       orderBy: [{ staffId: "asc" }, { dayOfWeek: "asc" }],
     });
 
-    return { success: true, data: schedules.map((s) => mapScheduleItem(s, authResult.salonId)) };
+    return { success: true, data: schedules };
   } catch (error) {
     console.error("Error fetching schedules:", error);
     return { success: false, error: "Failed to fetch schedules" };
@@ -120,7 +103,7 @@ export async function getStaffSchedule(staffId: string): Promise<ActionResult<Sc
       orderBy: { dayOfWeek: "asc" },
     });
 
-    return { success: true, data: schedules.map((s) => mapScheduleItem(s, authResult.salonId)) };
+    return { success: true, data: schedules };
   } catch (error) {
     console.error("Error fetching staff schedule:", error);
     return { success: false, error: "Failed to fetch staff schedule" };
@@ -144,7 +127,7 @@ export async function getSchedule(id: string): Promise<ActionResult<ScheduleList
       return { success: false, error: "Schedule not found" };
     }
 
-    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
+    return { success: true, data: schedule };
   } catch (error) {
     console.error("Error fetching schedule:", error);
     return { success: false, error: "Failed to fetch schedule" };
@@ -259,7 +242,7 @@ export async function createSchedule(data: ScheduleFormData): Promise<ActionResu
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
+    return { success: true, data: schedule };
   } catch (error) {
     console.error("Error creating schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to create schedule";
@@ -322,7 +305,7 @@ export async function updateSchedule(
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
+    return { success: true, data: schedule };
   } catch (error) {
     console.error("Error updating schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to update schedule";
@@ -408,7 +391,7 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
         where: { staffId, salonId: authResult.salonId },
       });
 
-      const results: RawScheduleListItem[] = [];
+      const results: ScheduleListItem[] = [];
       for (const schedule of schedules) {
         const created = await tx.schedule.create({
           data: {
@@ -427,7 +410,7 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
       return results;
     });
 
-    const mapped = createdSchedules.map((s) => mapScheduleItem(s, authResult.salonId));
+    const mapped = createdSchedules;
 
     await logAudit({
       action: "WEEK_SCHEDULE_SET",
@@ -479,7 +462,7 @@ export async function toggleScheduleAvailability(id: string): Promise<ActionResu
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: mapScheduleItem(rawSchedule, authResult.salonId) };
+    return { success: true, data: rawSchedule };
   } catch (error) {
     console.error("Error toggling availability:", error);
     return { success: false, error: "Failed to toggle availability" };
@@ -508,48 +491,42 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
   }
 
   try {
-    const members = await prisma.salonMember.findMany({
+    const users = await prisma.user.findMany({
       where: {
         salonId: authResult.salonId,
         isActive: true,
         role: { in: [Role.STAFF, Role.ADMIN, Role.OWNER] },
       },
-      include: {
-        user: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        schedules: {
+          where: { salonId: authResult.salonId },
           select: {
             id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            isActive: true,
-            schedules: {
-              where: { salonId: authResult.salonId },
-              select: {
-                id: true,
-                dayOfWeek: true,
-                startTime: true,
-                endTime: true,
-                shiftType: true,
-                isAvailable: true,
-              },
-              orderBy: { dayOfWeek: "asc" },
-            },
+            dayOfWeek: true,
+            startTime: true,
+            endTime: true,
+            shiftType: true,
+            isAvailable: true,
           },
+          orderBy: { dayOfWeek: "asc" },
         },
       },
+      orderBy: { firstName: "asc" },
     });
 
-    const staff = members
-      .filter((m) => m.user.isActive)
-      .map((m) => ({
-        id: m.user.id,
-        firstName: m.user.firstName,
-        lastName: m.user.lastName,
-        email: m.user.email,
-        role: m.role,
-        schedules: m.user.schedules,
-      }))
-      .sort((a, b) => a.firstName.localeCompare(b.firstName));
+    const staff = users.map((u) => ({
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      role: u.role as Role,
+      schedules: u.schedules,
+    }));
 
     return { success: true, data: staff };
   } catch (error) {
@@ -601,7 +578,7 @@ export async function copySchedule(
       )
     );
 
-    const copiedSchedules = rawCopied.map((s) => mapScheduleItem(s, authResult.salonId));
+    const copiedSchedules = rawCopied;
 
     await logAudit({
       action: "SCHEDULE_COPIED",
@@ -673,7 +650,7 @@ export async function reassignSchedule(
     });
 
     revalidatePath("/dashboard/schedules");
-    return { success: true, data: mapScheduleItem(schedule, authResult.salonId) };
+    return { success: true, data: schedule };
   } catch (error) {
     console.error("Error reassigning schedule:", error);
     const message = error instanceof Error ? error.message : "Failed to reassign schedule";

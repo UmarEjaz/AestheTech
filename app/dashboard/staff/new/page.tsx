@@ -41,7 +41,7 @@ export default async function NewStaffPage() {
         </div>
 
         {/* Form */}
-        <StaffForm mode="create" currentUserRole={userRole} />
+        <StaffForm mode="create" currentUserRole={userRole} isSuperAdmin={isSuperAdmin} />
       </div>
     </DashboardLayout>
   );

@@ -35,15 +35,6 @@ export default auth((req) => {
   const isSuperAdmin = user?.isSuperAdmin ?? false;
   const salonId = user?.salonId;
 
-  // Allow /select-salon for authenticated users without a salon selected
-  if (pathname === "/select-salon") {
-    // If user already has a salon selected, redirect to dashboard
-    if (salonId) {
-      return NextResponse.redirect(new URL("/dashboard", nextUrl));
-    }
-    return NextResponse.next();
-  }
-
   // SUPER_ADMIN routes (/admin/*)
   for (const route of superAdminRoutes) {
     if (pathname.startsWith(route)) {
@@ -54,11 +45,15 @@ export default auth((req) => {
     }
   }
 
-  // Dashboard routes require a selected salon
+  // Dashboard routes require a salon
   for (const prefix of salonRequiredPrefixes) {
     if (pathname.startsWith(prefix)) {
       if (!salonId) {
-        return NextResponse.redirect(new URL("/select-salon", nextUrl));
+        // Super admins without a salon can access /admin instead
+        if (isSuperAdmin) {
+          return NextResponse.redirect(new URL("/admin", nextUrl));
+        }
+        return NextResponse.redirect(new URL("/login", nextUrl));
       }
     }
   }

@@ -34,6 +34,7 @@ interface StaffFormProps {
   };
   mode: "create" | "edit";
   currentUserRole: Role;
+  isSuperAdmin?: boolean;
 }
 
 const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
@@ -43,7 +44,7 @@ const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
   { value: "RECEPTIONIST", label: "Receptionist", description: "Handle appointments and check-ins" },
 ];
 
-export function StaffForm({ user, mode, currentUserRole }: StaffFormProps) {
+export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }: StaffFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -52,6 +53,9 @@ export function StaffForm({ user, mode, currentUserRole }: StaffFormProps) {
 
   // Filter available roles based on current user's role hierarchy
   const getAvailableRoles = () => {
+    // Super admins can assign any role
+    if (isSuperAdmin) return ROLE_OPTIONS;
+
     const roleHierarchy: Record<Role, number> = {
       OWNER: 4,
       ADMIN: 3,

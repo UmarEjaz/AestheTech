@@ -104,7 +104,7 @@ model Salon {
   updatedAt             DateTime  @updatedAt
 
   // Relations
-  members                    SalonMember[]
+  users                      User[]
   settings                   Settings?
   clients                    Client[]
   services                   Service[]
@@ -122,26 +122,7 @@ model Salon {
   @@map("salons")
 }
 
-// SalonMember join table — user-salon relationship with per-salon role
-model SalonMember {
-  id        String   @id @default(cuid())
-  userId    String
-  salonId   String
-  role      Role // OWNER, ADMIN, STAFF, RECEPTIONIST
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, salonId])
-  @@index([salonId])
-  @@map("salon_members")
-}
-
-// User model for staff/admin accounts — platform-level entity
+// User model for staff/admin accounts
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -149,13 +130,15 @@ model User {
   firstName    String
   lastName     String
   phone        String?
+  salonId      String?
+  role         Role?
   isSuperAdmin Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
-  salonMembers    SalonMember[]
+  salon           Salon?                       @relation(fields: [salonId], references: [id], onDelete: Cascade)
   appointments    Appointment[]                @relation("StaffAppointments")
   schedules       Schedule[]
   sales           Sale[]
@@ -164,6 +147,7 @@ model User {
   recurringSeries RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
   auditLogs       AuditLog[]
 
+  @@index([salonId])
   @@map("users")
 }
 
@@ -575,14 +559,14 @@ model AuditLog {
   action     String // e.g. REFUND_CREATED, SALE_COMPLETED, SETTINGS_UPDATED, USER_CREATED
   entityType String // e.g. Invoice, Sale, Settings, User, Client, Product, Service, Appointment
   entityId   String? // ID of the affected entity (nullable for bulk/settings actions)
-  userId     String // Who performed the action
+  userId     String? // Who performed the action (nullable — preserved when user is deleted)
   userRole   String // Role at the time of action
   details    Json? // Additional context (before/after values, amounts, etc.)
   createdAt  DateTime @default(now())
 
   // Relations
   salon Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([salonId])
   @@index([action])

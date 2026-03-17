@@ -721,25 +721,19 @@ export async function getStaffForAppointments(): Promise<ActionResult<{
   }
 
   try {
-    const members = await prisma.salonMember.findMany({
+    const staff = await prisma.user.findMany({
       where: {
         salonId: authResult.salonId,
         isActive: true,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
       },
       select: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
+        id: true,
+        firstName: true,
+        lastName: true,
       },
-      orderBy: { user: { firstName: "asc" } },
+      orderBy: { firstName: "asc" },
     });
-
-    const staff = members.map((m) => m.user);
 
     return { success: true, data: staff };
   } catch (error) {

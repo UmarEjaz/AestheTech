@@ -16,7 +16,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet";
 import { MobileSidebar } from "@/components/layout/sidebar";
-import { SalonSwitcher } from "@/components/layout/salon-switcher";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
@@ -80,7 +79,6 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
 
       {/* Right side actions */}
       <div className="flex items-center gap-2">
-        <SalonSwitcher />
         <ThemeToggle />
 
         {/* Notifications */}

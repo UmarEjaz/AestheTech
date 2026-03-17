@@ -52,22 +52,19 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       },
       orderBy: { name: "asc" },
     }),
-    prisma.salonMember.findMany({
+    prisma.user.findMany({
       where: {
         salonId: session.user.salonId!,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
         isActive: true,
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
       },
-    }).then((members) => members.map((m) => m.user)),
+      orderBy: { firstName: "asc" },
+    }),
   ]);
 
   // Parse initial date from URL if provided

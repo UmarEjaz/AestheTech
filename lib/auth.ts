@@ -60,10 +60,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const user = await prisma.user.findUnique({
           where: { email },
           include: {
-            salonMembers: {
-              where: { isActive: true },
-              include: { salon: { select: { isActive: true } } },
-            },
+            salon: { select: { isActive: true } },
           },
         });
 
@@ -77,24 +74,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        // Filter to only active salon memberships in active salons
-        const activeMembers = user.salonMembers.filter((m) => m.salon.isActive);
-
-        // Reject non-superadmins with no active salon memberships
-        if (!user.isSuperAdmin && activeMembers.length === 0) {
-          return null;
+        // Non-superadmins must belong to an active salon
+        if (!user.isSuperAdmin) {
+          if (!user.salonId || !user.salon?.isActive) {
+            return null;
+          }
         }
-
-        // Auto-select salon if user has exactly 1 active membership
-        let salonId: string | null = null;
-        let salonRole: Role | null = null;
-
-        if (activeMembers.length === 1) {
-          salonId = activeMembers[0].salonId;
-          salonRole = activeMembers[0].role;
-        }
-        // Multiple memberships or SUPER_ADMIN with none → salonId stays null
-        // Middleware will redirect to /select-salon
 
         return {
           id: user.id,
@@ -102,14 +87,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           firstName: user.firstName,
           lastName: user.lastName,
           isSuperAdmin: user.isSuperAdmin,
-          salonId,
-          salonRole,
+          salonId: user.salonId,
+          salonRole: user.role,
         };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
+    async jwt({ token, user }) {
       if (user) {
         // Initial login
         token.id = user.id;
@@ -119,16 +104,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.isSuperAdmin = user.isSuperAdmin;
         token.salonId = user.salonId;
         token.salonRole = user.salonRole;
-      }
-
-      // Handle session update (salon switching)
-      if (trigger === "update" && session) {
-        if (session.salonId !== undefined) {
-          token.salonId = session.salonId;
-        }
-        if (session.salonRole !== undefined) {
-          token.salonRole = session.salonRole;
-        }
       }
 
       return token;

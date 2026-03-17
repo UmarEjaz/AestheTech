@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { Role } from "@prisma/client";
 
 // ============================================
 // Types
@@ -19,7 +20,7 @@ export type SalonListItem = {
   isActive: boolean;
   createdAt: Date;
   _count: {
-    members: number;
+    users: number;
   };
 };
 
@@ -37,121 +38,17 @@ export type SalonDetail = {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
-  members: {
+  users: {
     id: string;
-    role: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string | null;
+    role: Role | null;
     isActive: boolean;
     createdAt: Date;
-    user: {
-      id: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-      phone: string | null;
-    };
   }[];
 };
-
-export type UserSalon = {
-  id: string;
-  name: string;
-  slug: string;
-  address: string | null;
-  subscriptionStatus: string;
-  role: string;
-};
-
-// ============================================
-// Salon Switcher Actions
-// ============================================
-
-/**
- * Get all salons the current user belongs to (for the salon switcher).
- */
-export async function getUserSalons(): Promise<ActionResult<UserSalon[]>> {
-  const session = await auth();
-  if (!session?.user) {
-    return { success: false, error: "Not authenticated" };
-  }
-
-  try {
-    const memberships = await prisma.salonMember.findMany({
-      where: {
-        userId: session.user.id,
-        isActive: true,
-        salon: { isActive: true },
-      },
-      include: {
-        salon: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            address: true,
-            subscriptionStatus: true,
-          },
-        },
-      },
-      orderBy: {
-        salon: { name: "asc" },
-      },
-    });
-
-    const salons: UserSalon[] = memberships.map((m) => ({
-      id: m.salon.id,
-      name: m.salon.name,
-      slug: m.salon.slug,
-      address: m.salon.address,
-      subscriptionStatus: m.salon.subscriptionStatus,
-      role: m.role,
-    }));
-
-    return { success: true, data: salons };
-  } catch {
-    return { success: false, error: "Failed to fetch salons" };
-  }
-}
-
-/**
- * Switch the current user's active salon. Returns the new salonId and role
- * so the client can call `update()` on the NextAuth session.
- */
-export async function switchSalon(
-  salonId: string
-): Promise<ActionResult<{ salonId: string; salonRole: string }>> {
-  const session = await auth();
-  if (!session?.user) {
-    return { success: false, error: "Not authenticated" };
-  }
-
-  try {
-    const membership = await prisma.salonMember.findUnique({
-      where: {
-        userId_salonId: {
-          userId: session.user.id,
-          salonId,
-        },
-      },
-      include: {
-        salon: { select: { isActive: true } },
-      },
-    });
-
-    if (!membership || !membership.isActive || !membership.salon.isActive) {
-      return { success: false, error: "You do not have access to this salon" };
-    }
-
-    return {
-      success: true,
-      data: {
-        salonId: membership.salonId,
-        salonRole: membership.role,
-      },
-    };
-  } catch {
-    return { success: false, error: "Failed to switch salon" };
-  }
-}
 
 // ============================================
 // SUPER_ADMIN Salon Management Actions
@@ -178,7 +75,7 @@ export async function getSalons(): Promise<ActionResult<SalonListItem[]>> {
         isActive: true,
         createdAt: true,
         _count: {
-          select: { members: true },
+          select: { users: true },
         },
       },
     });
@@ -190,7 +87,7 @@ export async function getSalons(): Promise<ActionResult<SalonListItem[]>> {
 }
 
 /**
- * Get a single salon by ID with its members (SUPER_ADMIN only).
+ * Get a single salon by ID with its users (SUPER_ADMIN only).
  */
 export async function getSalonById(
   id: string
@@ -204,18 +101,17 @@ export async function getSalonById(
     const salon = await prisma.salon.findUnique({
       where: { id },
       include: {
-        members: {
+        users: {
           orderBy: { createdAt: "asc" },
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                phone: true,
-              },
-            },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            role: true,
+            isActive: true,
+            createdAt: true,
           },
         },
       },

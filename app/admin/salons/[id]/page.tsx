@@ -173,17 +173,17 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
             </CardContent>
           </Card>
 
-          {/* Members */}
+          {/* Staff */}
           <Card>
             <CardHeader>
               <CardTitle>
-                Members ({salon.members.length})
+                Staff ({salon.users.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {salon.members.length === 0 ? (
+              {salon.users.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  No members in this salon yet.
+                  No staff in this salon yet.
                 </p>
               ) : (
                 <Table>
@@ -197,28 +197,28 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {salon.members.map((member) => (
-                      <TableRow key={member.id}>
+                    {salon.users.map((user) => (
+                      <TableRow key={user.id}>
                         <TableCell className="font-medium">
-                          {member.user.firstName} {member.user.lastName}
+                          {user.firstName} {user.lastName}
                         </TableCell>
                         <TableCell className="hidden sm:table-cell text-muted-foreground">
-                          {member.user.email}
+                          {user.email}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={roleBadgeVariant(member.role)}>
-                            {member.role}
+                          <Badge variant={roleBadgeVariant(user.role ?? "STAFF")}>
+                            {user.role ?? "STAFF"}
                           </Badge>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
-                          {member.isActive ? (
+                          {user.isActive ? (
                             <Badge variant="success">Active</Badge>
                           ) : (
                             <Badge variant="destructive">Inactive</Badge>
                           )}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell text-muted-foreground">
-                          {new Date(member.createdAt).toLocaleDateString()}
+                          {new Date(user.createdAt).toLocaleDateString()}
                         </TableCell>
                       </TableRow>
                     ))}

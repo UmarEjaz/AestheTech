@@ -101,7 +101,7 @@ export default async function AdminSalonsPage() {
                     <TableHead className="hidden sm:table-cell">Slug</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="hidden md:table-cell">Plan</TableHead>
-                    <TableHead className="hidden md:table-cell">Members</TableHead>
+                    <TableHead className="hidden md:table-cell">Staff</TableHead>
                     <TableHead className="hidden lg:table-cell">Created</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -135,7 +135,7 @@ export default async function AdminSalonsPage() {
                         )}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
-                        {salon._count.members}
+                        {salon._count.users}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-muted-foreground">
                         {new Date(salon.createdAt).toLocaleDateString()}

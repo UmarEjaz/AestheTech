@@ -24,9 +24,8 @@ async function main() {
   await prisma.service.deleteMany();
   await prisma.client.deleteMany();
   await prisma.settings.deleteMany();
-  await prisma.salonMember.deleteMany();
-  await prisma.salon.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.salon.deleteMany();
 
   console.log("🗑️  Cleared existing data");
 
@@ -63,11 +62,11 @@ async function main() {
 
   console.log("⚙️  Created settings");
 
-  // Create Users (Staff) — no role on User anymore, role lives on SalonMember
+  // Create Users with role and salonId directly
   const hashedPassword = await bcrypt.hash("password123", 10);
   const superAdminPassword = await bcrypt.hash("umar111", 10);
 
-  // Create Super Admin (platform-level flag, not a salon role)
+  // Create Super Admin (platform-level flag + OWNER role at default salon)
   const superAdmin = await prisma.user.create({
     data: {
       email: "itsumarejaz@gmail.com",
@@ -76,6 +75,8 @@ async function main() {
       lastName: "Ejaz",
       phone: "+923001234567",
       isSuperAdmin: true,
+      salonId: salon.id,
+      role: Role.OWNER,
     },
   });
 
@@ -86,6 +87,8 @@ async function main() {
       firstName: "Sarah",
       lastName: "Johnson",
       phone: "+1234567890",
+      salonId: salon.id,
+      role: Role.OWNER,
     },
   });
 
@@ -96,6 +99,8 @@ async function main() {
       firstName: "Michael",
       lastName: "Chen",
       phone: "+1234567891",
+      salonId: salon.id,
+      role: Role.ADMIN,
     },
   });
 
@@ -106,6 +111,8 @@ async function main() {
       firstName: "Emma",
       lastName: "Wilson",
       phone: "+1234567892",
+      salonId: salon.id,
+      role: Role.STAFF,
     },
   });
 
@@ -116,45 +123,24 @@ async function main() {
       firstName: "James",
       lastName: "Brown",
       phone: "+1234567893",
+      salonId: salon.id,
+      role: Role.STAFF,
     },
   });
 
-  const receptionist = await prisma.user.create({
+  await prisma.user.create({
     data: {
       email: "lisa@aesthetech.com",
       password: hashedPassword,
       firstName: "Lisa",
       lastName: "Martinez",
       phone: "+1234567894",
+      salonId: salon.id,
+      role: Role.RECEPTIONIST,
     },
   });
 
   console.log("👤 Created users");
-
-  // Create SalonMembers — assign roles per salon
-  await Promise.all([
-    // Super admin is also an OWNER of the default salon
-    prisma.salonMember.create({
-      data: { userId: superAdmin.id, salonId: salon.id, role: Role.OWNER },
-    }),
-    prisma.salonMember.create({
-      data: { userId: owner.id, salonId: salon.id, role: Role.OWNER },
-    }),
-    prisma.salonMember.create({
-      data: { userId: admin.id, salonId: salon.id, role: Role.ADMIN },
-    }),
-    prisma.salonMember.create({
-      data: { userId: staff1.id, salonId: salon.id, role: Role.STAFF },
-    }),
-    prisma.salonMember.create({
-      data: { userId: staff2.id, salonId: salon.id, role: Role.STAFF },
-    }),
-    prisma.salonMember.create({
-      data: { userId: receptionist.id, salonId: salon.id, role: Role.RECEPTIONIST },
-    }),
-  ]);
-
-  console.log("🔗 Created salon memberships");
 
   // Create Services (salon-scoped)
   const services = await Promise.all([

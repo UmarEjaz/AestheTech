@@ -3,7 +3,7 @@
  *
  * Migrates existing single-tenant data to multi-tenant schema:
  * 1. Creates a "Default Salon" from current Settings
- * 2. Creates SalonMember records from existing User.role values
+ * 2. Sets salonId and role on all existing User records
  * 3. Sets salonId on all existing tenant-scoped records
  *
  * Run AFTER the schema migration that adds nullable salonId columns,
@@ -30,7 +30,7 @@ async function main() {
   const users = await prisma.user.findMany();
 
   // Run all mutation steps in a single transaction
-  const { salon, memberCount, totalRecords } = await prisma.$transaction(async (tx) => {
+  const { salon, userCount, totalRecords } = await prisma.$transaction(async (tx) => {
     // Step 2: Create the default salon
     const salon = await tx.salon.create({
       data: {
@@ -45,39 +45,28 @@ async function main() {
       },
     });
 
-    // Step 3: Create SalonMember records from existing users
-    // Users with SUPER_ADMIN role get isSuperAdmin flag + OWNER membership
-    // All other users get a membership with their current role
-    let memberCount = 0;
+    // Step 3: Set salonId and role on existing users
+    let userCount = 0;
 
     for (const user of users) {
       // Read the old role value via raw query since the column may still exist
       const oldRole = (user as Record<string, unknown>).role as string | undefined;
 
       if (oldRole === "SUPER_ADMIN") {
-        // Set isSuperAdmin flag
         await tx.user.update({
           where: { id: user.id },
-          data: { isSuperAdmin: true },
-        });
-        // Also give them OWNER role in the default salon
-        await tx.salonMember.create({
-          data: {
-            userId: user.id,
-            salonId: salon.id,
-            role: "OWNER",
-          },
+          data: { isSuperAdmin: true, salonId: salon.id, role: "OWNER" },
         });
       } else if (oldRole) {
-        await tx.salonMember.create({
+        await tx.user.update({
+          where: { id: user.id },
           data: {
-            userId: user.id,
             salonId: salon.id,
             role: oldRole as "OWNER" | "ADMIN" | "STAFF" | "RECEPTIONIST",
           },
         });
       }
-      memberCount++;
+      userCount++;
     }
 
     // Step 4: Set salonId on all tenant-scoped models
@@ -99,11 +88,11 @@ async function main() {
 
     const totalRecords = updates.reduce((sum, r) => sum + r.count, 0);
 
-    return { salon, memberCount, totalRecords };
+    return { salon, userCount, totalRecords };
   });
 
   console.log(`✅ Created default salon: "${salon.name}" (${salon.id})`);
-  console.log(`✅ Created ${memberCount} salon memberships`);
+  console.log(`✅ Updated ${userCount} users with salonId and role`);
   console.log(`✅ Updated ${totalRecords} records with salonId across 13 models`);
 
   console.log("\n🎉 Data migration complete!");
