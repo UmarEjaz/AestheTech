@@ -251,7 +251,7 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
   const { confirmPassword, role, ...userData } = validationResult.data;
 
   // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, role)) {
+  if (!canManageRole(authResult.role, role, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot create a user with this role" };
   }
 
@@ -327,13 +327,13 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
   }
 
   // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, existingRole)) {
+  if (!canManageRole(authResult.role, existingRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot modify this user" };
   }
 
   // If changing role, check if can assign new role
   if (newRole && newRole !== existingRole) {
-    if (!canManageRole(authResult.role, newRole)) {
+    if (!canManageRole(authResult.role, newRole, authResult.isSuperAdmin)) {
       return { success: false, error: "You cannot assign this role" };
     }
   }
@@ -415,7 +415,7 @@ export async function changePassword(data: PasswordChangeData): Promise<ActionRe
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole)) {
+  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot modify this user's password" };
   }
 
@@ -465,7 +465,7 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole)) {
+  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot modify this user" };
   }
 
@@ -528,7 +528,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole)) {
+  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
     return { success: false, error: "You cannot delete this user" };
   }
 

@@ -53,7 +53,8 @@ export default auth((req) => {
         if (isSuperAdmin) {
           return NextResponse.redirect(new URL("/admin", nextUrl));
         }
-        return NextResponse.redirect(new URL("/login", nextUrl));
+        // User has no salon — sign them out to avoid infinite redirect loop
+        return NextResponse.redirect(new URL("/api/auth/signout", nextUrl));
       }
     }
   }

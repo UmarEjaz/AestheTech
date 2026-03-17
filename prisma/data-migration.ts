@@ -27,9 +27,14 @@ async function main() {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-  const users = await prisma.user.findMany();
+  // Use raw query to read users — Prisma will crash if the DB has a SUPER_ADMIN
+  // enum value that no longer exists in the schema's Role enum (P2023 error).
+  const users = await prisma.$queryRaw<Array<{ id: string; role: string | null }>>`
+    SELECT id, role::text AS role FROM "users"
+  `;
 
   // Run all mutation steps in a single transaction
+  const validRoles = new Set(["OWNER", "ADMIN", "STAFF", "RECEPTIONIST"]);
   const { salon, userCount, totalRecords } = await prisma.$transaction(async (tx) => {
     // Step 2: Create the default salon
     const salon = await tx.salon.create({
@@ -49,15 +54,14 @@ async function main() {
     let userCount = 0;
 
     for (const user of users) {
-      // Read the old role value via raw query since the column may still exist
-      const oldRole = (user as Record<string, unknown>).role as string | undefined;
+      const oldRole = user.role ?? undefined;
 
       if (oldRole === "SUPER_ADMIN") {
         await tx.user.update({
           where: { id: user.id },
           data: { isSuperAdmin: true, salonId: salon.id, role: "OWNER" },
         });
-      } else if (oldRole) {
+      } else if (oldRole && validRoles.has(oldRole)) {
         await tx.user.update({
           where: { id: user.id },
           data: {
@@ -65,6 +69,8 @@ async function main() {
             role: oldRole as "OWNER" | "ADMIN" | "STAFF" | "RECEPTIONIST",
           },
         });
+      } else {
+        throw new Error(`User ${user.id} has no migratable role: ${String(oldRole)}`);
       }
       userCount++;
     }

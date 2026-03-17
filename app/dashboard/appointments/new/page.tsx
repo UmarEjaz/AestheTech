@@ -29,6 +29,11 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
 
+  const salonId = session.user.salonId;
+  if (!salonId) {
+    redirect("/dashboard");
+  }
+
   // Fetch clients, services, and staff for the form
   const [clients, services, staff] = await Promise.all([
     prisma.client.findMany({
@@ -54,7 +59,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     }),
     prisma.user.findMany({
       where: {
-        salonId: session.user.salonId!,
+        salonId,
         role: { in: ["STAFF", "ADMIN", "OWNER"] },
         isActive: true,
       },
