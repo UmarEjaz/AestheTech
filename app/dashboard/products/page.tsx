@@ -29,12 +29,13 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "products:view")) {
+  if (!hasPermission(userRole, "products:view", isSuperAdmin)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = hasPermission(userRole, "products:manage");
+  const canManage = hasPermission(userRole, "products:manage", isSuperAdmin);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";

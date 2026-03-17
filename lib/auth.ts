@@ -80,6 +80,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // Filter to only active salon memberships in active salons
         const activeMembers = user.salonMembers.filter((m) => m.salon.isActive);
 
+        // Reject non-superadmins with no active salon memberships
+        if (!user.isSuperAdmin && activeMembers.length === 0) {
+          return null;
+        }
+
         // Auto-select salon if user has exactly 1 active membership
         let salonId: string | null = null;
         let salonRole: Role | null = null;

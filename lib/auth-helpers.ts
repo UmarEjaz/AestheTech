@@ -25,8 +25,8 @@ export async function checkAuth(permission: Permission): Promise<AuthResult | nu
   // Must have a salon selected (except SUPER_ADMIN platform-level actions handled separately)
   if (!salonId) return null;
 
-  const role = salonRole as Role;
-  if (!role && !isSuperAdmin) return null;
+  const role = (salonRole as Role) ?? ("OWNER" as Role); // SUPER_ADMIN fallback
+  if (!salonRole && !isSuperAdmin) return null;
 
   // SUPER_ADMIN bypasses permission checks
   if (!hasPermission(role, permission, isSuperAdmin)) {

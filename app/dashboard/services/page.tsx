@@ -27,7 +27,8 @@ export default async function ServicesPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const userRole = session.user.salonRole as Role;
-  const canManage = hasPermission(userRole, "services:manage");
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canManage = hasPermission(userRole, "services:manage", isSuperAdmin);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";

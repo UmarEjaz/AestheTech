@@ -1,6 +1,6 @@
 # Multi-Tenancy Implementation Plan
 
-> **Status:** Planning
+> **Status:** Phases 1-5 Complete, Phase 6 (Testing) Pending
 > **Branch:** `feature/multi-tenancy`
 > **Estimated effort:** 3-4 weeks
 > **Scope:** ~8 new files, ~35 modified files, ~150 query touch-points
@@ -19,7 +19,7 @@
 
 ---
 
-## Phase 1: Schema Changes (Week 1) — Foundation
+## Phase 1: Schema Changes (Week 1) — Foundation [DONE]
 
 Everything depends on this phase.
 
@@ -141,7 +141,7 @@ npx prisma migrate dev --name remove_role_from_user
 
 ---
 
-## Phase 2: Auth & Session Changes (Week 1-2) — Everything depends on this
+## Phase 2: Auth & Session Changes (Week 1-2) — Everything depends on this [DONE]
 
 ### 2A. New Session Shape
 
@@ -186,7 +186,7 @@ async function checkAuth(permission: Permission): Promise<{
 
 ---
 
-## Phase 3: Query Isolation (Week 2-3) — Largest volume of work
+## Phase 3: Query Isolation (Week 2-3) — Largest volume of work [DONE]
 
 Every Prisma query across 14 action files + 5 API routes needs `salonId` in `where` clauses and `create` data.
 
@@ -251,7 +251,7 @@ async function generateInvoiceNumber(timezone: string, salonId: string): Promise
 
 ---
 
-## Phase 4: Cache & Permissions (Week 3)
+## Phase 4: Cache & Permissions (Week 3) [DONE]
 
 ### 4A. Cache Key Namespacing
 
@@ -283,7 +283,7 @@ All 20 mutation call sites pass `salonId`. Other salons' caches remain untouched
 
 ---
 
-## Phase 5: UI Changes (Week 3-4)
+## Phase 5: UI Changes (Week 3-4) [DONE]
 
 ### New Pages
 
@@ -308,7 +308,7 @@ All 20 mutation call sites pass `salonId`. Other salons' caches remain untouched
 
 ---
 
-## Phase 6: Testing (Week 4)
+## Phase 6: Testing (Week 4) [PENDING]
 
 - Tenant isolation: data from Salon A not visible in Salon B
 - SUPER_ADMIN cross-salon access

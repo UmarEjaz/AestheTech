@@ -16,8 +16,9 @@ export default async function NewStaffPage() {
   }
 
   const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "staff:create")) {
+  if (!hasPermission(userRole, "staff:create", isSuperAdmin)) {
     redirect("/dashboard/access-denied");
   }
 

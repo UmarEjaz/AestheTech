@@ -23,7 +23,8 @@ export default async function EditServicePage({ params }: PageProps) {
 
   const { id } = await params;
   const userRole = session.user.salonRole as Role;
-  const canManage = hasPermission(userRole, "services:manage");
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canManage = hasPermission(userRole, "services:manage", isSuperAdmin);
 
   if (!canManage) {
     redirect("/dashboard/access-denied");

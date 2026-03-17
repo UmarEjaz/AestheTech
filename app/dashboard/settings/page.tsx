@@ -14,8 +14,9 @@ export default async function SettingsPage() {
   }
 
   const userRole = session.user.salonRole as Role;
-  const canView = hasPermission(userRole, "settings:view");
-  const canManage = hasPermission(userRole, "settings:manage");
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const canView = hasPermission(userRole, "settings:view", isSuperAdmin);
+  const canManage = hasPermission(userRole, "settings:manage", isSuperAdmin);
 
   if (!canView) {
     redirect("/dashboard/access-denied");

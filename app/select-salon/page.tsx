@@ -44,7 +44,11 @@ export default function SelectSalonPage() {
 
       // Auto-select if only 1 salon
       if (data.length === 1) {
-        await handleSelectSalon(data[0].id);
+        const ok = await handleSelectSalon(data[0].id);
+        if (!ok) {
+          setSalons(data);
+          setIsLoading(false);
+        }
         return;
       }
 
@@ -56,7 +60,7 @@ export default function SelectSalonPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleSelectSalon(salonId: string) {
+  async function handleSelectSalon(salonId: string): Promise<boolean> {
     setIsSwitching(salonId);
     setError("");
 
@@ -65,7 +69,7 @@ export default function SelectSalonPage() {
     if (!result.success) {
       setError(result.error);
       setIsSwitching(null);
-      return;
+      return false;
     }
 
     // Update the JWT session with the selected salon
@@ -76,6 +80,7 @@ export default function SelectSalonPage() {
 
     router.push("/dashboard");
     router.refresh();
+    return true;
   }
 
   function getRoleBadgeVariant(role: string) {

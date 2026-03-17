@@ -211,6 +211,7 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
           take: 1,
         },
         appointments: {
+          where: { salonId: authResult.salonId },
           orderBy: { startTime: "desc" },
           take: 10,
           select: {
@@ -227,6 +228,7 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
           },
         },
         schedules: {
+          where: { salonId: authResult.salonId },
           orderBy: { dayOfWeek: "asc" },
           select: {
             id: true,

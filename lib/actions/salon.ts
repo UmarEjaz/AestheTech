@@ -265,17 +265,14 @@ export async function createSalon(data: {
         address: data.address || null,
         subscriptionPlan: data.subscriptionPlan || null,
         subscriptionStatus: "TRIAL",
-      },
-    });
-
-    // Create default settings for the salon
-    await prisma.settings.create({
-      data: {
-        salonId: salon.id,
-        salonName: data.name,
-        salonEmail: data.email || null,
-        salonPhone: data.phone || null,
-        salonAddress: data.address || null,
+        settings: {
+          create: {
+            salonName: data.name,
+            salonEmail: data.email || null,
+            salonPhone: data.phone || null,
+            salonAddress: data.address || null,
+          },
+        },
       },
     });
 

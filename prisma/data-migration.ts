@@ -19,7 +19,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("🔄 Starting multi-tenancy data migration...\n");
 
-  // Step 1: Get current settings to populate salon info
+  // Step 1: Get current settings to populate salon info (read before transaction)
   const settings = await prisma.settings.findFirst();
   const salonName = settings?.salonName ?? "Default Salon";
   const salonSlug = salonName
@@ -27,76 +27,83 @@ async function main() {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-  // Step 2: Create the default salon
-  const salon = await prisma.salon.create({
-    data: {
-      name: salonName,
-      slug: salonSlug,
-      address: settings?.salonAddress,
-      phone: settings?.salonPhone,
-      email: settings?.salonEmail,
-      logo: settings?.salonLogo,
-      subscriptionStatus: "ACTIVE",
-      subscriptionPlan: "PRO",
-    },
-  });
-  console.log(`✅ Created default salon: "${salon.name}" (${salon.id})`);
-
-  // Step 3: Create SalonMember records from existing users
-  // Users with SUPER_ADMIN role get isSuperAdmin flag + OWNER membership
-  // All other users get a membership with their current role
   const users = await prisma.user.findMany();
-  let memberCount = 0;
 
-  for (const user of users) {
-    // Read the old role value via raw query since the column may still exist
-    const oldRole = (user as Record<string, unknown>).role as string | undefined;
+  // Run all mutation steps in a single transaction
+  const { salon, memberCount, totalRecords } = await prisma.$transaction(async (tx) => {
+    // Step 2: Create the default salon
+    const salon = await tx.salon.create({
+      data: {
+        name: salonName,
+        slug: salonSlug,
+        address: settings?.salonAddress,
+        phone: settings?.salonPhone,
+        email: settings?.salonEmail,
+        logo: settings?.salonLogo,
+        subscriptionStatus: "ACTIVE",
+        subscriptionPlan: "PRO",
+      },
+    });
 
-    if (oldRole === "SUPER_ADMIN") {
-      // Set isSuperAdmin flag
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { isSuperAdmin: true },
-      });
-      // Also give them OWNER role in the default salon
-      await prisma.salonMember.create({
-        data: {
-          userId: user.id,
-          salonId: salon.id,
-          role: "OWNER",
-        },
-      });
-    } else if (oldRole) {
-      await prisma.salonMember.create({
-        data: {
-          userId: user.id,
-          salonId: salon.id,
-          role: oldRole as "OWNER" | "ADMIN" | "STAFF" | "RECEPTIONIST",
-        },
-      });
+    // Step 3: Create SalonMember records from existing users
+    // Users with SUPER_ADMIN role get isSuperAdmin flag + OWNER membership
+    // All other users get a membership with their current role
+    let memberCount = 0;
+
+    for (const user of users) {
+      // Read the old role value via raw query since the column may still exist
+      const oldRole = (user as Record<string, unknown>).role as string | undefined;
+
+      if (oldRole === "SUPER_ADMIN") {
+        // Set isSuperAdmin flag
+        await tx.user.update({
+          where: { id: user.id },
+          data: { isSuperAdmin: true },
+        });
+        // Also give them OWNER role in the default salon
+        await tx.salonMember.create({
+          data: {
+            userId: user.id,
+            salonId: salon.id,
+            role: "OWNER",
+          },
+        });
+      } else if (oldRole) {
+        await tx.salonMember.create({
+          data: {
+            userId: user.id,
+            salonId: salon.id,
+            role: oldRole as "OWNER" | "ADMIN" | "STAFF" | "RECEPTIONIST",
+          },
+        });
+      }
+      memberCount++;
     }
-    memberCount++;
-  }
+
+    // Step 4: Set salonId on all tenant-scoped models
+    const updates = await Promise.all([
+      tx.settings.updateMany({ data: { salonId: salon.id } }),
+      tx.client.updateMany({ data: { salonId: salon.id } }),
+      tx.service.updateMany({ data: { salonId: salon.id } }),
+      tx.product.updateMany({ data: { salonId: salon.id } }),
+      tx.appointment.updateMany({ data: { salonId: salon.id } }),
+      tx.sale.updateMany({ data: { salonId: salon.id } }),
+      tx.saleItem.updateMany({ data: { salonId: salon.id } }),
+      tx.invoice.updateMany({ data: { salonId: salon.id } }),
+      tx.schedule.updateMany({ data: { salonId: salon.id } }),
+      tx.loyaltyPoints.updateMany({ data: { salonId: salon.id } }),
+      tx.loyaltyTransaction.updateMany({ data: { salonId: salon.id } }),
+      tx.recurringAppointmentSeries.updateMany({ data: { salonId: salon.id } }),
+      tx.auditLog.updateMany({ data: { salonId: salon.id } }),
+    ]);
+
+    const totalRecords = updates.reduce((sum, r) => sum + r.count, 0);
+
+    return { salon, memberCount, totalRecords };
+  });
+
+  console.log(`✅ Created default salon: "${salon.name}" (${salon.id})`);
   console.log(`✅ Created ${memberCount} salon memberships`);
-
-  // Step 4: Set salonId on all tenant-scoped models
-  const updates = await Promise.all([
-    prisma.settings.updateMany({ data: { salonId: salon.id } }),
-    prisma.client.updateMany({ data: { salonId: salon.id } }),
-    prisma.service.updateMany({ data: { salonId: salon.id } }),
-    prisma.product.updateMany({ data: { salonId: salon.id } }),
-    prisma.appointment.updateMany({ data: { salonId: salon.id } }),
-    prisma.sale.updateMany({ data: { salonId: salon.id } }),
-    prisma.saleItem.updateMany({ data: { salonId: salon.id } }),
-    prisma.invoice.updateMany({ data: { salonId: salon.id } }),
-    prisma.schedule.updateMany({ data: { salonId: salon.id } }),
-    prisma.loyaltyPoints.updateMany({ data: { salonId: salon.id } }),
-    prisma.loyaltyTransaction.updateMany({ data: { salonId: salon.id } }),
-    prisma.recurringAppointmentSeries.updateMany({ data: { salonId: salon.id } }),
-    prisma.auditLog.updateMany({ data: { salonId: salon.id } }),
-  ]);
-
-  const totalRecords = updates.reduce((sum, r) => sum + r.count, 0);
   console.log(`✅ Updated ${totalRecords} records with salonId across 13 models`);
 
   console.log("\n🎉 Data migration complete!");

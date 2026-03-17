@@ -71,12 +71,13 @@ export default async function StaffDetailPage({
 
   const { id } = await params;
   const userRole = session.user.salonRole as Role;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "staff:view")) {
+  if (!hasPermission(userRole, "staff:view", isSuperAdmin)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canEdit = hasPermission(userRole, "staff:update");
+  const canEdit = hasPermission(userRole, "staff:update", isSuperAdmin);
 
   const [result, tz] = await Promise.all([getUserById(id), getTimezone()]);
 

@@ -3,26 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, Permission } from "@/lib/permissions";
-import { Role, Currency } from "@prisma/client";
+import { Currency } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { checkAuth } from "@/lib/auth-helpers";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
-
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const salonId = session.user.salonId;
-  if (!salonId) return null;
-
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, permission)) {
-    return null;
-  }
-
-  return { userId: session.user.id, role, salonId };
-}
 
 export interface SettingsData {
   id: string;
@@ -59,14 +44,13 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
     const session = await auth();
     const salonId = session?.user?.salonId;
 
-    const settings = salonId
-      ? await prisma.settings.findUnique({ where: { salonId } })
-      : await prisma.settings.findFirst();
+    if (!salonId) {
+      return { success: false, error: "No salon context available" };
+    }
+
+    const settings = await prisma.settings.findUnique({ where: { salonId } });
 
     if (!settings) {
-      if (!salonId) {
-        return { success: false, error: "No settings found and no salon context available" };
-      }
       // Create default settings if none exist
       const defaultSettings = await prisma.settings.create({
         data: {
