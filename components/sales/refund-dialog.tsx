@@ -36,8 +36,18 @@ function getMinAmount(currencyCode: string): number {
 
 function createRefundSchema(currencyCode: string) {
   const minAmount = getMinAmount(currencyCode);
+  const decimals = getCurrencyDecimals(currencyCode);
   return z.object({
-    amount: z.number().min(minAmount, `Refund amount must be at least ${minAmount}`),
+    amount: z
+      .number()
+      .min(minAmount, `Refund amount must be at least ${minAmount}`)
+      .refine(
+        (val) => {
+          const shifted = val * Math.pow(10, decimals);
+          return Math.abs(shifted - Math.round(shifted)) < 1e-9;
+        },
+        `Amount cannot have more than ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+      ),
     reason: z.string().max(500, "Reason must be less than 500 characters").optional(),
   });
 }
@@ -66,6 +76,7 @@ export function RefundDialog({
   const stepValue = minAmount.toString();
   const placeholder = decimals === 0 ? "0" : `0.${"0".repeat(decimals)}`;
   const symbol = getCurrencySymbol(currencyCode);
+  const inputPadding = symbol.length >= 3 ? "pl-12" : "pl-7";
 
   const {
     register,
@@ -179,7 +190,7 @@ export function RefundDialog({
                   min={stepValue}
                   max={maxRefundable}
                   {...register("amount", { valueAsNumber: true })}
-                  className="pl-7"
+                  className={inputPadding}
                   placeholder={placeholder}
                 />
               </div>
