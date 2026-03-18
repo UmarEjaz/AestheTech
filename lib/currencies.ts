@@ -1,14 +1,14 @@
 export interface CurrencyInfo {
-  code: string; // ISO 4217
-  name: string;
-  symbol: string;
+  readonly code: string; // ISO 4217
+  readonly name: string;
+  readonly symbol: string;
 }
 
 /**
  * All active ISO 4217 currencies.
  * Sorted alphabetically by code for consistent ordering.
  */
-export const CURRENCIES: CurrencyInfo[] = [
+export const CURRENCIES: readonly CurrencyInfo[] = Object.freeze([
   { code: "AED", name: "UAE Dirham", symbol: "د.إ" },
   { code: "AFN", name: "Afghan Afghani", symbol: "؋" },
   { code: "ALL", name: "Albanian Lek", symbol: "L" },
@@ -163,7 +163,7 @@ export const CURRENCIES: CurrencyInfo[] = [
   { code: "ZAR", name: "South African Rand", symbol: "R" },
   { code: "ZMW", name: "Zambian Kwacha", symbol: "ZK" },
   { code: "ZWL", name: "Zimbabwean Dollar", symbol: "Z$" },
-];
+]);
 
 const currencyMap = new Map(CURRENCIES.map((c) => [c.code, c]));
 
@@ -172,5 +172,6 @@ const currencyMap = new Map(CURRENCIES.map((c) => [c.code, c]));
  * Falls back to the code itself if not found.
  */
 export function getCurrencySymbol(code: string): string {
-  return currencyMap.get(code)?.symbol ?? code;
+  const normalized = code.trim().toUpperCase();
+  return currencyMap.get(normalized)?.symbol ?? normalized;
 }

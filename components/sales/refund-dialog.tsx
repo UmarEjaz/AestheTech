@@ -83,7 +83,7 @@ export function RefundDialog({
   });
 
   const currentAmount = watch("amount") || 0;
-  const isFullRefund = currentAmount >= maxRefundable - minAmount;
+  const isFullRefund = currentAmount > maxRefundable - minAmount;
 
   const onSubmit = async (data: RefundFormData) => {
     if (data.amount > maxRefundable) {
