@@ -24,6 +24,7 @@ async function main() {
   await prisma.service.deleteMany();
   await prisma.client.deleteMany();
   await prisma.settings.deleteMany();
+  await prisma.userSalon.deleteMany();
   await prisma.user.deleteMany();
   await prisma.salon.deleteMany();
 
@@ -140,6 +141,68 @@ async function main() {
   });
 
   console.log("👤 Created users");
+
+  // Create UserSalon records for all users
+  const allUsers = [
+    { user: superAdmin, role: Role.OWNER },
+    { user: owner, role: Role.OWNER },
+    { user: admin, role: Role.ADMIN },
+    { user: staff1, role: Role.STAFF },
+    { user: staff2, role: Role.STAFF },
+  ];
+
+  for (const { user: u, role: r } of allUsers) {
+    await prisma.userSalon.create({
+      data: { userId: u.id, salonId: salon.id, role: r },
+    });
+  }
+  // Receptionist (lisa) — created inline above, need to get her separately
+  const lisa = await prisma.user.findUnique({ where: { email: "lisa@aesthetech.com" } });
+  if (lisa) {
+    await prisma.userSalon.create({
+      data: { userId: lisa.id, salonId: salon.id, role: Role.RECEPTIONIST },
+    });
+  }
+
+  console.log("🔗 Created user-salon associations");
+
+  // Create a demo branch salon
+  const branchSalon = await prisma.salon.create({
+    data: {
+      name: "AestheTech Downtown",
+      slug: "aesthetech-downtown",
+      address: "456 Main St, Downtown",
+      phone: "+1234567899",
+      email: "downtown@aesthetech.com",
+      subscriptionStatus: "ACTIVE",
+      subscriptionPlan: "PRO",
+      parentSalonId: salon.id,
+    },
+  });
+
+  await prisma.settings.create({
+    data: {
+      salonId: branchSalon.id,
+      salonName: "AestheTech Downtown",
+      salonAddress: "456 Main St, Downtown",
+      salonPhone: "+1234567899",
+      salonEmail: "downtown@aesthetech.com",
+    },
+  });
+
+  // Give Owner and SuperAdmin access to the branch
+  await prisma.userSalon.create({
+    data: { userId: superAdmin.id, salonId: branchSalon.id, role: Role.OWNER },
+  });
+  await prisma.userSalon.create({
+    data: { userId: owner.id, salonId: branchSalon.id, role: Role.OWNER },
+  });
+  // Assign one staff member to both branches
+  await prisma.userSalon.create({
+    data: { userId: staff1.id, salonId: branchSalon.id, role: Role.STAFF },
+  });
+
+  console.log("🏢 Created demo branch salon");
 
   // Create Services (salon-scoped)
   const services = await Promise.all([

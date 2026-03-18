@@ -94,7 +94,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session: updateData }) {
       if (user) {
         // Initial login
         token.id = user.id;
@@ -104,6 +104,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.isSuperAdmin = user.isSuperAdmin;
         token.salonId = user.salonId;
         token.salonRole = user.salonRole;
+      }
+
+      // Salon switch — update token with new values from client-side update() call
+      if (trigger === "update" && updateData) {
+        if (updateData.salonId !== undefined) {
+          token.salonId = updateData.salonId;
+        }
+        if (updateData.salonRole !== undefined) {
+          token.salonRole = updateData.salonRole;
+        }
       }
 
       return token;

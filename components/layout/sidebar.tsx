@@ -17,6 +17,7 @@ import {
   Gift,
   LayoutDashboard,
   ShieldCheck,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -106,6 +107,12 @@ const navItems: NavItem[] = [
     href: "/dashboard/settings",
     icon: Settings,
     roles: [Role.OWNER, Role.ADMIN],
+  },
+  {
+    title: "Branches",
+    href: "/dashboard/branches",
+    icon: Building2,
+    roles: [Role.OWNER],
   },
   {
     title: "Audit Log",

@@ -267,17 +267,29 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
   // Hash password
   const hashedPassword = await bcrypt.hash(userData.password, 12);
 
-  // Create user with salon and role
-  const user = await prisma.user.create({
-    data: {
-      firstName: userData.firstName,
-      lastName: userData.lastName,
-      email: userData.email,
-      password: hashedPassword,
-      phone: userData.phone || null,
-      salonId: authResult.salonId,
-      role,
-    },
+  // Create user with salon and role, plus UserSalon junction record
+  const user = await prisma.$transaction(async (tx) => {
+    const newUser = await tx.user.create({
+      data: {
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        email: userData.email,
+        password: hashedPassword,
+        phone: userData.phone || null,
+        salonId: authResult.salonId,
+        role,
+      },
+    });
+
+    await tx.userSalon.create({
+      data: {
+        userId: newUser.id,
+        salonId: authResult.salonId,
+        role,
+      },
+    });
+
+    return newUser;
   });
 
   await logAudit({
@@ -348,17 +360,27 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     }
   }
 
-  // Update user
-  await prisma.user.update({
-    where: { id, salonId: authResult.salonId },
-    data: {
-      firstName: updateData.firstName,
-      lastName: updateData.lastName,
-      email: updateData.email,
-      phone: updateData.phone || null,
-      ...(newRole && newRole !== existingRole && { role: newRole }),
-      ...(updateData.isActive !== undefined && { isActive: updateData.isActive }),
-    },
+  // Update user and sync UserSalon role if changed
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id, salonId: authResult.salonId },
+      data: {
+        firstName: updateData.firstName,
+        lastName: updateData.lastName,
+        email: updateData.email,
+        phone: updateData.phone || null,
+        ...(newRole && newRole !== existingRole && { role: newRole }),
+        ...(updateData.isActive !== undefined && { isActive: updateData.isActive }),
+      },
+    });
+
+    // Keep UserSalon.role in sync with the denormalized User.role
+    if (newRole && newRole !== existingRole) {
+      await tx.userSalon.updateMany({
+        where: { userId: id, salonId: authResult.salonId },
+        data: { role: newRole },
+      });
+    }
   });
 
   const changes: Record<string, { from: string; to: string }> = {};

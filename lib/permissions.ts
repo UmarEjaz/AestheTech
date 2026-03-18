@@ -57,6 +57,10 @@ export const permissions: Record<string, Role[]> = {
   "loyalty:view": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
   "loyalty:manage": [Role.OWNER, Role.ADMIN],
 
+  // Branches
+  "branches:view": [Role.OWNER],
+  "branches:manage": [Role.OWNER],
+
   // Audit
   "audit:view": [Role.OWNER],
 };
