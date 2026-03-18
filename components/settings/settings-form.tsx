@@ -6,9 +6,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMemo } from "react";
-import { Loader2, Building2, Clock, DollarSign, Star, Globe } from "lucide-react";
+import { Loader2, Building2, Clock, DollarSign, Star, Globe, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,10 +21,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
 import { CURRENCIES } from "@/lib/currencies";
+
+const CURRENCY_CODES = new Set(CURRENCIES.map((c) => c.code));
 
 const settingsSchema = z.object({
   salonName: z.string().min(1, "Salon name is required").max(100),
@@ -31,7 +47,7 @@ const settingsSchema = z.object({
   salonPhone: z.string().max(20).optional().nullable(),
   salonEmail: z.string().email().optional().or(z.literal("")).nullable(),
   timezone: z.string().min(1, "Timezone is required"),
-  currencyCode: z.string().min(3, "Currency is required").max(3),
+  currencyCode: z.string().refine((code) => CURRENCY_CODES.has(code), { message: "Unsupported currency code" }),
   taxRate: z.coerce.number().min(0).max(100),
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
@@ -160,6 +176,8 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
   });
 
   const watchedCurrency = watch("currencyCode");
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const selectedCurrencyInfo = CURRENCIES.find((c) => c.code === watchedCurrency);
   const watchedTimezone = watch("timezone");
   const watchedBusinessHoursStart = watch("businessHoursStart");
   const watchedBusinessHoursEnd = watch("businessHoursEnd");
@@ -387,22 +405,45 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="currencyCode">Currency</Label>
-              <Select
-                value={watchedCurrency}
-                onValueChange={(value) => setValue("currencyCode", value, { shouldDirty: true })}
-                disabled={!canManage}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select currency" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>
-                      {c.code} ({c.symbol}) — {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={currencyOpen} onOpenChange={setCurrencyOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={currencyOpen}
+                    className="w-full justify-between font-normal"
+                    disabled={!canManage}
+                  >
+                    {selectedCurrencyInfo
+                      ? `${selectedCurrencyInfo.code} (${selectedCurrencyInfo.symbol}) — ${selectedCurrencyInfo.name}`
+                      : "Select currency"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[350px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search currencies..." />
+                    <CommandList>
+                      <CommandEmpty>No currency found.</CommandEmpty>
+                      <CommandGroup>
+                        {CURRENCIES.map((c) => (
+                          <CommandItem
+                            key={c.code}
+                            value={`${c.code} ${c.name} ${c.symbol}`}
+                            onSelect={() => {
+                              setValue("currencyCode", c.code, { shouldDirty: true });
+                              setCurrencyOpen(false);
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", watchedCurrency === c.code ? "opacity-100" : "opacity-0")} />
+                            {c.code} ({c.symbol}) — {c.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-2">
               <Label htmlFor="taxRate">Tax Rate (%)</Label>

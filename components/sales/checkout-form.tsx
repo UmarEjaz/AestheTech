@@ -50,6 +50,7 @@ import { getActiveProducts } from "@/lib/actions/product";
 import { PaymentMethod } from "@prisma/client";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS } from "@/lib/constants/payment-methods";
 import { formatCurrency } from "@/lib/utils/currency";
+import { getCurrencySymbol } from "@/lib/currencies";
 
 interface CartItem {
   id: string;
@@ -830,7 +831,7 @@ export function CheckoutForm({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="fixed">{currencyCode}</SelectItem>
+                        <SelectItem value="fixed">{getCurrencySymbol(currencyCode)}</SelectItem>
                         <SelectItem value="percentage">%</SelectItem>
                       </SelectContent>
                     </Select>

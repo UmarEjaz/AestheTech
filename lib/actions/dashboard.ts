@@ -85,7 +85,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
     // Check cache first
-    const cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}`;
+    const cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}`;
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
       return { success: true, data: cached };
@@ -362,7 +362,7 @@ export async function getReportData(params: {
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
     // Check cache first
-    const cacheKey = `salon:${authResult.salonId}:reports:${tz}:${startDate.toISOString()}:${endDate.toISOString()}`;
+    const cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:${startDate.toISOString()}:${endDate.toISOString()}`;
     const cached = await cacheGet<ReportData>(cacheKey);
     if (cached) {
       return { success: true, data: cached };

@@ -261,8 +261,8 @@
 ## Phase 5: International Currency Support
 
 ### Currency System
-- [x] Replace hardcoded Currency enum with a comprehensive currency list (~180 currencies)
-- [x] Store currency code (ISO 4217), symbol, decimal places, and symbol position per currency
+- [x] Replace hardcoded Currency enum with a comprehensive currency list (155 currencies)
+- [x] Store ISO 4217 currency code per salon (formatting metadata derived centrally via Intl.NumberFormat)
 - [x] Add currency selector to salon settings (searchable dropdown)
 - [x] Handle currencies with 0 decimal places (JPY, KRW) and 3 decimal places (BHD, KWD)
 
@@ -365,11 +365,12 @@
 - [ ] Write tests for refund logic (point reversal, partial refunds)
 - [ ] Write tests for loyalty point calculations (tier upgrades, birthday bonus, expiry)
 
-**P1 — Utility functions (pure logic, easy wins):**
+**P1 — Utility functions & critical flows:**
 - [ ] Write unit tests for `recurring.ts` (date generation, all patterns, edge cases)
 - [ ] Write unit tests for `timezone.ts` (date boundaries, DST)
 - [ ] Write unit tests for `ical.ts` (export formatting)
 - [ ] Write unit tests for validation schemas (Zod edge cases)
+- [ ] Write E2E tests for critical flows (sales, appointments)
 
 **P2 — Auth & permissions:**
 - [ ] Test authentication and authorization
@@ -377,7 +378,6 @@
 
 **P3 — Lower priority (defer unless team grows):**
 - [ ] Write component tests for key components
-- [ ] Write E2E tests for critical flows (sales, appointments)
 - [ ] Run test coverage report
 - [ ] Fix all failing tests
 
@@ -495,7 +495,7 @@
 
 ## Progress Tracking
 
-**Last Updated**: March 17, 2026
+**Last Updated**: March 18, 2026
 
 **Overall Progress**: ~85% of core features completed
 

@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { serviceSchema, ServiceFormData, ServiceFormInput } from "@/lib/validations/service";
 import { createService, updateService } from "@/lib/actions/service";
+import { getCurrencyDecimals } from "@/lib/utils/currency";
 
 interface ServiceFormProps {
   service?: {
@@ -33,6 +34,9 @@ interface ServiceFormProps {
 export function ServiceForm({ service, mode, categories, currencyCode = "USD" }: ServiceFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const decimals = getCurrencyDecimals(currencyCode);
+  const priceStep = Math.pow(10, -decimals).toString();
+  const pricePlaceholder = decimals === 0 ? "0" : `0.${"0".repeat(decimals)}`;
 
   const {
     register,
@@ -155,9 +159,9 @@ export function ServiceForm({ service, mode, categories, currencyCode = "USD" }:
               <Input
                 id="price"
                 type="number"
-                step="0.01"
+                step={priceStep}
                 {...register("price", { valueAsNumber: true })}
-                placeholder="0.00"
+                placeholder={pricePlaceholder}
                 min="0"
               />
               {errors.price && (

@@ -165,3 +165,13 @@ export const CURRENCIES: CurrencyInfo[] = [
   { code: "ZMW", name: "Zambian Kwacha", symbol: "ZK" },
   { code: "ZWL", name: "Zimbabwean Dollar", symbol: "Z$" },
 ];
+
+const currencyMap = new Map(CURRENCIES.map((c) => [c.code, c]));
+
+/**
+ * Get the display symbol for a currency code.
+ * Falls back to the code itself if not found.
+ */
+export function getCurrencySymbol(code: string): string {
+  return currencyMap.get(code)?.symbol ?? code;
+}

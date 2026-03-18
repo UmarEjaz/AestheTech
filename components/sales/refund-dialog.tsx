@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, RotateCcw } from "lucide-react";
@@ -26,14 +26,17 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { createRefund } from "@/lib/actions/invoice";
-import { formatCurrency } from "@/lib/utils/currency";
+import { formatCurrency, getCurrencyDecimals } from "@/lib/utils/currency";
+import { getCurrencySymbol } from "@/lib/currencies";
 
-const refundFormSchema = z.object({
-  amount: z.number().min(0.01, "Refund amount must be at least 0.01"),
-  reason: z.string().max(500, "Reason must be less than 500 characters").optional(),
-});
-
-type RefundFormData = z.infer<typeof refundFormSchema>;
+function createRefundSchema(currencyCode: string) {
+  const decimals = getCurrencyDecimals(currencyCode);
+  const minAmount = decimals === 0 ? 1 : Number(Math.pow(10, -decimals).toFixed(decimals));
+  return z.object({
+    amount: z.number().min(minAmount, `Refund amount must be at least ${minAmount}`),
+    reason: z.string().max(500, "Reason must be less than 500 characters").optional(),
+  });
+}
 
 interface RefundDialogProps {
   invoiceId: string;
@@ -52,6 +55,14 @@ export function RefundDialog({
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const refundSchema = useMemo(() => createRefundSchema(currencyCode), [currencyCode]);
+  type RefundFormData = z.infer<typeof refundSchema>;
+  const decimals = getCurrencyDecimals(currencyCode);
+  const minAmount = decimals === 0 ? 1 : Number(Math.pow(10, -decimals).toFixed(decimals));
+  const stepValue = minAmount.toString();
+  const placeholder = decimals === 0 ? "0" : `0.${"0".repeat(decimals)}`;
+  const symbol = getCurrencySymbol(currencyCode);
+
   const {
     register,
     handleSubmit,
@@ -60,7 +71,7 @@ export function RefundDialog({
     setValue,
     formState: { errors },
   } = useForm<RefundFormData>({
-    resolver: zodResolver(refundFormSchema),
+    resolver: zodResolver(refundSchema),
     defaultValues: {
       amount: maxRefundable,
       reason: "",
@@ -68,7 +79,7 @@ export function RefundDialog({
   });
 
   const currentAmount = watch("amount") || 0;
-  const isFullRefund = currentAmount >= maxRefundable - 0.01;
+  const isFullRefund = currentAmount >= maxRefundable - minAmount;
 
   const onSubmit = async (data: RefundFormData) => {
     if (data.amount > maxRefundable) {
@@ -155,17 +166,17 @@ export function RefundDialog({
               </div>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  {currencyCode}
+                  {symbol}
                 </span>
                 <Input
                   id="amount"
                   type="number"
-                  step="0.01"
-                  min="0.01"
+                  step={stepValue}
+                  min={stepValue}
                   max={maxRefundable}
                   {...register("amount", { valueAsNumber: true })}
                   className="pl-7"
-                  placeholder="0.00"
+                  placeholder={placeholder}
                 />
               </div>
               {errors.amount && (
