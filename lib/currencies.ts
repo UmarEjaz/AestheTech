@@ -64,7 +64,6 @@ export const CURRENCIES: CurrencyInfo[] = [
   { code: "GYD", name: "Guyanaese Dollar", symbol: "GY$" },
   { code: "HKD", name: "Hong Kong Dollar", symbol: "HK$" },
   { code: "HNL", name: "Honduran Lempira", symbol: "L" },
-  { code: "HRK", name: "Croatian Kuna", symbol: "kn" },
   { code: "HTG", name: "Haitian Gourde", symbol: "G" },
   { code: "HUF", name: "Hungarian Forint", symbol: "Ft" },
   { code: "IDR", name: "Indonesian Rupiah", symbol: "Rp" },

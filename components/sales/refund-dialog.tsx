@@ -29,9 +29,13 @@ import { createRefund } from "@/lib/actions/invoice";
 import { formatCurrency, getCurrencyDecimals } from "@/lib/utils/currency";
 import { getCurrencySymbol } from "@/lib/currencies";
 
-function createRefundSchema(currencyCode: string) {
+function getMinAmount(currencyCode: string): number {
   const decimals = getCurrencyDecimals(currencyCode);
-  const minAmount = decimals === 0 ? 1 : Number(Math.pow(10, -decimals).toFixed(decimals));
+  return decimals === 0 ? 1 : Number(Math.pow(10, -decimals).toFixed(decimals));
+}
+
+function createRefundSchema(currencyCode: string) {
+  const minAmount = getMinAmount(currencyCode);
   return z.object({
     amount: z.number().min(minAmount, `Refund amount must be at least ${minAmount}`),
     reason: z.string().max(500, "Reason must be less than 500 characters").optional(),
@@ -57,8 +61,8 @@ export function RefundDialog({
 
   const refundSchema = useMemo(() => createRefundSchema(currencyCode), [currencyCode]);
   type RefundFormData = z.infer<typeof refundSchema>;
+  const minAmount = getMinAmount(currencyCode);
   const decimals = getCurrencyDecimals(currencyCode);
-  const minAmount = decimals === 0 ? 1 : Number(Math.pow(10, -decimals).toFixed(decimals));
   const stepValue = minAmount.toString();
   const placeholder = decimals === 0 ? "0" : `0.${"0".repeat(decimals)}`;
   const symbol = getCurrencySymbol(currencyCode);
