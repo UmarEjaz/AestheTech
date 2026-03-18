@@ -258,7 +258,83 @@
 
 ---
 
-## Phase 5: Polish & Testing (Week 9-10)
+## Phase 5: International Currency Support
+
+### Currency System
+- [x] Replace hardcoded Currency enum with a comprehensive currency list (~180 currencies)
+- [x] Store currency code (ISO 4217), symbol, decimal places, and symbol position per currency
+- [x] Add currency selector to salon settings (searchable dropdown)
+- [x] Handle currencies with 0 decimal places (JPY, KRW) and 3 decimal places (BHD, KWD)
+
+### Formatting & Display
+- [x] Create a centralized currency formatting utility using `Intl.NumberFormat`
+- [x] Handle symbol placement (prefix vs suffix, e.g., $100 vs 100€)
+- [x] Handle number grouping differences (1,000.00 vs 1.000,00)
+- [x] Apply consistent currency formatting across all pages (dashboard, sales, invoices, reports)
+
+### Data & Migration
+- [x] Update Settings model to store ISO currency code instead of enum
+- [x] Migrate existing currency data to new format
+- [x] Update invoice PDF and email templates with proper formatting
+- [x] Update report exports (PDF, CSV) with proper formatting
+
+---
+
+## Phase 6: Multi-Location Support
+
+### Schema & Architecture
+- [ ] Redesign salon-user relationship to allow staff across branches of the same owner
+- [ ] Add location/branch model (linked to a parent salon or organization)
+- [ ] Update middleware to handle branch selection and switching
+- [ ] Add branch switcher to UI
+
+### Data & Operations
+- [ ] Scope appointments, sales, invoices, and schedules per branch
+- [ ] Allow shared clients across branches
+- [ ] Allow shared services/products or per-branch catalogs
+- [ ] Update dashboard and reports to filter by branch or show combined view
+
+### Admin & Settings
+- [ ] Create branch management page for owners
+- [ ] Per-branch settings (hours, timezone, currency)
+- [ ] Staff assignment and transfer between branches
+- [ ] Cross-branch reporting for owners
+
+---
+
+## Phase 7: Financial Management
+
+### Profit Tracking & Analytics
+- [ ] Add cost/expense fields to services and products where missing
+- [ ] Calculate profit per client (revenue minus costs)
+- [ ] Calculate profit margin per service and product
+- [ ] Create daily sales summary (total sales, total costs, net profit)
+- [ ] Create monthly sales summary with trends
+- [ ] Create monthly profit report with breakdown
+- [ ] Add profit widgets to dashboard
+- [ ] Add profit charts and visualizations to reports page
+
+### Daily Income & Expense Tracking
+- [ ] Create `Expense` model in database (amount, category, date, description, receipt)
+- [ ] Create expense categories (rent, utilities, supplies, marketing, etc.)
+- [ ] Create "Add Expense" form with validation
+- [ ] Create expense list page with filtering by date/category
+- [ ] Create daily income vs expense summary view
+- [ ] Create monthly income vs expense report
+- [ ] Add expense widgets to dashboard
+
+### Staff Salaries & Payroll
+- [ ] Create `Salary` model in database (staffId, amount, payPeriod, payDate, status)
+- [ ] Create salary configuration per staff member (monthly/hourly rate)
+- [ ] Create salary payment tracking page
+- [ ] Create payroll management dashboard
+- [ ] Create payroll summary report (monthly/yearly)
+- [ ] Track salary payment history per staff member
+- [ ] Add salary expenses to overall expense tracking
+
+---
+
+## Phase 8: Polish & Testing
 
 ### UI/UX Refinements
 - [ ] Review all pages for consistent styling
@@ -278,6 +354,7 @@
 - [ ] Test on different devices (mobile, tablet, desktop)
 - [ ] Get user feedback and iterate
 - [ ] Add time format setting (12h/24h) to salon settings and apply across the app (schedules, appointments, invoices)
+
 
 ### Testing
 > **Priority Note**: Add tests once the app is feature-complete, before going to production. Focus on server-side money/data logic first (highest ROI), then utilities, then skip UI/E2E tests unless team grows. No testing framework is installed yet — set up Vitest before starting.
@@ -329,7 +406,7 @@
 
 ---
 
-## Phase 6: Deployment & Launch (Week 11-12)
+## Phase 9: Deployment & Launch
 
 ### Deployment Setup
 - [ ] Set up Railway account and project
@@ -385,14 +462,17 @@
 - [ ] Mobile app (React Native)
 - [ ] Advanced analytics with more charts
 - [ ] Employee commission tracking
-- [ ] Multi-location support
+
+### Competitor Feature Analysis
+- [ ] Research Salonist app features and identify gaps
+- [ ] Present feature gap analysis for review
+- [ ] Add approved features to task list
 
 ### Phase 3 Features
 - [ ] Marketing automation (email campaigns)
 - [ ] Client feedback and reviews system
 - [ ] AI-powered appointment recommendations
 - [ ] Integration with accounting software (QuickBooks, Xero)
-- [ ] Payroll management
 - [ ] Membership/subscription plans
 
 ---
@@ -415,17 +495,20 @@
 
 ## Progress Tracking
 
-**Last Updated**: February 14, 2026
+**Last Updated**: March 17, 2026
 
 **Overall Progress**: ~85% of core features completed
 
 ### Phase Status
 - [x] Phase 1: Project Foundation (100%)
-- [x] Phase 2: Core Features Part 1 (98%)
+- [x] Phase 2: Core Features Part 1 (100%)
 - [x] Phase 3: Core Features Part 2 (100%)
-- [x] Phase 4: Advanced Features (95%)
-- [ ] Phase 5: Polish & Testing (0%)
-- [ ] Phase 6: Deployment & Launch (0%)
+- [x] Phase 4: Advanced Features (100%)
+- [x] Phase 5: International Currency Support (100%)
+- [ ] Phase 6: Multi-Location Support (0%)
+- [ ] Phase 7: Financial Management (0%)
+- [ ] Phase 8: Polish & Testing (0%)
+- [ ] Phase 9: Deployment & Launch (0%)
 
 ---
 

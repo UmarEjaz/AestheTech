@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { Currency } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { checkAuth } from "@/lib/auth-helpers";
 import { logAudit } from "./audit";
@@ -17,8 +16,7 @@ export interface SettingsData {
   salonEmail: string | null;
   salonLogo: string | null;
   timezone: string;
-  currency: Currency;
-  currencySymbol: string;
+  currencyCode: string;
   taxRate: number;
   businessHoursStart: string;
   businessHoursEnd: string;
@@ -61,8 +59,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           salonEmail: null,
           salonLogo: null,
           timezone: "UTC",
-          currency: "USD",
-          currencySymbol: "$",
+          currencyCode: "USD",
           taxRate: 0,
           businessHoursStart: "09:00",
           businessHoursEnd: "19:00",
@@ -137,10 +134,13 @@ export async function updateSettings(
       }
     }
 
-    // If currency is being changed, update the symbol
-    let currencySymbol = data.currencySymbol;
-    if (data.currency && !data.currencySymbol) {
-      currencySymbol = data.currency === "PKR" ? "Rs." : "$";
+    // Validate currency code if provided
+    if (data.currencyCode !== undefined) {
+      try {
+        new Intl.NumberFormat("en-US", { style: "currency", currency: data.currencyCode });
+      } catch {
+        return { success: false, error: "Invalid currency code" };
+      }
     }
 
     // Validate tier thresholds if provided
@@ -177,10 +177,7 @@ export async function updateSettings(
 
     const updatedSettings = await prisma.settings.update({
       where: { id: existingSettings.id },
-      data: {
-        ...data,
-        ...(currencySymbol && { currencySymbol }),
-      },
+      data,
     });
 
     // Recalculate all client tiers if thresholds changed
@@ -241,15 +238,6 @@ export async function updateSettings(
     console.error("Error updating settings:", error);
     return { success: false, error: "Failed to update settings" };
   }
-}
-
-/** Returns the configured currency symbol, defaulting to "$". */
-export async function getCurrencySymbol(): Promise<string> {
-  const result = await getSettings();
-  if (result.success) {
-    return result.data.currencySymbol;
-  }
-  return "$";
 }
 
 /** Returns the configured IANA timezone, defaulting to "UTC". */

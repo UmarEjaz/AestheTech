@@ -69,7 +69,7 @@ export interface DashboardStats {
     appointmentsCount: number;
     revenue: number;
   }[];
-  currencySymbol: string;
+  currencyCode: string;
 }
 
 export async function getDashboardStats(): Promise<ActionResult<DashboardStats>> {
@@ -81,7 +81,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
   try {
     // Get settings for currency and timezone
     const settingsResult = await getSettings();
-    const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+    const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
     // Check cache first
@@ -311,7 +311,7 @@ export async function getDashboardStats(): Promise<ActionResult<DashboardStats>>
       recentSales,
       upcomingAppointments,
       staffPerformance,
-      currencySymbol,
+      currencyCode,
     };
 
     await cacheSet(cacheKey, data, 300); // 5 min TTL
@@ -337,7 +337,7 @@ export interface ReportData {
     appointments: number;
     newClients: number;
   };
-  currencySymbol: string;
+  currencyCode: string;
 }
 
 export async function getReportData(params: {
@@ -358,7 +358,7 @@ export async function getReportData(params: {
   try {
     // Get settings for currency and timezone
     const settingsResult = await getSettings();
-    const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+    const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
     // Check cache first
@@ -527,7 +527,7 @@ export async function getReportData(params: {
       clientGrowth,
       peakHours,
       totals,
-      currencySymbol,
+      currencyCode,
     };
 
     await cacheSet(cacheKey, data, 600); // 10 min TTL

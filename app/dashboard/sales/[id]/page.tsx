@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { formatInTz } from "@/lib/utils/timezone";
+import { formatCurrency } from "@/lib/utils/currency";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -63,7 +64,7 @@ export default async function SaleDetailPage({
 
   const sale = saleResult.data;
   const settings = settingsResult.success ? settingsResult.data : {
-    currencySymbol: "$",
+    currencyCode: "USD",
     salonName: "AestheTech Salon",
     salonAddress: null,
     salonPhone: null,
@@ -89,7 +90,7 @@ export default async function SaleDetailPage({
         salonPhone: settings.salonPhone,
         salonEmail: settings.salonEmail,
         salonLogo: settings.salonLogo,
-        currencySymbol: settings.currencySymbol,
+        currencyCode: settings.currencyCode,
         taxRate: settings.taxRate,
         timezone: tz,
         client: {
@@ -164,7 +165,7 @@ export default async function SaleDetailPage({
                 invoiceId={sale.invoice.id}
                 invoiceNumber={sale.invoice.invoiceNumber}
                 maxRefundable={maxRefundable}
-                currencySymbol={settings.currencySymbol}
+                currencyCode={settings.currencyCode}
               />
             )}
             {sale.invoice && invoiceData && (
@@ -213,11 +214,11 @@ export default async function SaleDetailPage({
                           {item.staff ? `${item.staff.firstName} ${item.staff.lastName}` : "-"}
                         </TableCell>
                         <TableCell className="text-right">
-                          {settings.currencySymbol}{Number(item.price).toFixed(2)}
+                          {formatCurrency(Number(item.price), settings.currencyCode)}
                         </TableCell>
                         <TableCell className="text-center">{item.quantity}</TableCell>
                         <TableCell className="text-right font-medium">
-                          {settings.currencySymbol}{(Number(item.price) * item.quantity).toFixed(2)}
+                          {formatCurrency(Number(item.price) * item.quantity, settings.currencyCode)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -259,7 +260,7 @@ export default async function SaleDetailPage({
                             </Badge>
                             {sale.invoice!.payments.length > 1 && (
                               <span className="text-sm font-medium">
-                                {settings.currencySymbol}{Number(payment.amount).toFixed(2)}
+                                {formatCurrency(Number(payment.amount), settings.currencyCode)}
                               </span>
                             )}
                           </div>
@@ -271,7 +272,7 @@ export default async function SaleDetailPage({
                   <div className="flex justify-between items-center text-lg font-bold">
                     <span>Total</span>
                     <span className="text-purple-600">
-                      {settings.currencySymbol}{Number(sale.invoice.total).toFixed(2)}
+                      {formatCurrency(Number(sale.invoice.total), settings.currencyCode)}
                     </span>
                   </div>
                   {totalRefunded > 0 && (
@@ -279,11 +280,11 @@ export default async function SaleDetailPage({
                       <Separator />
                       <div className="flex justify-between items-center text-red-600">
                         <span>Total Refunded</span>
-                        <span>-{settings.currencySymbol}{totalRefunded.toFixed(2)}</span>
+                        <span>-{formatCurrency(totalRefunded, settings.currencyCode)}</span>
                       </div>
                       <div className="flex justify-between items-center font-medium">
                         <span>Net Amount</span>
-                        <span>{settings.currencySymbol}{(Number(sale.invoice.total) - totalRefunded).toFixed(2)}</span>
+                        <span>{formatCurrency(Number(sale.invoice.total) - totalRefunded, settings.currencyCode)}</span>
                       </div>
                     </>
                   )}
@@ -319,7 +320,7 @@ export default async function SaleDetailPage({
                             {formatInTz(refund.createdAt, "MMM d, yyyy h:mm a", tz)}
                           </TableCell>
                           <TableCell className="text-red-600 font-medium">
-                            -{settings.currencySymbol}{Number(refund.amount).toFixed(2)}
+                            -{formatCurrency(Number(refund.amount), settings.currencyCode)}
                           </TableCell>
                           <TableCell>
                             {refund.pointsReversed > 0 ? (
@@ -397,19 +398,19 @@ export default async function SaleDetailPage({
               <CardContent className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span>{settings.currencySymbol}{Number(sale.totalAmount).toFixed(2)}</span>
+                  <span>{formatCurrency(Number(sale.totalAmount), settings.currencyCode)}</span>
                 </div>
                 {Number(sale.discount) > 0 && (
                   <div className="flex justify-between text-green-600">
                     <span>Discount</span>
-                    <span>-{settings.currencySymbol}{Number(sale.discount).toFixed(2)}</span>
+                    <span>-{formatCurrency(Number(sale.discount), settings.currencyCode)}</span>
                   </div>
                 )}
                 <Separator />
                 <div className="flex justify-between text-lg font-bold">
                   <span>Final Amount</span>
                   <span className="text-purple-600">
-                    {settings.currencySymbol}{Number(sale.finalAmount).toFixed(2)}
+                    {formatCurrency(Number(sale.finalAmount), settings.currencyCode)}
                   </span>
                 </div>
               </CardContent>

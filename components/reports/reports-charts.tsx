@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { subDays, startOfMonth, endOfMonth } from "date-fns";
 import { formatInTz } from "@/lib/utils/timezone";
+import { formatCurrency } from "@/lib/utils/currency";
 import {
   BarChart,
   Bar,
@@ -93,9 +94,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
     setIsLoading(false);
   };
 
-  const formatCurrency = (value: number) => {
-    return `${data.currencySymbol}${value.toLocaleString()}`;
-  };
+  const fmtCurrency = (value: number) => formatCurrency(value, data.currencyCode);
 
   return (
     <div className="space-y-6">
@@ -185,7 +184,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(data.totals.revenue)}</div>
+            <div className="text-2xl font-bold">{fmtCurrency(data.totals.revenue)}</div>
             <p className="text-xs text-muted-foreground">
               {data.totals.sales} sales completed
             </p>
@@ -225,7 +224,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(data.totals.sales > 0 ? data.totals.revenue / data.totals.sales : 0)}
+              {fmtCurrency(data.totals.sales > 0 ? data.totals.revenue / data.totals.sales : 0)}
             </div>
             <p className="text-xs text-muted-foreground">
               Per transaction
@@ -258,11 +257,11 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     className="text-xs"
                   />
                   <YAxis
-                    tickFormatter={(value) => `${data.currencySymbol}${value}`}
+                    tickFormatter={(value) => fmtCurrency(value)}
                     className="text-xs"
                   />
                   <Tooltip
-                    formatter={(value) => [formatCurrency(value as number), "Revenue"]}
+                    formatter={(value) => [fmtCurrency(value as number), "Revenue"]}
                     labelFormatter={(label) => formatInTz(label as string, "MMM d, yyyy", timezone)}
                   />
                   <Area
@@ -311,7 +310,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                    <Tooltip formatter={(value) => fmtCurrency(value as number)} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
@@ -377,11 +376,11 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                 <BarChart data={data.revenueByStaff}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="staff" className="text-xs" />
-                  <YAxis yAxisId="left" tickFormatter={(value) => `${data.currencySymbol}${value}`} />
+                  <YAxis yAxisId="left" tickFormatter={(value) => fmtCurrency(value)} />
                   <YAxis yAxisId="right" orientation="right" />
                   <Tooltip
                     formatter={(value, name) =>
-                      name === "revenue" ? formatCurrency(value as number) : value
+                      name === "revenue" ? fmtCurrency(value as number) : value
                     }
                   />
                   <Legend />

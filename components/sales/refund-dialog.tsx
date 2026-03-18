@@ -26,6 +26,7 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { createRefund } from "@/lib/actions/invoice";
+import { formatCurrency } from "@/lib/utils/currency";
 
 const refundFormSchema = z.object({
   amount: z.number().min(0.01, "Refund amount must be at least 0.01"),
@@ -38,14 +39,14 @@ interface RefundDialogProps {
   invoiceId: string;
   invoiceNumber: string;
   maxRefundable: number;
-  currencySymbol: string;
+  currencyCode: string;
 }
 
 export function RefundDialog({
   invoiceId,
   invoiceNumber,
   maxRefundable,
-  currencySymbol,
+  currencyCode,
 }: RefundDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -71,7 +72,7 @@ export function RefundDialog({
 
   const onSubmit = async (data: RefundFormData) => {
     if (data.amount > maxRefundable) {
-      toast.error(`Refund amount cannot exceed ${currencySymbol}${maxRefundable.toFixed(2)}`);
+      toast.error(`Refund amount cannot exceed ${formatCurrency(maxRefundable, currencyCode)}`);
       return;
     }
 
@@ -86,8 +87,8 @@ export function RefundDialog({
 
       if (result.success) {
         const message = result.data.pointsReversed > 0
-          ? `Refund of ${currencySymbol}${data.amount.toFixed(2)} processed. ${result.data.pointsReversed} loyalty points reversed.`
-          : `Refund of ${currencySymbol}${data.amount.toFixed(2)} processed successfully.`;
+          ? `Refund of ${formatCurrency(data.amount, currencyCode)} processed. ${result.data.pointsReversed} loyalty points reversed.`
+          : `Refund of ${formatCurrency(data.amount, currencyCode)} processed successfully.`;
         toast.success(message);
         setOpen(false);
         reset();
@@ -135,7 +136,7 @@ export function RefundDialog({
           <div className="space-y-4 py-4">
             <Alert>
               <AlertDescription>
-                Maximum refundable amount: <strong>{currencySymbol}{maxRefundable.toFixed(2)}</strong>
+                Maximum refundable amount: <strong>{formatCurrency(maxRefundable, currencyCode)}</strong>
               </AlertDescription>
             </Alert>
 
@@ -154,7 +155,7 @@ export function RefundDialog({
               </div>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  {currencySymbol}
+                  {currencyCode}
                 </span>
                 <Input
                   id="amount"

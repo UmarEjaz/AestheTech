@@ -10,6 +10,7 @@ import {
 } from "@react-pdf/renderer";
 import { ReportData } from "@/lib/actions/dashboard";
 import { formatInTz } from "@/lib/utils/timezone";
+import { formatCurrency } from "@/lib/utils/currency";
 
 // PDF Styles
 const styles = StyleSheet.create({
@@ -123,7 +124,7 @@ interface ReportPDFProps {
 
 // PDF Document Component
 function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech Salon", timezone = "UTC" }: ReportPDFProps) {
-  const formatCurrency = (value: number) => `${data.currencySymbol}${value.toFixed(2)}`;
+  const fmtCurrency = (value: number) => formatCurrency(value, data.currencyCode);
 
   return (
     <Document>
@@ -141,7 +142,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
         <View style={styles.summaryGrid}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Total Revenue</Text>
-            <Text style={styles.summaryValue}>{formatCurrency(data.totals.revenue)}</Text>
+            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.revenue)}</Text>
           </View>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Total Sales</Text>
@@ -170,7 +171,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
               {data.revenueByItem.map((entry, index) => (
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
                   <Text style={styles.tableCell}>{entry.item}</Text>
-                  <Text style={styles.tableCellRight}>{formatCurrency(entry.revenue)}</Text>
+                  <Text style={styles.tableCellRight}>{fmtCurrency(entry.revenue)}</Text>
                   <Text style={styles.tableCellRight}>{entry.percentage}%</Text>
                 </View>
               ))}
@@ -192,7 +193,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
                   <Text style={styles.tableCell}>{item.staff}</Text>
                   <Text style={styles.tableCellRight}>{item.appointments}</Text>
-                  <Text style={styles.tableCellRight}>{formatCurrency(item.revenue)}</Text>
+                  <Text style={styles.tableCellRight}>{fmtCurrency(item.revenue)}</Text>
                 </View>
               ))}
             </View>

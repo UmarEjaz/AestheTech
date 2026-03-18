@@ -23,7 +23,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
-import { Currency } from "@prisma/client";
+import { CURRENCIES } from "@/lib/currencies";
 
 const settingsSchema = z.object({
   salonName: z.string().min(1, "Salon name is required").max(100),
@@ -31,7 +31,7 @@ const settingsSchema = z.object({
   salonPhone: z.string().max(20).optional().nullable(),
   salonEmail: z.string().email().optional().or(z.literal("")).nullable(),
   timezone: z.string().min(1, "Timezone is required"),
-  currency: z.nativeEnum(Currency),
+  currencyCode: z.string().min(3, "Currency is required").max(3),
   taxRate: z.coerce.number().min(0).max(100),
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
@@ -62,7 +62,7 @@ type SettingsFormData = {
   salonPhone?: string | null;
   salonEmail?: string | null;
   timezone: string;
-  currency: Currency;
+  currencyCode: string;
   taxRate: number;
   businessHoursStart: string;
   businessHoursEnd: string;
@@ -139,7 +139,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       salonPhone: settings.salonPhone || "",
       salonEmail: settings.salonEmail || "",
       timezone: settings.timezone,
-      currency: settings.currency,
+      currencyCode: settings.currencyCode,
       taxRate: settings.taxRate,
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
@@ -159,7 +159,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
     },
   });
 
-  const watchedCurrency = watch("currency");
+  const watchedCurrency = watch("currencyCode");
   const watchedTimezone = watch("timezone");
   const watchedBusinessHoursStart = watch("businessHoursStart");
   const watchedBusinessHoursEnd = watch("businessHoursEnd");
@@ -386,18 +386,21 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="currency">Currency</Label>
+              <Label htmlFor="currencyCode">Currency</Label>
               <Select
                 value={watchedCurrency}
-                onValueChange={(value) => setValue("currency", value as Currency, { shouldDirty: true })}
+                onValueChange={(value) => setValue("currencyCode", value, { shouldDirty: true })}
                 disabled={!canManage}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select currency" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="USD">USD ($)</SelectItem>
-                  <SelectItem value="PKR">PKR (Rs.)</SelectItem>
+                  {CURRENCIES.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.code} ({c.symbol}) — {c.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -453,7 +456,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
           <div className={!watch("loyaltyProgramEnabled") ? "opacity-50 pointer-events-none" : ""}>
           {/* Points Earning */}
           <div className="space-y-2">
-            <Label htmlFor="loyaltyPointsPerDollar">Points per {watchedCurrency === "PKR" ? "100 Rs." : "$1"}</Label>
+            <Label htmlFor="loyaltyPointsPerDollar">Points per 1 {watchedCurrency}</Label>
             <Input
               id="loyaltyPointsPerDollar"
               type="number"
@@ -467,7 +470,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               <p className="text-sm text-destructive">{errors.loyaltyPointsPerDollar.message}</p>
             )}
             <p className="text-sm text-muted-foreground">
-              Base loyalty points earned for each {watchedCurrency === "PKR" ? "100 Rs." : "$1"} spent
+              Base loyalty points earned for each 1 {watchedCurrency} spent
             </p>
           </div>
 
@@ -575,7 +578,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
 
           {/* Redemption Rate */}
           <div className="space-y-2">
-            <Label htmlFor="pointsPerDollar">Redemption Rate (points per {watchedCurrency === "PKR" ? "Rs.1" : "$1"})</Label>
+            <Label htmlFor="pointsPerDollar">Redemption Rate (points per 1 {watchedCurrency})</Label>
             <Input
               id="pointsPerDollar"
               type="number"
@@ -588,7 +591,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               <p className="text-sm text-destructive">{errors.pointsPerDollar.message}</p>
             )}
             <p className="text-sm text-muted-foreground">
-              How many points equal {watchedCurrency === "PKR" ? "Rs.1" : "$1"} when redeeming at checkout
+              How many points equal 1 {watchedCurrency} when redeeming at checkout
             </p>
           </div>
 

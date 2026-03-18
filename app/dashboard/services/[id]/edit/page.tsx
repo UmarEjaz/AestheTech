@@ -42,7 +42,7 @@ export default async function EditServicePage({ params }: PageProps) {
 
   const service = serviceResult.data;
   const categories = categoriesResult.success ? categoriesResult.data : [];
-  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+  const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -74,7 +74,7 @@ export default async function EditServicePage({ params }: PageProps) {
             isActive: service.isActive,
           }}
           categories={categories}
-          currencySymbol={currencySymbol}
+          currencyCode={currencyCode}
         />
       </div>
     </DashboardLayout>

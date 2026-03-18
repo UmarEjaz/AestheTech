@@ -49,6 +49,7 @@ import { quickSale } from "@/lib/actions/sale";
 import { getActiveProducts } from "@/lib/actions/product";
 import { PaymentMethod } from "@prisma/client";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS } from "@/lib/constants/payment-methods";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface CartItem {
   id: string;
@@ -114,7 +115,7 @@ interface CheckoutFormProps {
   services: Service[];
   products?: Product[];
   staff: Staff[];
-  currencySymbol: string;
+  currencyCode: string;
   taxRate: number;
   pointsPerDollar: number;
   loyaltyProgramEnabled?: boolean;
@@ -125,7 +126,7 @@ export function CheckoutForm({
   services,
   products = [],
   staff,
-  currencySymbol,
+  currencyCode,
   taxRate,
   pointsPerDollar,
   loyaltyProgramEnabled = true,
@@ -287,13 +288,13 @@ export function CheckoutForm({
   const addSplitPayment = () => {
     const parsed = parseFloat(splitAmount);
     if (!parsed || parsed <= 0) {
-      toast.error(`Enter a valid amount greater than ${currencySymbol}0`);
+      toast.error(`Enter a valid amount greater than ${formatCurrency(0, currencyCode)}`);
       return;
     }
     // Round to cents and clamp to remaining balance
     const amount = Math.round(Math.min(parsed, splitRemaining) * 100) / 100;
     if (amount <= 0) {
-      toast.error(`Remaining balance is ${currencySymbol}${splitRemaining.toFixed(2)} — no more to split`);
+      toast.error(`Remaining balance is ${formatCurrency(splitRemaining, currencyCode)} — no more to split`);
       return;
     }
     const nextId = splitIdCounter + 1;
@@ -669,7 +670,7 @@ export function CheckoutForm({
                             <p className="font-medium text-sm truncate">{service.name}</p>
                             <div className="flex items-center justify-between mt-1">
                               <span className="text-sm text-purple-600 font-semibold">
-                                {currencySymbol}{Number(service.price).toFixed(2)}
+                                {formatCurrency(Number(service.price), currencyCode)}
                               </span>
                               <span className="text-xs text-muted-foreground">
                                 {service.duration}min
@@ -703,7 +704,7 @@ export function CheckoutForm({
                                 <p className="font-medium text-sm truncate">{product.name}</p>
                                 <div className="flex items-center justify-between mt-1">
                                   <span className="text-sm text-purple-600 font-semibold">
-                                    {currencySymbol}{Number(product.price).toFixed(2)}
+                                    {formatCurrency(Number(product.price), currencyCode)}
                                   </span>
                                   <div className="flex items-center gap-1">
                                     {isOutOfStock ? (
@@ -771,7 +772,7 @@ export function CheckoutForm({
                           <p className="text-xs text-muted-foreground truncate">by {item.staffName}</p>
                         )}
                         <p className="text-sm font-semibold text-purple-600">
-                          {currencySymbol}{(item.price * item.quantity).toFixed(2)}
+                          {formatCurrency(item.price * item.quantity, currencyCode)}
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
@@ -829,7 +830,7 @@ export function CheckoutForm({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="fixed">{currencySymbol}</SelectItem>
+                        <SelectItem value="fixed">{currencyCode}</SelectItem>
                         <SelectItem value="percentage">%</SelectItem>
                       </SelectContent>
                     </Select>
@@ -841,7 +842,7 @@ export function CheckoutForm({
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1">
                       <Star className="h-3 w-3" />
-                      Redeem Points ({pointsPerDollar} pts = {currencySymbol}1)
+                      Redeem Points ({pointsPerDollar} pts = {formatCurrency(1, currencyCode)})
                     </Label>
                     <div className="flex items-center gap-2">
                       <Input
@@ -872,30 +873,30 @@ export function CheckoutForm({
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal</span>
-                    <span>{currencySymbol}{subtotal.toFixed(2)}</span>
+                    <span>{formatCurrency(subtotal, currencyCode)}</span>
                   </div>
                   {discountAmount > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>Discount</span>
-                      <span>-{currencySymbol}{discountAmount.toFixed(2)}</span>
+                      <span>-{formatCurrency(discountAmount, currencyCode)}</span>
                     </div>
                   )}
                   {loyaltyProgramEnabled && redeemPoints > 0 && (
                     <div className="flex justify-between text-amber-600">
                       <span>Points Redeemed ({redeemPoints})</span>
-                      <span>-{currencySymbol}{pointsValue.toFixed(2)}</span>
+                      <span>-{formatCurrency(pointsValue, currencyCode)}</span>
                     </div>
                   )}
                   {taxRate > 0 && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Tax ({taxRate}%)</span>
-                      <span>{currencySymbol}{taxAmount.toFixed(2)}</span>
+                      <span>{formatCurrency(taxAmount, currencyCode)}</span>
                     </div>
                   )}
                   <Separator />
                   <div className="flex justify-between text-lg font-bold">
                     <span>Total</span>
-                    <span className="text-purple-600">{currencySymbol}{total.toFixed(2)}</span>
+                    <span className="text-purple-600">{formatCurrency(total, currencyCode)}</span>
                   </div>
                   {loyaltyProgramEnabled && pointsToEarn > 0 && (
                     <div className="flex justify-between text-xs text-amber-600">
@@ -940,7 +941,7 @@ export function CheckoutForm({
               {isSplitMode ? "Split Payment" : "Select Payment Method"}
             </DialogTitle>
             <DialogDescription>
-              Total: {currencySymbol}{total.toFixed(2)}
+              Total: {formatCurrency(total, currencyCode)}
             </DialogDescription>
           </DialogHeader>
 
@@ -1004,7 +1005,7 @@ export function CheckoutForm({
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold">
-                          {currencySymbol}{payment.amount.toFixed(2)}
+                          {formatCurrency(payment.amount, currencyCode)}
                         </span>
                         <Button
                           variant="ghost"
@@ -1075,7 +1076,7 @@ export function CheckoutForm({
                   : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
               }`}>
                 <span>Remaining</span>
-                <span>{currencySymbol}{Math.max(0, splitRemaining).toFixed(2)}</span>
+                <span>{formatCurrency(Math.max(0, splitRemaining), currencyCode)}</span>
               </div>
 
               <DialogFooter className="flex-row justify-between sm:justify-between gap-2">

@@ -49,7 +49,6 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       return { success: false, error: "Unable to load salon settings" };
     }
     const settings = settingsResult.data;
-    const currencySymbol = settings.currencySymbol;
     const salonName = settings.salonName;
     const tz = settings.timezone;
 
@@ -68,7 +67,7 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       discount: Number(sale.discount),
       tax: Number(sale.invoice.tax),
       total: Number(sale.invoice.total),
-      currencySymbol,
+      currencyCode: settings.currencyCode,
       paymentMethods: sale.invoice.payments.map(
         (p) => PAYMENT_METHOD_LABELS[p.method as PaymentMethod] ?? p.method
       ),
@@ -138,7 +137,6 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       return { success: false, error: "Unable to load salon settings" };
     }
     const settings = settingsResult.data;
-    const currencySymbol = settings.currencySymbol;
     const salonName = settings.salonName;
     const tz = settings.timezone;
 
@@ -162,7 +160,7 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       discount: Number(sale.discount),
       tax: Number(sale.invoice.tax),
       total: Number(sale.invoice.total),
-      currencySymbol,
+      currencyCode: settings.currencyCode,
     });
 
     const statusLabel = sale.invoice.status.charAt(0) + sale.invoice.status.slice(1).toLowerCase();

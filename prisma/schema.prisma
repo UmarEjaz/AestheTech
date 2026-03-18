@@ -576,12 +576,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-// Currency enum
-enum Currency {
-  USD
-  PKR
-}
-
 // Settings model for salon configuration — 1:1 with Salon
 model Settings {
   id                     String   @id @default(cuid())
@@ -592,8 +586,7 @@ model Settings {
   salonEmail             String? // Contact email for invoices
   salonLogo              String? // Base64 encoded logo for invoices
   timezone               String   @default("UTC") // IANA timezone e.g. "Asia/Karachi"
-  currency               Currency @default(USD)
-  currencySymbol         String   @default("$")
+  currencyCode           String   @default("USD") // ISO 4217 currency code
   taxRate                Decimal  @default(0) @db.Decimal(5, 2) // percentage
   businessHoursStart     String   @default("09:00") // HH:mm format
   businessHoursEnd       String   @default("19:00") // HH:mm format

@@ -25,7 +25,7 @@ interface ProductListProps {
   total: number;
   pageSize?: number;
   canManage?: boolean;
-  currencySymbol?: string;
+  currencyCode?: string;
 }
 
 export function ProductList({
@@ -35,7 +35,7 @@ export function ProductList({
   total,
   pageSize = 12,
   canManage = false,
-  currencySymbol = "$",
+  currencyCode = "USD",
 }: ProductListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -79,7 +79,7 @@ export function ProductList({
             product={product}
             onDelete={canManage ? setDeleteId : undefined}
             canManage={canManage}
-            currencySymbol={currencySymbol}
+            currencyCode={currencyCode}
           />
         ))}
       </div>

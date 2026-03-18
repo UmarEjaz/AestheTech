@@ -15,7 +15,7 @@ interface ReceiptEmailData {
   discount: number;
   tax: number;
   total: number;
-  currencySymbol: string;
+  currencyCode: string;
   paymentMethods: string[];
 }
 
@@ -35,8 +35,10 @@ interface InvoiceEmailData {
   discount: number;
   tax: number;
   total: number;
-  currencySymbol: string;
+  currencyCode: string;
 }
+
+import { formatCurrencyHtml } from "@/lib/utils/currency";
 
 function escapeHtml(str: string): string {
   return str
@@ -47,18 +49,14 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;");
 }
 
-function formatCurrency(symbol: string, amount: number): string {
-  return `${escapeHtml(symbol)}${amount.toFixed(2)}`;
-}
-
-function itemRows(items: ReceiptItem[], currencySymbol: string): string {
+function itemRows(items: ReceiptItem[], currencyCode: string): string {
   return items
     .map(
       (item, i) => `
       <tr style="border-bottom: 1px solid #e5e7eb;${i % 2 === 1 ? ' background-color: #f9fafb;' : ''}">
         <td style="padding: 12px; font-size: 14px;">${escapeHtml(item.name)}${item.staff ? `<br/><span style="color: #6b7280; font-size: 12px;">by ${escapeHtml(item.staff)}</span>` : ''}</td>
         <td style="padding: 12px; text-align: center; font-size: 14px;">${item.quantity}</td>
-        <td style="padding: 12px; text-align: right; font-size: 14px;">${formatCurrency(currencySymbol, item.price * item.quantity)}</td>
+        <td style="padding: 12px; text-align: right; font-size: 14px;">${formatCurrencyHtml(item.price * item.quantity, currencyCode)}</td>
       </tr>`
     )
     .join("");
@@ -118,7 +116,7 @@ export function receiptEmailHtml(data: ReceiptEmailData): string {
                 <th style="padding: 10px 12px; text-align: center; color: #ffffff; font-size: 12px; font-weight: 600;">Qty</th>
                 <th style="padding: 10px 12px; text-align: right; color: #ffffff; font-size: 12px; font-weight: 600;">Amount</th>
               </tr>
-              ${itemRows(data.items, data.currencySymbol)}
+              ${itemRows(data.items, data.currencyCode)}
             </table>
           </td>
         </tr>
@@ -129,21 +127,21 @@ export function receiptEmailHtml(data: ReceiptEmailData): string {
             <table width="100%" style="border-top: 2px solid #e5e7eb; padding-top: 12px;">
               <tr>
                 <td style="font-size: 14px; color: #6b7280; padding: 4px 0;">Subtotal</td>
-                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrency(data.currencySymbol, data.subtotal)}</td>
+                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrencyHtml(data.subtotal, data.currencyCode)}</td>
               </tr>
               ${data.discount > 0 ? `
               <tr>
                 <td style="font-size: 14px; color: #16a34a; padding: 4px 0;">Discount</td>
-                <td style="font-size: 14px; color: #16a34a; text-align: right; padding: 4px 0;">-${formatCurrency(data.currencySymbol, data.discount)}</td>
+                <td style="font-size: 14px; color: #16a34a; text-align: right; padding: 4px 0;">-${formatCurrencyHtml(data.discount, data.currencyCode)}</td>
               </tr>` : ''}
               ${data.tax > 0 ? `
               <tr>
                 <td style="font-size: 14px; color: #6b7280; padding: 4px 0;">Tax</td>
-                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrency(data.currencySymbol, data.tax)}</td>
+                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrencyHtml(data.tax, data.currencyCode)}</td>
               </tr>` : ''}
               <tr>
                 <td style="font-size: 18px; font-weight: bold; color: #8b5cf6; padding: 12px 0 0; border-top: 1px solid #e5e7eb;">Total</td>
-                <td style="font-size: 18px; font-weight: bold; color: #8b5cf6; text-align: right; padding: 12px 0 0; border-top: 1px solid #e5e7eb;">${formatCurrency(data.currencySymbol, data.total)}</td>
+                <td style="font-size: 18px; font-weight: bold; color: #8b5cf6; text-align: right; padding: 12px 0 0; border-top: 1px solid #e5e7eb;">${formatCurrencyHtml(data.total, data.currencyCode)}</td>
               </tr>
             </table>
           </td>
@@ -241,7 +239,7 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
                 <th style="padding: 10px 12px; text-align: center; color: #ffffff; font-size: 12px; font-weight: 600;">Qty</th>
                 <th style="padding: 10px 12px; text-align: right; color: #ffffff; font-size: 12px; font-weight: 600;">Amount</th>
               </tr>
-              ${itemRows(data.items, data.currencySymbol)}
+              ${itemRows(data.items, data.currencyCode)}
             </table>
           </td>
         </tr>
@@ -252,21 +250,21 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
             <table width="100%" style="border-top: 2px solid #e5e7eb; padding-top: 12px;">
               <tr>
                 <td style="font-size: 14px; color: #6b7280; padding: 4px 0;">Subtotal</td>
-                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrency(data.currencySymbol, data.subtotal)}</td>
+                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrencyHtml(data.subtotal, data.currencyCode)}</td>
               </tr>
               ${data.discount > 0 ? `
               <tr>
                 <td style="font-size: 14px; color: #16a34a; padding: 4px 0;">Discount</td>
-                <td style="font-size: 14px; color: #16a34a; text-align: right; padding: 4px 0;">-${formatCurrency(data.currencySymbol, data.discount)}</td>
+                <td style="font-size: 14px; color: #16a34a; text-align: right; padding: 4px 0;">-${formatCurrencyHtml(data.discount, data.currencyCode)}</td>
               </tr>` : ''}
               ${data.tax > 0 ? `
               <tr>
                 <td style="font-size: 14px; color: #6b7280; padding: 4px 0;">Tax</td>
-                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrency(data.currencySymbol, data.tax)}</td>
+                <td style="font-size: 14px; text-align: right; padding: 4px 0;">${formatCurrencyHtml(data.tax, data.currencyCode)}</td>
               </tr>` : ''}
               <tr>
                 <td style="font-size: 18px; font-weight: bold; color: #8b5cf6; padding: 12px 0 0; border-top: 1px solid #e5e7eb;">Total</td>
-                <td style="font-size: 18px; font-weight: bold; color: #8b5cf6; text-align: right; padding: 12px 0 0; border-top: 1px solid #e5e7eb;">${formatCurrency(data.currencySymbol, data.total)}</td>
+                <td style="font-size: 18px; font-weight: bold; color: #8b5cf6; text-align: right; padding: 12px 0 0; border-top: 1px solid #e5e7eb;">${formatCurrencyHtml(data.total, data.currencyCode)}</td>
               </tr>
             </table>
           </td>
