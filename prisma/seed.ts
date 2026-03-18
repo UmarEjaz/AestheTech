@@ -1,4 +1,4 @@
-import { PrismaClient, Role, LoyaltyTier, Currency } from "@prisma/client";
+import { PrismaClient, Role, LoyaltyTier } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -49,8 +49,7 @@ async function main() {
     data: {
       salonId: salon.id,
       salonName: "AestheTech Salon",
-      currency: Currency.USD,
-      currencySymbol: "$",
+      currencyCode: "USD",
       taxRate: 0,
       businessHoursStart: "09:00",
       businessHoursEnd: "19:00",

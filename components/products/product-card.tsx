@@ -13,15 +13,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ProductListItem } from "@/lib/actions/product";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface ProductCardProps {
   product: ProductListItem;
   onDelete?: (id: string) => void;
   canManage?: boolean;
-  currencySymbol?: string;
+  currencyCode?: string;
 }
 
-export function ProductCard({ product, onDelete, canManage = false, currencySymbol = "$" }: ProductCardProps) {
+export function ProductCard({ product, onDelete, canManage = false, currencyCode = "USD" }: ProductCardProps) {
   const isOutOfStock = product.stock === 0;
   const isLowStock = product.stock > 0 && product.stock <= product.lowStockThreshold;
 
@@ -92,7 +93,7 @@ export function ProductCard({ product, onDelete, canManage = false, currencySymb
         <div className="grid grid-cols-2 gap-4">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <Banknote className="h-4 w-4 text-muted-foreground" />
-            <span>{currencySymbol}{Number(product.price).toFixed(2)}</span>
+            <span>{formatCurrency(Number(product.price), currencyCode)}</span>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Package className="h-4 w-4 text-muted-foreground" />

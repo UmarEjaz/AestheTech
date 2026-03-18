@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SaleListItem } from "@/lib/actions/sale";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface SalesTableProps {
   initialSales: SaleListItem[];
@@ -36,7 +37,7 @@ interface SalesTableProps {
   initialPage: number;
   initialTotalPages: number;
   canCreate?: boolean;
-  currencySymbol: string;
+  currencyCode: string;
   timezone: string;
   todaysSalesCount: number;
   todaysRevenue: number;
@@ -62,7 +63,7 @@ export function SalesTable({
   initialPage,
   initialTotalPages,
   canCreate = false,
-  currencySymbol,
+  currencyCode,
   timezone,
   todaysSalesCount,
   todaysRevenue,
@@ -189,7 +190,7 @@ export function SalesTable({
               <DollarSign className="h-5 w-5 text-green-600" />
               <div>
                 <p className="text-sm font-medium">Today&apos;s Revenue</p>
-                <p className="text-2xl font-bold">{currencySymbol}{todaysRevenue.toFixed(2)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(todaysRevenue, currencyCode)}</p>
 
               </div>
             </div>
@@ -327,11 +328,11 @@ export function SalesTable({
                     <TableCell>
                       <div>
                         <p className="font-semibold text-purple-600">
-                          {currencySymbol}{Number(sale.finalAmount).toFixed(2)}
+                          {formatCurrency(Number(sale.finalAmount), currencyCode)}
                         </p>
                         {Number(sale.discount) > 0 && (
                           <p className="text-xs text-green-600">
-                            -{currencySymbol}{Number(sale.discount).toFixed(2)} discount
+                            -{formatCurrency(Number(sale.discount), currencyCode)} discount
                           </p>
                         )}
                       </div>

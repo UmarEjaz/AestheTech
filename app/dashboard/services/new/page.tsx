@@ -30,7 +30,7 @@ export default async function NewServicePage() {
     getSettings(),
   ]);
   const categories = categoriesResult.success ? categoriesResult.data : [];
-  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+  const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -49,7 +49,7 @@ export default async function NewServicePage() {
           </div>
         </div>
 
-        <ServiceForm mode="create" categories={categories} currencySymbol={currencySymbol} />
+        <ServiceForm mode="create" categories={categories} currencyCode={currencyCode} />
       </div>
     </DashboardLayout>
   );

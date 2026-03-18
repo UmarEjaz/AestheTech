@@ -1,6 +1,7 @@
 "use client";
 
 import { formatInTz } from "@/lib/utils/timezone";
+import { formatCurrency } from "@/lib/utils/currency";
 import Link from "next/link";
 import {
   Calendar,
@@ -34,7 +35,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
     recentSales,
     upcomingAppointments,
     staffPerformance,
-    currencySymbol,
+    currencyCode,
   } = stats;
 
   const getInitials = (name: string) => {
@@ -89,7 +90,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {currencySymbol}{todaysRevenue.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatCurrency(todaysRevenue.amount, currencyCode)}
             </div>
             <div className="flex items-center text-xs">
               {todaysRevenue.comparison >= 0 ? (
@@ -131,10 +132,12 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
           <CardContent>
             <div className="text-2xl font-bold">{todaysRevenue.salesCount}</div>
             <p className="text-xs text-muted-foreground">
-              Avg: {currencySymbol}
-              {todaysRevenue.salesCount > 0
-                ? (todaysRevenue.amount / todaysRevenue.salesCount).toFixed(2)
-                : "0.00"}
+              Avg: {formatCurrency(
+                todaysRevenue.salesCount > 0
+                  ? todaysRevenue.amount / todaysRevenue.salesCount
+                  : 0,
+                currencyCode
+              )}
             </p>
           </CardContent>
         </Card>
@@ -228,7 +231,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold text-purple-600">
-                      {currencySymbol}{sale.amount.toFixed(2)}
+                      {formatCurrency(sale.amount, currencyCode)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {formatInTz(sale.createdAt, "h:mm a", timezone)}
@@ -264,7 +267,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
                     </p>
                   </div>
                   <p className="text-sm font-semibold">
-                    {currencySymbol}{service.revenue.toFixed(0)}
+                    {formatCurrency(service.revenue, currencyCode)}
                   </p>
                 </div>
               ))
@@ -298,7 +301,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
                       {staff.appointmentsCount} services
                     </p>
                     <p className="text-sm font-bold text-purple-600">
-                      {currencySymbol}{staff.revenue.toFixed(0)}
+                      {formatCurrency(staff.revenue, currencyCode)}
                     </p>
                   </div>
                 </div>

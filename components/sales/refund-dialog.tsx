@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, RotateCcw } from "lucide-react";
@@ -26,30 +26,57 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { createRefund } from "@/lib/actions/invoice";
+import { formatCurrency, getCurrencyDecimals } from "@/lib/utils/currency";
+import { getCurrencySymbol } from "@/lib/currencies";
 
-const refundFormSchema = z.object({
-  amount: z.number().min(0.01, "Refund amount must be at least 0.01"),
-  reason: z.string().max(500, "Reason must be less than 500 characters").optional(),
-});
+function getMinAmount(currencyCode: string): number {
+  const decimals = getCurrencyDecimals(currencyCode);
+  return decimals === 0 ? 1 : Number(Math.pow(10, -decimals).toFixed(decimals));
+}
 
-type RefundFormData = z.infer<typeof refundFormSchema>;
+function createRefundSchema(currencyCode: string) {
+  const minAmount = getMinAmount(currencyCode);
+  const decimals = getCurrencyDecimals(currencyCode);
+  return z.object({
+    amount: z
+      .number()
+      .min(minAmount, `Refund amount must be at least ${minAmount}`)
+      .refine(
+        (val) => {
+          const shifted = val * Math.pow(10, decimals);
+          return Math.abs(shifted - Math.round(shifted)) < 1e-9;
+        },
+        `Amount cannot have more than ${decimals} decimal place${decimals === 1 ? "" : "s"}`,
+      ),
+    reason: z.string().max(500, "Reason must be less than 500 characters").optional(),
+  });
+}
 
 interface RefundDialogProps {
   invoiceId: string;
   invoiceNumber: string;
   maxRefundable: number;
-  currencySymbol: string;
+  currencyCode: string;
 }
 
 export function RefundDialog({
   invoiceId,
   invoiceNumber,
   maxRefundable,
-  currencySymbol,
+  currencyCode,
 }: RefundDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const refundSchema = useMemo(() => createRefundSchema(currencyCode), [currencyCode]);
+  type RefundFormData = z.infer<typeof refundSchema>;
+  const minAmount = getMinAmount(currencyCode);
+  const decimals = getCurrencyDecimals(currencyCode);
+  const stepValue = minAmount.toString();
+  const placeholder = decimals === 0 ? "0" : `0.${"0".repeat(decimals)}`;
+  const symbol = getCurrencySymbol(currencyCode);
+  const inputPadding = symbol.length >= 3 ? "pl-12" : "pl-7";
 
   const {
     register,
@@ -59,7 +86,7 @@ export function RefundDialog({
     setValue,
     formState: { errors },
   } = useForm<RefundFormData>({
-    resolver: zodResolver(refundFormSchema),
+    resolver: zodResolver(refundSchema),
     defaultValues: {
       amount: maxRefundable,
       reason: "",
@@ -67,11 +94,11 @@ export function RefundDialog({
   });
 
   const currentAmount = watch("amount") || 0;
-  const isFullRefund = currentAmount >= maxRefundable - 0.01;
+  const isFullRefund = currentAmount > maxRefundable - minAmount;
 
   const onSubmit = async (data: RefundFormData) => {
     if (data.amount > maxRefundable) {
-      toast.error(`Refund amount cannot exceed ${currencySymbol}${maxRefundable.toFixed(2)}`);
+      toast.error(`Refund amount cannot exceed ${formatCurrency(maxRefundable, currencyCode)}`);
       return;
     }
 
@@ -86,8 +113,8 @@ export function RefundDialog({
 
       if (result.success) {
         const message = result.data.pointsReversed > 0
-          ? `Refund of ${currencySymbol}${data.amount.toFixed(2)} processed. ${result.data.pointsReversed} loyalty points reversed.`
-          : `Refund of ${currencySymbol}${data.amount.toFixed(2)} processed successfully.`;
+          ? `Refund of ${formatCurrency(data.amount, currencyCode)} processed. ${result.data.pointsReversed} loyalty points reversed.`
+          : `Refund of ${formatCurrency(data.amount, currencyCode)} processed successfully.`;
         toast.success(message);
         setOpen(false);
         reset();
@@ -135,7 +162,7 @@ export function RefundDialog({
           <div className="space-y-4 py-4">
             <Alert>
               <AlertDescription>
-                Maximum refundable amount: <strong>{currencySymbol}{maxRefundable.toFixed(2)}</strong>
+                Maximum refundable amount: <strong>{formatCurrency(maxRefundable, currencyCode)}</strong>
               </AlertDescription>
             </Alert>
 
@@ -154,17 +181,17 @@ export function RefundDialog({
               </div>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  {currencySymbol}
+                  {symbol}
                 </span>
                 <Input
                   id="amount"
                   type="number"
-                  step="0.01"
-                  min="0.01"
+                  step={stepValue}
+                  min={stepValue}
                   max={maxRefundable}
                   {...register("amount", { valueAsNumber: true })}
-                  className="pl-7"
-                  placeholder="0.00"
+                  className={inputPadding}
+                  placeholder={placeholder}
                 />
               </div>
               {errors.amount && (

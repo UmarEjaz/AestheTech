@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { serviceSchema, ServiceFormData, ServiceFormInput } from "@/lib/validations/service";
 import { createService, updateService } from "@/lib/actions/service";
+import { getCurrencyDecimals } from "@/lib/utils/currency";
 
 interface ServiceFormProps {
   service?: {
@@ -27,12 +28,15 @@ interface ServiceFormProps {
   };
   mode: "create" | "edit";
   categories: string[];
-  currencySymbol?: string;
+  currencyCode?: string;
 }
 
-export function ServiceForm({ service, mode, categories, currencySymbol = "$" }: ServiceFormProps) {
+export function ServiceForm({ service, mode, categories, currencyCode = "USD" }: ServiceFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const decimals = getCurrencyDecimals(currencyCode);
+  const priceStep = Math.pow(10, -decimals).toString();
+  const pricePlaceholder = decimals === 0 ? "0" : `0.${"0".repeat(decimals)}`;
 
   const {
     register,
@@ -151,13 +155,13 @@ export function ServiceForm({ service, mode, categories, currencySymbol = "$" }:
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="price">Price ({currencySymbol}) *</Label>
+              <Label htmlFor="price">Price ({currencyCode}) *</Label>
               <Input
                 id="price"
                 type="number"
-                step="0.01"
+                step={priceStep}
                 {...register("price", { valueAsNumber: true })}
-                placeholder="0.00"
+                placeholder={pricePlaceholder}
                 min="0"
               />
               {errors.price && (

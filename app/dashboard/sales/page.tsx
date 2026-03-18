@@ -35,7 +35,7 @@ export default async function SalesPage() {
   }
 
   const settings = settingsResult.success ? settingsResult.data : {
-    currencySymbol: "$",
+    currencyCode: "USD",
     timezone: "UTC",
   };
 
@@ -62,7 +62,7 @@ export default async function SalesPage() {
           initialPage={page}
           initialTotalPages={totalPages}
           canCreate={canCreate}
-          currencySymbol={settings.currencySymbol}
+          currencyCode={settings.currencyCode}
           timezone={settings.timezone}
           fetchSales={getSales}
           todaysSalesCount={todaySummary.count}

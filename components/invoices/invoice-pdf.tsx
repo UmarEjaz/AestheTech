@@ -9,6 +9,7 @@ import {
   Image,
 } from "@react-pdf/renderer";
 import { formatInTz } from "@/lib/utils/timezone";
+import { formatCurrency } from "@/lib/utils/currency";
 
 // Define styles
 const styles = StyleSheet.create({
@@ -197,7 +198,7 @@ export interface InvoicePDFData {
   salonPhone: string | null;
   salonEmail: string | null;
   salonLogo: string | null;
-  currencySymbol: string;
+  currencyCode: string;
   taxRate: number;
   timezone: string;
   client: {
@@ -324,15 +325,13 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
                     : "-"}
                 </Text>
                 <Text style={[styles.tableCell, styles.colPrice]}>
-                  {data.currencySymbol}
-                  {item.price.toFixed(2)}
+                  {formatCurrency(item.price, data.currencyCode)}
                 </Text>
                 <Text style={[styles.tableCell, styles.colQty]}>
                   {item.quantity}
                 </Text>
                 <Text style={[styles.tableCell, styles.colTotal]}>
-                  {data.currencySymbol}
-                  {(item.price * item.quantity).toFixed(2)}
+                  {formatCurrency(item.price * item.quantity, data.currencyCode)}
                 </Text>
               </View>
             ))}
@@ -344,8 +343,7 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Subtotal:</Text>
             <Text style={styles.totalValue}>
-              {data.currencySymbol}
-              {data.subtotal.toFixed(2)}
+              {formatCurrency(data.subtotal, data.currencyCode)}
             </Text>
           </View>
 
@@ -353,8 +351,7 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Discount:</Text>
               <Text style={[styles.totalValue, { color: "#22c55e" }]}>
-                -{data.currencySymbol}
-                {data.discount.toFixed(2)}
+                -{formatCurrency(data.discount, data.currencyCode)}
               </Text>
             </View>
           )}
@@ -363,8 +360,7 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Tax ({data.taxRate}%):</Text>
               <Text style={styles.totalValue}>
-                {data.currencySymbol}
-                {data.tax.toFixed(2)}
+                {formatCurrency(data.tax, data.currencyCode)}
               </Text>
             </View>
           )}
@@ -374,8 +370,7 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
               Total:
             </Text>
             <Text style={[styles.totalValue, styles.grandTotalValue]}>
-              {data.currencySymbol}
-              {data.total.toFixed(2)}
+              {formatCurrency(data.total, data.currencyCode)}
             </Text>
           </View>
         </View>

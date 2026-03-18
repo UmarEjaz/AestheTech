@@ -30,10 +30,10 @@ interface ProductFormProps {
   };
   mode: "create" | "edit";
   categories: string[];
-  currencySymbol?: string;
+  currencyCode?: string;
 }
 
-export function ProductForm({ product, mode, categories, currencySymbol = "$" }: ProductFormProps) {
+export function ProductForm({ product, mode, categories, currencyCode = "USD" }: ProductFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -158,7 +158,7 @@ export function ProductForm({ product, mode, categories, currencySymbol = "$" }:
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="price">Price ({currencySymbol}) *</Label>
+              <Label htmlFor="price">Price ({currencyCode}) *</Label>
               <Input
                 id="price"
                 type="number"
@@ -172,7 +172,7 @@ export function ProductForm({ product, mode, categories, currencySymbol = "$" }:
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cost">Cost ({currencySymbol})</Label>
+              <Label htmlFor="cost">Cost ({currencyCode})</Label>
               <Input
                 id="cost"
                 type="number"

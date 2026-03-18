@@ -46,7 +46,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     getProducts({ query, category, lowStock, page, limit: 12 }),
     getSettings(),
   ]);
-  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+  const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   if (!result.success) {
     return (
@@ -91,7 +91,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           totalPages={totalPages}
           total={total}
           canManage={canManage}
-          currencySymbol={currencySymbol}
+          currencyCode={currencyCode}
         />
       </div>
     </DashboardLayout>

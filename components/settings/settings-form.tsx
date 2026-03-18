@@ -6,9 +6,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMemo } from "react";
-import { Loader2, Building2, Clock, DollarSign, Star, Globe } from "lucide-react";
+import { Loader2, Building2, Clock, DollarSign, Star, Globe, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,10 +21,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
-import { Currency } from "@prisma/client";
+import { CURRENCIES } from "@/lib/currencies";
+
+const CURRENCY_CODES = new Set(CURRENCIES.map((c) => c.code));
 
 const settingsSchema = z.object({
   salonName: z.string().min(1, "Salon name is required").max(100),
@@ -31,7 +47,7 @@ const settingsSchema = z.object({
   salonPhone: z.string().max(20).optional().nullable(),
   salonEmail: z.string().email().optional().or(z.literal("")).nullable(),
   timezone: z.string().min(1, "Timezone is required"),
-  currency: z.nativeEnum(Currency),
+  currencyCode: z.string().refine((code) => CURRENCY_CODES.has(code), { message: "Unsupported currency code" }),
   taxRate: z.coerce.number().min(0).max(100),
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
@@ -62,7 +78,7 @@ type SettingsFormData = {
   salonPhone?: string | null;
   salonEmail?: string | null;
   timezone: string;
-  currency: Currency;
+  currencyCode: string;
   taxRate: number;
   businessHoursStart: string;
   businessHoursEnd: string;
@@ -139,7 +155,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       salonPhone: settings.salonPhone || "",
       salonEmail: settings.salonEmail || "",
       timezone: settings.timezone,
-      currency: settings.currency,
+      currencyCode: settings.currencyCode,
       taxRate: settings.taxRate,
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
@@ -159,7 +175,9 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
     },
   });
 
-  const watchedCurrency = watch("currency");
+  const watchedCurrency = watch("currencyCode");
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const selectedCurrencyInfo = CURRENCIES.find((c) => c.code === watchedCurrency);
   const watchedTimezone = watch("timezone");
   const watchedBusinessHoursStart = watch("businessHoursStart");
   const watchedBusinessHoursEnd = watch("businessHoursEnd");
@@ -386,20 +404,46 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="currency">Currency</Label>
-              <Select
-                value={watchedCurrency}
-                onValueChange={(value) => setValue("currency", value as Currency, { shouldDirty: true })}
-                disabled={!canManage}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="USD">USD ($)</SelectItem>
-                  <SelectItem value="PKR">PKR (Rs.)</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="currencyCode">Currency</Label>
+              <Popover open={currencyOpen} onOpenChange={setCurrencyOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={currencyOpen}
+                    className="w-full justify-between font-normal"
+                    disabled={!canManage}
+                  >
+                    {selectedCurrencyInfo
+                      ? `${selectedCurrencyInfo.code} (${selectedCurrencyInfo.symbol}) — ${selectedCurrencyInfo.name}`
+                      : "Select currency"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[350px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search currencies..." />
+                    <CommandList>
+                      <CommandEmpty>No currency found.</CommandEmpty>
+                      <CommandGroup>
+                        {CURRENCIES.map((c) => (
+                          <CommandItem
+                            key={c.code}
+                            value={`${c.code} ${c.name} ${c.symbol}`}
+                            onSelect={() => {
+                              setValue("currencyCode", c.code, { shouldDirty: true });
+                              setCurrencyOpen(false);
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", watchedCurrency === c.code ? "opacity-100" : "opacity-0")} />
+                            {c.code} ({c.symbol}) — {c.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-2">
               <Label htmlFor="taxRate">Tax Rate (%)</Label>
@@ -453,7 +497,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
           <div className={!watch("loyaltyProgramEnabled") ? "opacity-50 pointer-events-none" : ""}>
           {/* Points Earning */}
           <div className="space-y-2">
-            <Label htmlFor="loyaltyPointsPerDollar">Points per {watchedCurrency === "PKR" ? "100 Rs." : "$1"}</Label>
+            <Label htmlFor="loyaltyPointsPerDollar">Points per 1 {watchedCurrency}</Label>
             <Input
               id="loyaltyPointsPerDollar"
               type="number"
@@ -467,7 +511,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               <p className="text-sm text-destructive">{errors.loyaltyPointsPerDollar.message}</p>
             )}
             <p className="text-sm text-muted-foreground">
-              Base loyalty points earned for each {watchedCurrency === "PKR" ? "100 Rs." : "$1"} spent
+              Base loyalty points earned for each 1 {watchedCurrency} spent
             </p>
           </div>
 
@@ -575,7 +619,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
 
           {/* Redemption Rate */}
           <div className="space-y-2">
-            <Label htmlFor="pointsPerDollar">Redemption Rate (points per {watchedCurrency === "PKR" ? "Rs.1" : "$1"})</Label>
+            <Label htmlFor="pointsPerDollar">Redemption Rate (points per 1 {watchedCurrency})</Label>
             <Input
               id="pointsPerDollar"
               type="number"
@@ -588,7 +632,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               <p className="text-sm text-destructive">{errors.pointsPerDollar.message}</p>
             )}
             <p className="text-sm text-muted-foreground">
-              How many points equal {watchedCurrency === "PKR" ? "Rs.1" : "$1"} when redeeming at checkout
+              How many points equal 1 {watchedCurrency} when redeeming at checkout
             </p>
           </div>
 

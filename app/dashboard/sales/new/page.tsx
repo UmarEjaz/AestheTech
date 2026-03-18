@@ -64,7 +64,7 @@ export default async function NewSalePage() {
   }
 
   const settings = settingsResult.success ? settingsResult.data : {
-    currencySymbol: "$",
+    currencyCode: "USD",
     taxRate: 0,
     pointsPerDollar: 100,
     loyaltyProgramEnabled: true,
@@ -109,7 +109,7 @@ export default async function NewSalePage() {
           services={services}
           products={products}
           staff={staffResult.data}
-          currencySymbol={settings.currencySymbol}
+          currencyCode={settings.currencyCode}
           taxRate={settings.taxRate}
           pointsPerDollar={settings.pointsPerDollar}
           loyaltyProgramEnabled={settings.loyaltyProgramEnabled}

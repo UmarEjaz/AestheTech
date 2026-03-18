@@ -32,7 +32,7 @@ export default async function NewProductPage() {
     getSettings(),
   ]);
   const categories = categoriesResult.success ? categoriesResult.data : [];
-  const currencySymbol = settingsResult.success ? settingsResult.data.currencySymbol : "$";
+  const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -51,7 +51,7 @@ export default async function NewProductPage() {
           </div>
         </div>
 
-        <ProductForm mode="create" categories={categories} currencySymbol={currencySymbol} />
+        <ProductForm mode="create" categories={categories} currencyCode={currencyCode} />
       </div>
     </DashboardLayout>
   );

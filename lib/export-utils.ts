@@ -65,8 +65,6 @@ export function downloadCSV<T extends Record<string, unknown>>(
 }
 
 /**
- * Format currency for export
+ * Format currency for export (re-exports from centralized utility)
  */
-export function formatCurrencyForExport(value: number, symbol: string): string {
-  return `${symbol}${value.toFixed(2)}`;
-}
+export { formatCurrency as formatCurrencyForExport } from "@/lib/utils/currency";
