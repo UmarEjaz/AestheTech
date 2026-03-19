@@ -14,6 +14,9 @@ export default async function StaffPage() {
     redirect("/login");
   }
 
+  if (!session.user.salonRole && !session.user.isSuperAdmin) {
+    redirect("/dashboard/access-denied");
+  }
   const userRole = session.user.salonRole as Role;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 

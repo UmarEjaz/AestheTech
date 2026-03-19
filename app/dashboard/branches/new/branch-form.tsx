@@ -40,7 +40,8 @@ export function BranchForm() {
       .trim()
       .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
   }
 
   function onSubmit(data: BranchFormData) {

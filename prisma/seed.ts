@@ -128,7 +128,7 @@ async function main() {
     },
   });
 
-  await prisma.user.create({
+  const lisa = await prisma.user.create({
     data: {
       email: "lisa@aesthetech.com",
       password: hashedPassword,
@@ -149,18 +149,12 @@ async function main() {
     { user: admin, role: Role.ADMIN },
     { user: staff1, role: Role.STAFF },
     { user: staff2, role: Role.STAFF },
+    { user: lisa, role: Role.RECEPTIONIST },
   ];
 
   for (const { user: u, role: r } of allUsers) {
     await prisma.userSalon.create({
       data: { userId: u.id, salonId: salon.id, role: r },
-    });
-  }
-  // Receptionist (lisa) — created inline above, need to get her separately
-  const lisa = await prisma.user.findUnique({ where: { email: "lisa@aesthetech.com" } });
-  if (lisa) {
-    await prisma.userSalon.create({
-      data: { userId: lisa.id, salonId: salon.id, role: Role.RECEPTIONIST },
     });
   }
 

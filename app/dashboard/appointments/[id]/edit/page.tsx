@@ -22,6 +22,9 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   }
 
   const { id } = await params;
+  if (!session.user.salonRole && !session.user.isSuperAdmin) {
+    redirect("/dashboard/access-denied");
+  }
   const userRole = session.user.salonRole as Role;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const canUpdate = hasPermission(userRole, "appointments:update", isSuperAdmin);

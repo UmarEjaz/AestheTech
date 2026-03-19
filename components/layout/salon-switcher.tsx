@@ -22,18 +22,23 @@ export function SalonSwitcher() {
   const router = useRouter();
   const [salons, setSalons] = useState<UserSalonItem[]>([]);
   const [isPending, startTransition] = useTransition();
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
+      setIsLoading(true);
       const result = await getUserSalons();
       if (result.success) {
         setSalons(result.data);
       }
+      setIsLoading(false);
     }
     load();
   }, [session?.user?.salonId]);
 
   const currentSalon = salons.find((s) => s.isCurrent);
+
+  if (isLoading) return null;
 
   async function handleSwitch(targetSalonId: string) {
     startTransition(async () => {

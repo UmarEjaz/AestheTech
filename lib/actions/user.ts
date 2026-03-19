@@ -376,9 +376,10 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
 
     // Keep UserSalon.role in sync with the denormalized User.role
     if (newRole && newRole !== existingRole) {
-      await tx.userSalon.updateMany({
-        where: { userId: id, salonId: authResult.salonId },
-        data: { role: newRole },
+      await tx.userSalon.upsert({
+        where: { userId_salonId: { userId: id, salonId: authResult.salonId } },
+        update: { role: newRole },
+        create: { userId: id, salonId: authResult.salonId, role: newRole },
       });
     }
   });

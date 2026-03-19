@@ -45,7 +45,7 @@ export async function assignStaffToBranch(
       return { success: false, error: "Target branch is not in your organization" };
     }
 
-    // Verify user exists and is in the organization
+    // Verify user exists
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, firstName: true, lastName: true, email: true },
@@ -53,6 +53,21 @@ export async function assignStaffToBranch(
 
     if (!user) {
       return { success: false, error: "User not found" };
+    }
+
+    // Verify user belongs to the same organization
+    const orgSalons = await prisma.salon.findMany({
+      where: { OR: [{ id: currentRoot }, { parentSalonId: currentRoot }] },
+      select: { id: true },
+    });
+    const orgSalonIds = orgSalons.map((s) => s.id);
+
+    const userInOrg = await prisma.userSalon.findFirst({
+      where: { userId, salonId: { in: orgSalonIds }, isActive: true },
+    });
+
+    if (!userInOrg) {
+      return { success: false, error: "User is not a member of your organization" };
     }
 
     // Check if already assigned

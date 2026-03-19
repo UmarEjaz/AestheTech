@@ -16,6 +16,9 @@ export default async function ReportsPage() {
   }
 
   const { user } = session;
+  if (!user.salonRole && !user.isSuperAdmin) {
+    redirect("/dashboard/access-denied");
+  }
   const userRole = user.salonRole as Role;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 

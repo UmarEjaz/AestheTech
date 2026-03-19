@@ -20,7 +20,7 @@ export default async function AccessDeniedPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.salonRole as Role;
+  const userRole = (session.user.salonRole ?? null) as Role | null;
 
   return (
     <DashboardLayout userRole={userRole}>
