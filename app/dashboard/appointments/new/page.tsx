@@ -21,7 +21,10 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
-  const userRole = session.user.salonRole as Role;
+  if (!session.user.salonRole && !session.user.isSuperAdmin) {
+    redirect("/dashboard/access-denied");
+  }
+  const userRole = (session.user.salonRole ?? null) as Role | null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const canCreate = hasPermission(userRole, "appointments:create", isSuperAdmin);
 

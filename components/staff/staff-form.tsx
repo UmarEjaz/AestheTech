@@ -33,7 +33,7 @@ interface StaffFormProps {
     isActive: boolean;
   };
   mode: "create" | "edit";
-  currentUserRole: Role;
+  currentUserRole: Role | null;
   isSuperAdmin?: boolean;
 }
 
@@ -55,6 +55,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
   const getAvailableRoles = () => {
     // Super admins can assign any role
     if (isSuperAdmin) return ROLE_OPTIONS;
+    if (!currentUserRole) return [];
 
     const roleHierarchy: Record<Role, number> = {
       OWNER: 4,

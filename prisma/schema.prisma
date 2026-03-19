@@ -99,12 +99,16 @@ model Salon {
   subscriptionStatus    String    @default("TRIAL") // TRIAL, ACTIVE, SUSPENDED, CANCELLED
   subscriptionPlan      String? // BASIC, PRO, ENTERPRISE
   subscriptionExpiresAt DateTime?
+  parentSalonId         String?
   isActive              Boolean   @default(true)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
   // Relations
+  parentSalon                Salon?                       @relation("SalonBranches", fields: [parentSalonId], references: [id], onDelete: SetNull)
+  branches                   Salon[]                      @relation("SalonBranches")
   users                      User[]
+  userSalons                 UserSalon[]
   settings                   Settings?
   clients                    Client[]
   services                   Service[]
@@ -119,6 +123,7 @@ model Salon {
   recurringAppointmentSeries RecurringAppointmentSeries[]
   auditLogs                  AuditLog[]
 
+  @@index([parentSalonId])
   @@map("salons")
 }
 
@@ -130,15 +135,16 @@ model User {
   firstName    String
   lastName     String
   phone        String?
-  salonId      String?
-  role         Role
+  salonId      String? // Current/active salon (denormalized from UserSalon)
+  role         Role // Current role at active salon (denormalized from UserSalon)
   isSuperAdmin Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
-  salon           Salon?                       @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  salon           Salon?                       @relation(fields: [salonId], references: [id], onDelete: SetNull)
+  userSalons      UserSalon[]
   appointments    Appointment[]                @relation("StaffAppointments")
   schedules       Schedule[]
   sales           Sale[]
@@ -149,6 +155,25 @@ model User {
 
   @@index([salonId])
   @@map("users")
+}
+
+// Junction table: User ↔ Salon (many-to-many with per-salon role)
+model UserSalon {
+  id        String   @id @default(cuid())
+  userId    String
+  salonId   String
+  role      Role
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, salonId])
+  @@index([userId])
+  @@index([salonId])
+  @@map("user_salons")
 }
 
 // Client model for customers

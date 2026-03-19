@@ -94,7 +94,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session: updateData }) {
       if (user) {
         // Initial login
         token.id = user.id;
@@ -104,6 +104,25 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.isSuperAdmin = user.isSuperAdmin;
         token.salonId = user.salonId;
         token.salonRole = user.salonRole;
+      }
+
+      // Salon switch — verify against DB instead of trusting client values
+      if (trigger === "update" && updateData?.salonId) {
+        const userSalon = await prisma.userSalon.findUnique({
+          where: {
+            userId_salonId: {
+              userId: token.id as string,
+              salonId: updateData.salonId as string,
+            },
+            isActive: true,
+          },
+          include: { salon: { select: { isActive: true } } },
+        });
+
+        if (userSalon && userSalon.salon.isActive) {
+          token.salonId = userSalon.salonId;
+          token.salonRole = userSalon.role;
+        }
       }
 
       return token;

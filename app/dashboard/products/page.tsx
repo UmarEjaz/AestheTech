@@ -28,7 +28,10 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
-  const userRole = session.user.salonRole as Role;
+  if (!session.user.salonRole && !session.user.isSuperAdmin) {
+    redirect("/dashboard/access-denied");
+  }
+  const userRole = (session.user.salonRole ?? null) as Role | null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   if (!hasPermission(userRole, "products:view", isSuperAdmin)) {

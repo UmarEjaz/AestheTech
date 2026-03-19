@@ -57,6 +57,10 @@ export const permissions: Record<string, Role[]> = {
   "loyalty:view": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
   "loyalty:manage": [Role.OWNER, Role.ADMIN],
 
+  // Branches
+  "branches:view": [Role.OWNER],
+  "branches:manage": [Role.OWNER],
+
   // Audit
   "audit:view": [Role.OWNER],
 };
@@ -67,8 +71,9 @@ export type Permission = keyof typeof permissions;
  * Check if a role has a specific permission.
  * SUPER_ADMIN (isSuperAdmin) bypasses all permission checks.
  */
-export function hasPermission(role: Role, permission: Permission, isSuperAdmin = false): boolean {
+export function hasPermission(role: Role | null, permission: Permission, isSuperAdmin = false): boolean {
   if (isSuperAdmin) return true;
+  if (!role) return false;
   const allowedRoles = permissions[permission];
   if (!allowedRoles) return false;
   return allowedRoles.includes(role);
@@ -77,7 +82,7 @@ export function hasPermission(role: Role, permission: Permission, isSuperAdmin =
 /**
  * Check if a role has any of the specified permissions
  */
-export function hasAnyPermission(role: Role, perms: Permission[], isSuperAdmin = false): boolean {
+export function hasAnyPermission(role: Role | null, perms: Permission[], isSuperAdmin = false): boolean {
   if (isSuperAdmin) return true;
   return perms.some((permission) => hasPermission(role, permission));
 }
@@ -85,7 +90,7 @@ export function hasAnyPermission(role: Role, perms: Permission[], isSuperAdmin =
 /**
  * Check if a role has all of the specified permissions
  */
-export function hasAllPermissions(role: Role, perms: Permission[], isSuperAdmin = false): boolean {
+export function hasAllPermissions(role: Role | null, perms: Permission[], isSuperAdmin = false): boolean {
   if (isSuperAdmin) return true;
   return perms.every((permission) => hasPermission(role, permission));
 }
@@ -93,10 +98,11 @@ export function hasAllPermissions(role: Role, perms: Permission[], isSuperAdmin 
 /**
  * Get all permissions for a role
  */
-export function getPermissionsForRole(role: Role, isSuperAdmin = false): Permission[] {
+export function getPermissionsForRole(role: Role | null, isSuperAdmin = false): Permission[] {
   if (isSuperAdmin) {
     return Object.keys(permissions) as Permission[];
   }
+  if (!role) return [];
   return (Object.keys(permissions) as Permission[]).filter((permission) =>
     permissions[permission]?.includes(role)
   );
@@ -106,8 +112,9 @@ export function getPermissionsForRole(role: Role, isSuperAdmin = false): Permiss
  * Check if a role can manage other roles (for user management within a salon).
  * SUPER_ADMIN can manage all roles.
  */
-export function canManageRole(managerRole: Role, targetRole: Role, isSuperAdmin = false): boolean {
+export function canManageRole(managerRole: Role | null, targetRole: Role, isSuperAdmin = false): boolean {
   if (isSuperAdmin) return true;
+  if (!managerRole) return false;
 
   const roleHierarchy: Record<Role, number> = {
     [Role.OWNER]: 4,

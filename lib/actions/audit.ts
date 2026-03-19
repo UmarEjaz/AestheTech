@@ -67,6 +67,7 @@ export async function getAuditLogs(
 ): Promise<ActionResult<{ logs: AuditLogEntry[]; total: number; page: number; pageSize: number }>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
   const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
@@ -131,6 +132,7 @@ export async function getAuditLogs(
 export async function getAuditActions(): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
   const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {
@@ -158,6 +160,7 @@ export async function getAuditActions(): Promise<ActionResult<string[]>> {
 export async function getAuditEntityTypes(): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
   const role = session.user.salonRole as Role;
   if (!hasPermission(role, "audit:view")) {

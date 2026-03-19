@@ -17,6 +17,7 @@ import { logAudit } from "./audit";
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
+  if (!session.user.salonRole) return null;
 
   const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {

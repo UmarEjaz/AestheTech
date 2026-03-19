@@ -70,7 +70,10 @@ export default async function StaffDetailPage({
   }
 
   const { id } = await params;
-  const userRole = session.user.salonRole as Role;
+  if (!session.user.salonRole && !session.user.isSuperAdmin) {
+    redirect("/dashboard/access-denied");
+  }
+  const userRole = (session.user.salonRole ?? null) as Role | null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   if (!hasPermission(userRole, "staff:view", isSuperAdmin)) {

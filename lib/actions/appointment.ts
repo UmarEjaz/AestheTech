@@ -24,6 +24,7 @@ async function checkAuth(permission: Permission): Promise<{ userId: string; role
 
   const salonId = session.user.salonId;
   if (!salonId) return null;
+  if (!session.user.salonRole) return null;
 
   const role = session.user.salonRole as Role;
   if (!hasPermission(role, permission)) {
