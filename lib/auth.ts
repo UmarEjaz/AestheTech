@@ -106,13 +106,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.salonRole = user.salonRole;
       }
 
-      // Salon switch — update token with new values from client-side update() call
-      if (trigger === "update" && updateData) {
-        if (updateData.salonId !== undefined) {
-          token.salonId = updateData.salonId;
-        }
-        if (updateData.salonRole !== undefined) {
-          token.salonRole = updateData.salonRole;
+      // Salon switch — verify against DB instead of trusting client values
+      if (trigger === "update" && updateData?.salonId) {
+        const userSalon = await prisma.userSalon.findUnique({
+          where: {
+            userId_salonId: {
+              userId: token.id as string,
+              salonId: updateData.salonId as string,
+            },
+            isActive: true,
+          },
+          include: { salon: { select: { isActive: true } } },
+        });
+
+        if (userSalon && userSalon.salon.isActive) {
+          token.salonId = userSalon.salonId;
+          token.salonRole = userSalon.role;
         }
       }
 
