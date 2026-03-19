@@ -22,7 +22,7 @@ export default async function DashboardPage() {
   if (!user.salonRole && !user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = user.salonRole as Role;
+  const userRole = (user.salonRole ?? null) as Role | null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const canViewReports = hasPermission(userRole, "reports:view", isSuperAdmin);
 

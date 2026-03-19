@@ -26,9 +26,10 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
   if (!options?.skipAuth) {
     const session = await auth();
     if (!session?.user) return { success: false, error: "Unauthorized" };
-    if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
-    const role = session.user.salonRole as Role;
-    if (!hasPermission(role, "settings:manage", session.user.isSuperAdmin)) {
+    const isSuperAdmin = session.user.isSuperAdmin === true;
+    if (!session.user.salonRole && !isSuperAdmin) return { success: false, error: "Unauthorized" };
+    const role = (session.user.salonRole ?? "OWNER") as Role;
+    if (!hasPermission(role, "settings:manage", isSuperAdmin)) {
       return { success: false, error: "Unauthorized" };
     }
     actorUserId = session.user.id;

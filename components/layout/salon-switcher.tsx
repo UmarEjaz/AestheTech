@@ -30,6 +30,8 @@ export function SalonSwitcher() {
       const result = await getUserSalons();
       if (result.success) {
         setSalons(result.data);
+      } else {
+        toast.error(result.error || "Failed to load salons");
       }
       setIsLoading(false);
     }
@@ -41,6 +43,7 @@ export function SalonSwitcher() {
   if (isLoading) return null;
 
   async function handleSwitch(targetSalonId: string) {
+    if (isPending) return;
     startTransition(async () => {
       const result = await switchSalon(targetSalonId);
       if (result.success) {
@@ -62,7 +65,7 @@ export function SalonSwitcher() {
       <div className="flex items-center gap-2 px-2 text-sm text-muted-foreground">
         <Building2 className="h-4 w-4" />
         <span className="hidden md:inline truncate max-w-[150px]">
-          {currentSalon?.salonName || "Loading..."}
+          {currentSalon?.salonName || "No salon selected"}
         </span>
       </div>
     );
@@ -79,7 +82,7 @@ export function SalonSwitcher() {
         >
           <Building2 className="h-4 w-4 flex-shrink-0" />
           <span className="hidden md:inline truncate">
-            {currentSalon?.salonName || "Loading..."}
+            {currentSalon?.salonName || "No salon selected"}
           </span>
           <ChevronDown className="h-3 w-3 flex-shrink-0" />
         </Button>
