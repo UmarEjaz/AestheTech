@@ -589,16 +589,23 @@ export async function deleteUser(id: string): Promise<ActionResult> {
 }
 
 // Get all active staff members (for dropdowns)
-export async function getActiveStaff(): Promise<ActionResult<{ id: string; firstName: string; lastName: string; role: Role }[]>> {
+export async function getActiveStaff(branchFilter: "current" | "all" = "current"): Promise<ActionResult<{ id: string; firstName: string; lastName: string; role: Role }[]>> {
   const authResult = await checkAuth("staff:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
+    let salonFilter: string | { in: string[] } = authResult.salonId;
+    if (branchFilter === "all") {
+      const { getOrganizationSalonIds } = await import("./branch");
+      const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+      salonFilter = { in: orgSalonIds };
+    }
+
     const staff = await prisma.user.findMany({
       where: {
-        salonId: authResult.salonId,
+        salonId: salonFilter,
         isActive: true,
       },
       select: {

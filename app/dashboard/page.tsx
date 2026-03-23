@@ -6,12 +6,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { DashboardWidgets } from "@/components/dashboard/dashboard-widgets";
+import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getDashboardStats } from "@/lib/actions/dashboard";
 import { getTimezone } from "@/lib/actions/settings";
+import { getBranches } from "@/lib/actions/branch";
 import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ branch?: string }>;
+}) {
   const session = await auth();
 
   if (!session) {
@@ -25,8 +31,21 @@ export default async function DashboardPage() {
   const userRole = (user.salonRole ?? null) as Role | null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const canViewReports = hasPermission(userRole, "reports:view", isSuperAdmin);
+  const isOwner = userRole === "OWNER" || isSuperAdmin;
 
-  const [statsResult, tz] = await Promise.all([getDashboardStats(), getTimezone()]);
+  const params = await searchParams;
+  const branchFilter = params.branch === "all" ? "all" as const : "current" as const;
+
+  const [statsResult, tz, branchesResult] = await Promise.all([
+    getDashboardStats({ branchFilter }),
+    getTimezone(),
+    isOwner ? getBranches() : Promise.resolve(null),
+  ]);
+
+  const hasMultipleBranches = branchesResult?.success && branchesResult.data.length > 1;
+  const currentSalonName = branchesResult?.success
+    ? branchesResult.data.find((b) => b.id === user.salonId)?.name
+    : undefined;
 
   return (
     <DashboardLayout userRole={userRole}>
@@ -39,7 +58,13 @@ export default async function DashboardPage() {
               Here&apos;s what&apos;s happening at your salon today.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {hasMultipleBranches && (
+              <BranchFilter
+                currentFilter={branchFilter}
+                currentSalonName={currentSalonName}
+              />
+            )}
             <Button asChild>
               <Link href="/dashboard/appointments/new">
                 <Calendar className="h-4 w-4 mr-2" />

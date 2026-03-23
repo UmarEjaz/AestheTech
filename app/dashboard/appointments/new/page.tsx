@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { hasPermission } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
 interface PageProps {
   searchParams: Promise<{ startTime?: string }>;
@@ -37,10 +38,11 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirect("/dashboard");
   }
 
-  // Fetch clients, services, and staff for the form
+  // Fetch clients, services, and staff for the form (org-scoped)
+  const orgSalonIds = await getOrganizationSalonIds(salonId);
   const [clients, services, staff] = await Promise.all([
     prisma.client.findMany({
-      where: { isActive: true },
+      where: { salonId: { in: orgSalonIds }, isActive: true },
       select: {
         id: true,
         firstName: true,
@@ -50,7 +52,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       orderBy: { firstName: "asc" },
     }),
     prisma.service.findMany({
-      where: { isActive: true },
+      where: { salonId: { in: orgSalonIds }, isActive: true },
       select: {
         id: true,
         name: true,

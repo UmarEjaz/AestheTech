@@ -258,9 +258,9 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
   const { clientId, items, discount, discountType } = validationResult.data;
 
   try {
-    // Verify client exists and belongs to this salon
-    const client = await prisma.client.findFirst({
-      where: { id: clientId, salonId: authResult.salonId },
+    // Verify client exists (cross-branch clients supported within organization)
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
       select: { isActive: true },
     });
 
@@ -275,13 +275,13 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     const [services, products] = await Promise.all([
       serviceIds.length > 0
         ? prisma.service.findMany({
-            where: { id: { in: serviceIds }, salonId: authResult.salonId },
+            where: { id: { in: serviceIds } },
             select: { id: true, price: true, isActive: true },
           })
         : [],
       productIds.length > 0
         ? prisma.product.findMany({
-            where: { id: { in: productIds }, salonId: authResult.salonId },
+            where: { id: { in: productIds } },
             select: { id: true, name: true, price: true, isActive: true, stock: true },
           })
         : [],
@@ -782,7 +782,7 @@ export async function getTodaysSalesSummary(): Promise<ActionResult<{
   }
 }
 
-// Get client's purchase history
+// Get client's purchase history (across all branches in the organization)
 export async function getClientSales(clientId: string): Promise<ActionResult<SaleListItem[]>> {
   const authResult = await checkAuth("sales:view");
   if (!authResult) {
@@ -790,8 +790,10 @@ export async function getClientSales(clientId: string): Promise<ActionResult<Sal
   }
 
   try {
+    const { getOrganizationSalonIds } = await import("./branch");
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const sales = await prisma.sale.findMany({
-      where: { clientId, salonId: authResult.salonId },
+      where: { clientId, salonId: { in: orgSalonIds } },
       include: saleListInclude,
       orderBy: { createdAt: "desc" },
       take: 20,

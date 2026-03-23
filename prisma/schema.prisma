@@ -205,7 +205,6 @@ model Client {
   loyaltyTransactions LoyaltyTransaction[]
   recurringSeries     RecurringAppointmentSeries[]
 
-  @@unique([id, salonId])
   @@unique([salonId, phone])
   @@index([salonId])
   @@index([isWalkIn])
@@ -232,7 +231,6 @@ model Service {
   saleItems       SaleItem[]
   recurringSeries RecurringAppointmentSeries[]
 
-  @@unique([id, salonId])
   @@index([salonId])
   @@map("services")
 }
@@ -258,7 +256,6 @@ model Product {
   salon     Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
   saleItems SaleItem[]
 
-  @@unique([id, salonId])
   @@unique([salonId, sku])
   @@index([salonId])
   @@index([category])
@@ -282,10 +279,10 @@ model Appointment {
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
 
-  // Relations — composite FKs enforce same-salon referential integrity
+  // Relations — simple FKs (composite FKs removed to allow cross-branch client/service sharing)
   salon   Salon                       @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  client  Client                      @relation(fields: [clientId, salonId], references: [id, salonId], onDelete: Cascade)
-  service Service                     @relation(fields: [serviceId, salonId], references: [id, salonId])
+  client  Client                      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service Service                     @relation(fields: [serviceId], references: [id])
   staff   User                        @relation("StaffAppointments", fields: [staffId], references: [id])
   series  RecurringAppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
@@ -310,9 +307,9 @@ model Sale {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // Relations — composite FK enforces same-salon referential integrity for client
+  // Relations — simple FKs (composite FKs removed to allow cross-branch client sharing)
   salon               Salon                @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  client              Client               @relation(fields: [clientId, salonId], references: [id, salonId])
+  client              Client               @relation(fields: [clientId], references: [id])
   staff               User                 @relation(fields: [staffId], references: [id])
   items               SaleItem[]
   invoice             Invoice?
@@ -345,12 +342,12 @@ model SaleItem {
   price     Decimal  @db.Decimal(10, 2)
   createdAt DateTime @default(now())
 
-  // Relations — composite FKs enforce same-salon referential integrity
+  // Relations — simple FKs (composite FKs removed to allow cross-branch service/product sharing)
   salon   Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
   sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  service Service? @relation(fields: [serviceId, salonId], references: [id, salonId])
+  service Service? @relation(fields: [serviceId], references: [id])
   staff   User?    @relation(fields: [staffId], references: [id])
-  product Product? @relation(fields: [productId, salonId], references: [id, salonId])
+  product Product? @relation(fields: [productId], references: [id])
 
   @@index([salonId])
   @@index([saleId])
@@ -375,10 +372,10 @@ model Invoice {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  // Relations — composite FK enforces same-salon referential integrity for client
+  // Relations — simple FKs (composite FKs removed to allow cross-branch client sharing)
   salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
   sale     Sale      @relation(fields: [saleId], references: [id])
-  client   Client    @relation(fields: [clientId, salonId], references: [id, salonId])
+  client   Client    @relation(fields: [clientId], references: [id])
   payments Payment[]
   refunds  Refund[]
 
@@ -527,10 +524,10 @@ model RecurringAppointmentSeries {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations — composite FKs enforce same-salon referential integrity
+  // Relations — simple FKs (composite FKs removed to allow cross-branch client/service sharing)
   salon        Salon                      @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  client       Client                     @relation(fields: [clientId, salonId], references: [id, salonId], onDelete: Cascade)
-  service      Service                    @relation(fields: [serviceId, salonId], references: [id, salonId])
+  client       Client                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service      Service                    @relation(fields: [serviceId], references: [id])
   staff        User                       @relation("RecurringStaffAppointments", fields: [staffId], references: [id])
   appointments Appointment[]
   exceptions   RecurringSeriesException[]

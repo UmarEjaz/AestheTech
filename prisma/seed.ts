@@ -198,6 +198,69 @@ async function main() {
 
   console.log("🏢 Created demo branch salon");
 
+  // Create branch-specific services (demonstrates cross-branch service visibility)
+  await Promise.all([
+    prisma.service.create({
+      data: {
+        salonId: branchSalon.id,
+        name: "Express Facial",
+        description: "Quick 30-minute rejuvenating facial",
+        duration: 30,
+        price: 45.0,
+        points: 45,
+        category: "Skin",
+      },
+    }),
+    prisma.service.create({
+      data: {
+        salonId: branchSalon.id,
+        name: "Beard Trim",
+        description: "Professional beard trimming and shaping",
+        duration: 20,
+        price: 20.0,
+        points: 20,
+        category: "Hair",
+      },
+    }),
+  ]);
+
+  // Create a client at the branch (visible to main salon too)
+  await prisma.client.create({
+    data: {
+      salonId: branchSalon.id,
+      firstName: "David",
+      lastName: "Park",
+      email: "david.park@example.com",
+      phone: "+1555000111",
+      tags: ["branch-regular"],
+      loyaltyPoints: {
+        create: {
+          salonId: branchSalon.id,
+          balance: 100,
+          tier: "SILVER",
+        },
+      },
+    },
+  });
+
+  // Create a product at the branch
+  await prisma.product.create({
+    data: {
+      salonId: branchSalon.id,
+      name: "Beard Oil",
+      description: "Premium beard conditioning oil",
+      sku: "BEARD-OIL-001",
+      price: 18.0,
+      cost: 8.0,
+      stock: 30,
+      lowStockThreshold: 5,
+      points: 18,
+      category: "Grooming",
+    },
+  });
+
+  console.log("🏪 Created branch services, client, and product");
+
   // Create Services (salon-scoped)
   const services = await Promise.all([
     prisma.service.create({
