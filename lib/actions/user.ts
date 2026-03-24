@@ -597,7 +597,7 @@ export async function getActiveStaff(branchFilter: "current" | "all" = "current"
 
   try {
     let salonFilter: string | { in: string[] } = authResult.salonId;
-    if (branchFilter === "all") {
+    if (branchFilter === "all" && authResult.role === "OWNER") {
       const { getOrganizationSalonIds } = await import("./branch");
       const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
       salonFilter = { in: orgSalonIds };

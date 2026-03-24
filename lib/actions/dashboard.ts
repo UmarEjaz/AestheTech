@@ -16,15 +16,15 @@ import {
 } from "@/lib/utils/timezone";
 import { ActionResult } from "@/lib/types";
 import { cacheGet, cacheSet } from "@/lib/redis";
-import { getOrganizationSalonIds } from "./branch";
+import { getOrganizationSalonIds, getOrgRootSalonId } from "./branch";
 
-async function checkAuth(): Promise<{ userId: string; role: Role; salonId: string } | null> {
+async function checkAuth(): Promise<{ userId: string; role: Role; salonId: string; isSuperAdmin: boolean } | null> {
   const session = await auth();
   if (!session?.user) return null;
   if (!session.user.salonRole) return null;
   const salonId = session.user.salonId;
   if (!salonId) return null;
-  return { userId: session.user.id, role: session.user.salonRole as Role, salonId };
+  return { userId: session.user.id, role: session.user.salonRole as Role, salonId, isSuperAdmin: session.user.isSuperAdmin === true };
 }
 
 // Dashboard stats
@@ -84,10 +84,11 @@ export async function getDashboardStats(params?: {
 
   try {
     const branchFilter = params?.branchFilter || "current";
+    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
-    // Determine which salon IDs to query
+    // Determine which salon IDs to query (only owners can view all branches)
     let salonIds: string[];
-    if (branchFilter === "all") {
+    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -99,8 +100,14 @@ export async function getDashboardStats(params?: {
     const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
-    // Check cache first
-    const cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:${branchFilter}`;
+    // Check cache — use org root ID for org-wide queries so invalidation works correctly
+    let cacheKey: string;
+    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+      const orgRootId = await getOrgRootSalonId(authResult.salonId);
+      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}`;
+    } else {
+      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}`;
+    }
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
       return { success: true, data: cached };
@@ -370,11 +377,12 @@ export async function getReportData(params: {
   }
 
   const { startDate, endDate, branchFilter = "current" } = params;
+  const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
   try {
-    // Determine which salon IDs to query
+    // Determine which salon IDs to query (only owners can view all branches)
     let salonIds: string[];
-    if (branchFilter === "all") {
+    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -386,8 +394,14 @@ export async function getReportData(params: {
     const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
-    // Check cache first
-    const cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:${branchFilter}:${startDate.toISOString()}:${endDate.toISOString()}`;
+    // Check cache — use org root ID for org-wide queries so invalidation works correctly
+    let cacheKey: string;
+    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+      const orgRootId = await getOrgRootSalonId(authResult.salonId);
+      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:${startDate.toISOString()}:${endDate.toISOString()}`;
+    } else {
+      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:${startDate.toISOString()}:${endDate.toISOString()}`;
+    }
     const cached = await cacheGet<ReportData>(cacheKey);
     if (cached) {
       return { success: true, data: cached };

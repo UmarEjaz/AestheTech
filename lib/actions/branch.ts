@@ -13,6 +13,18 @@ import { logAudit } from "./audit";
  * For standalone salons, returns just [salonId].
  * For multi-branch orgs, returns parent + all branch IDs.
  */
+/**
+ * Get the root salon ID for the organization (parent salon, or itself if standalone).
+ * Used for org-scoped cache keys.
+ */
+export async function getOrgRootSalonId(salonId: string): Promise<string> {
+  const salon = await prisma.salon.findUnique({
+    where: { id: salonId },
+    select: { parentSalonId: true },
+  });
+  return salon?.parentSalonId || salonId;
+}
+
 export async function getOrganizationSalonIds(salonId: string): Promise<string[]> {
   const salon = await prisma.salon.findUnique({
     where: { id: salonId },
@@ -29,7 +41,6 @@ export async function getOrganizationSalonIds(salonId: string): Promise<string[]
         { id: rootSalonId },
         { parentSalonId: rootSalonId },
       ],
-      isActive: true,
     },
     select: { id: true },
   });

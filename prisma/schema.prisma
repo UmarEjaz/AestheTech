@@ -288,6 +288,7 @@ model Appointment {
 
   @@index([salonId])
   @@index([clientId])
+  @@index([serviceId])
   @@index([staffId])
   @@index([startTime])
   @@index([seriesId])
@@ -351,6 +352,7 @@ model SaleItem {
 
   @@index([salonId])
   @@index([saleId])
+  @@index([serviceId])
   @@index([productId])
   @@map("sale_items")
 }

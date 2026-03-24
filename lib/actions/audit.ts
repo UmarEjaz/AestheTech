@@ -84,9 +84,9 @@ export async function getAuditLogs(
 
   const where: Record<string, unknown> = {};
 
-  // Filter by current branch or all branches in the organization
+  // Filter by current branch or all branches in the organization (owner-only)
   if (salonId) {
-    if (params.branchFilter === "all") {
+    if (params.branchFilter === "all" && role === "OWNER") {
       const orgSalonIds = await getOrganizationSalonIds(salonId);
       where.salonId = { in: orgSalonIds };
     } else {
@@ -152,7 +152,7 @@ export async function getAuditActions(branchFilter: "current" | "all" = "current
   try {
     let salonFilter: { salonId: string | { in: string[] } } | undefined;
     if (salonId) {
-      if (branchFilter === "all") {
+      if (branchFilter === "all" && role === "OWNER") {
         const orgSalonIds = await getOrganizationSalonIds(salonId);
         salonFilter = { salonId: { in: orgSalonIds } };
       } else {
@@ -189,7 +189,7 @@ export async function getAuditEntityTypes(branchFilter: "current" | "all" = "cur
   try {
     let salonFilter: { salonId: string | { in: string[] } } | undefined;
     if (salonId) {
-      if (branchFilter === "all") {
+      if (branchFilter === "all" && role === "OWNER") {
         const orgSalonIds = await getOrganizationSalonIds(salonId);
         salonFilter = { salonId: { in: orgSalonIds } };
       } else {

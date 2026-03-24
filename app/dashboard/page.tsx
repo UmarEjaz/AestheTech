@@ -34,7 +34,7 @@ export default async function DashboardPage({
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   const params = await searchParams;
-  const branchFilter = params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
 
   const [statsResult, tz, branchesResult] = await Promise.all([
     getDashboardStats({ branchFilter }),

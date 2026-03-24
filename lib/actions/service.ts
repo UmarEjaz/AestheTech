@@ -12,7 +12,6 @@ import {
 import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
-import { getOrganizationSalonIds } from "./branch";
 
 const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
   _count: {
@@ -45,11 +44,8 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
   const skip = (safePage - 1) * safeLimit;
 
   try {
-    // Get all salon IDs in the organization for cross-branch service visibility
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-
     const where = {
-      salonId: { in: orgSalonIds },
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -70,7 +66,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
       }),
       prisma.service.count({ where }),
       prisma.service.findMany({
-        where: { salonId: { in: orgSalonIds }, isActive: true },
+        where: { salonId: authResult.salonId, isActive: true },
         select: { category: true },
         distinct: ["category"],
       }),
@@ -104,9 +100,8 @@ export async function getService(id: string): Promise<ActionResult<ServiceListIt
   }
 
   try {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const service = await prisma.service.findFirst({
-      where: { id, salonId: { in: orgSalonIds } },
+      where: { id, salonId: authResult.salonId },
       include: serviceListInclude,
     });
 
@@ -287,9 +282,8 @@ export async function getAllCategories(): Promise<ActionResult<string[]>> {
   }
 
   try {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const services = await prisma.service.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: { category: true },
       distinct: ["category"],
     });

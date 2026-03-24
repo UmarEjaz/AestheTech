@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import { prisma } from "@/lib/prisma";
 
 const globalForRedis = globalThis as unknown as {
   redis: Redis | undefined;
@@ -86,16 +87,28 @@ export async function invalidateDashboardCache(salonId?: string): Promise<void> 
 
   try {
     if (salonId) {
-      // Invalidate only this salon's cache
+      // Invalidate this salon's branch-specific cache
       await Promise.all([
         scanAndDelete(redis, `salon:${salonId}:dashboard:*`),
         scanAndDelete(redis, `salon:${salonId}:reports:*`),
       ]);
+      // Also invalidate org-level caches (covers the "all branches" view)
+      const salon = await prisma.salon.findUnique({
+        where: { id: salonId },
+        select: { parentSalonId: true },
+      });
+      const orgRootId = salon?.parentSalonId || salonId;
+      await Promise.all([
+        scanAndDelete(redis, `org:${orgRootId}:dashboard:*`),
+        scanAndDelete(redis, `org:${orgRootId}:reports:*`),
+      ]);
     } else {
-      // Fallback: invalidate all salon caches
+      // Fallback: invalidate all caches
       await Promise.all([
         scanAndDelete(redis, "salon:*:dashboard:*"),
         scanAndDelete(redis, "salon:*:reports:*"),
+        scanAndDelete(redis, "org:*:dashboard:*"),
+        scanAndDelete(redis, "org:*:reports:*"),
       ]);
     }
   } catch {

@@ -364,9 +364,9 @@ export async function getActiveProducts(): Promise<ActionResult<{
   }
 
   try {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    // Use current branch only — inventory/stock is branch-specific
     const products = await prisma.product.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
+      where: { salonId: authResult.salonId, isActive: true },
       select: {
         id: true,
         name: true,

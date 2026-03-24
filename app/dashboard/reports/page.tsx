@@ -35,7 +35,7 @@ export default async function ReportsPage({
   }
 
   const params = await searchParams;
-  const branchFilter = params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
 
   // Get timezone first, then compute month range for initial report data
   const [tz, branchesResult] = await Promise.all([

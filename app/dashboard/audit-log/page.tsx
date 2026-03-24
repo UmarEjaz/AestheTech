@@ -41,7 +41,7 @@ export default async function AuditLogPage({
 
   const params = await searchParams;
   const page = params.page ? parseInt(params.page) : 1;
-  const branchFilter = params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
 
   const [logsResult, actionsResult, entityTypesResult, staffResult, branchesResult] = await Promise.all([
     getAuditLogs({
