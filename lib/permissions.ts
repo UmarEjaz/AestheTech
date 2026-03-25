@@ -61,6 +61,16 @@ export const permissions: Record<string, Role[]> = {
   "branches:view": [Role.OWNER],
   "branches:manage": [Role.OWNER],
 
+  // Expenses
+  "expenses:view": [Role.OWNER, Role.ADMIN],
+  "expenses:create": [Role.OWNER, Role.ADMIN],
+  "expenses:update": [Role.OWNER, Role.ADMIN],
+  "expenses:delete": [Role.OWNER],
+
+  // Expense Categories
+  "expense-categories:view": [Role.OWNER, Role.ADMIN],
+  "expense-categories:manage": [Role.OWNER, Role.ADMIN],
+
   // Audit
   "audit:view": [Role.OWNER],
 };

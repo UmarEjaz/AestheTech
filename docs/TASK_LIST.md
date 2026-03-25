@@ -314,13 +314,13 @@
 - [ ] Add salary expenses to overall expense tracking
 
 ### Daily Income & Expense Tracking
-- [ ] Create `Expense` model in database (amount, category, date, description, receipt)
-- [ ] Create expense categories (rent, utilities, supplies, marketing, etc.)
-- [ ] Create "Add Expense" form with validation
-- [ ] Create expense list page with filtering by date/category
-- [ ] Create daily income vs expense summary view
-- [ ] Create monthly income vs expense report
-- [ ] Add expense widgets to dashboard
+- [x] Create `Expense` model in database (amount, category, date, description, receipt)
+- [x] Create expense categories (rent, utilities, supplies, marketing, etc.)
+- [x] Create "Add Expense" form with validation
+- [x] Create expense list page with filtering by date/category
+- [x] Create daily income vs expense summary view
+- [x] Create monthly income vs expense report
+- [x] Add expense widgets to dashboard
 
 ### Profit Tracking & Analytics
 - [ ] Add cost/expense fields to services and products where missing
@@ -506,7 +506,7 @@
 - [x] Phase 4: Advanced Features (100%)
 - [x] Phase 5: International Currency Support (100%)
 - [x] Phase 6: Multi-Location Support (100%)
-- [ ] Phase 7: Financial Management (0%)
+- [ ] Phase 7: Financial Management (~33% — Daily Income & Expense Tracking complete)
 - [ ] Phase 8: Polish & Testing (0%)
 - [ ] Phase 9: Deployment & Launch (0%)
 

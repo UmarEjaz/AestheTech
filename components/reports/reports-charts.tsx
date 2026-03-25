@@ -24,6 +24,7 @@ import {
   DollarSign,
   TrendingUp,
   Users,
+  Wallet,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -219,25 +220,28 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg. Sale</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {fmtCurrency(data.totals.sales > 0 ? data.totals.revenue / data.totals.sales : 0)}
+            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+              {fmtCurrency(data.totals.expenses)}
             </div>
             <p className="text-xs text-muted-foreground">
-              Per transaction
+              Net:{" "}
+              <span className={data.totals.revenue - data.totals.expenses >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                {fmtCurrency(data.totals.revenue - data.totals.expenses)}
+              </span>
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Revenue Chart */}
+      {/* Income vs Expenses Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Revenue Over Time</CardTitle>
-          <CardDescription>Daily revenue for the selected period</CardDescription>
+          <CardTitle>Income vs Expenses</CardTitle>
+          <CardDescription>Daily revenue and expenses for the selected period</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -248,6 +252,10 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorExpenses" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -261,9 +269,13 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     className="text-xs"
                   />
                   <Tooltip
-                    formatter={(value) => [fmtCurrency(value as number), "Revenue"]}
+                    formatter={(value, name) => [
+                      fmtCurrency(value as number),
+                      name === "revenue" ? "Income" : "Expenses",
+                    ]}
                     labelFormatter={(label) => formatInTz(label as string, "MMM d, yyyy", timezone)}
                   />
+                  <Legend formatter={(value) => (value === "revenue" ? "Income" : "Expenses")} />
                   <Area
                     type="monotone"
                     dataKey="revenue"
@@ -271,11 +283,18 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     fillOpacity={1}
                     fill="url(#colorRevenue)"
                   />
+                  <Area
+                    type="monotone"
+                    dataKey="expenses"
+                    stroke="#ef4444"
+                    fillOpacity={1}
+                    fill="url(#colorExpenses)"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
-                No revenue data for this period
+                No data for this period
               </div>
             )}
           </div>
@@ -362,6 +381,48 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardContent>
         </Card>
       </div>
+
+      {/* Expenses by Category */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Expenses by Category</CardTitle>
+          <CardDescription>Breakdown of expenses for the selected period</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px]">
+            {data.expensesByCategory.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={data.expensesByCategory}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, payload }) => {
+                      const total = data.totals.expenses;
+                      const pct = total > 0 ? Math.round((payload.amount / total) * 100) : 0;
+                      return `${name} (${pct}%)`;
+                    }}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="amount"
+                    nameKey="category"
+                  >
+                    {data.expensesByCategory.map((entry, index) => (
+                      <Cell key={`cell-exp-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => fmtCurrency(value as number)} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No expense data for this period
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Staff Performance */}
       <Card>
