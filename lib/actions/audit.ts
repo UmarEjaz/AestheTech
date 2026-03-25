@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
 import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
+import { getOrganizationSalonIds } from "./branch";
 
 interface LogAuditParams {
   action: string;
@@ -45,6 +46,7 @@ interface GetAuditLogsParams {
   userId?: string;
   from?: string;
   to?: string;
+  branchFilter?: "current" | "all";
 }
 
 interface AuditLogEntry {
@@ -82,8 +84,14 @@ export async function getAuditLogs(
 
   const where: Record<string, unknown> = {};
 
+  // Filter by current branch or all branches in the organization (owner-only)
   if (salonId) {
-    where.salonId = salonId;
+    if (params.branchFilter === "all" && role === "OWNER") {
+      const orgSalonIds = await getOrganizationSalonIds(salonId);
+      where.salonId = { in: orgSalonIds };
+    } else {
+      where.salonId = salonId;
+    }
   }
 
   if (params.action) {
@@ -129,7 +137,7 @@ export async function getAuditLogs(
 /**
  * Get distinct action types for filter dropdown
  */
-export async function getAuditActions(): Promise<ActionResult<string[]>> {
+export async function getAuditActions(branchFilter: "current" | "all" = "current"): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
@@ -142,8 +150,17 @@ export async function getAuditActions(): Promise<ActionResult<string[]>> {
   const salonId = session.user.salonId;
 
   try {
+    let salonFilter: { salonId: string | { in: string[] } } | undefined;
+    if (salonId) {
+      if (branchFilter === "all" && role === "OWNER") {
+        const orgSalonIds = await getOrganizationSalonIds(salonId);
+        salonFilter = { salonId: { in: orgSalonIds } };
+      } else {
+        salonFilter = { salonId };
+      }
+    }
     const results = await prisma.auditLog.findMany({
-      where: salonId ? { salonId } : undefined,
+      where: salonFilter,
       distinct: ["action"],
       select: { action: true },
       orderBy: { action: "asc" },
@@ -157,7 +174,7 @@ export async function getAuditActions(): Promise<ActionResult<string[]>> {
 /**
  * Get distinct entity types for filter dropdown
  */
-export async function getAuditEntityTypes(): Promise<ActionResult<string[]>> {
+export async function getAuditEntityTypes(branchFilter: "current" | "all" = "current"): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
@@ -170,8 +187,17 @@ export async function getAuditEntityTypes(): Promise<ActionResult<string[]>> {
   const salonId = session.user.salonId;
 
   try {
+    let salonFilter: { salonId: string | { in: string[] } } | undefined;
+    if (salonId) {
+      if (branchFilter === "all" && role === "OWNER") {
+        const orgSalonIds = await getOrganizationSalonIds(salonId);
+        salonFilter = { salonId: { in: orgSalonIds } };
+      } else {
+        salonFilter = { salonId };
+      }
+    }
     const results = await prisma.auditLog.findMany({
-      where: salonId ? { salonId } : undefined,
+      where: salonFilter,
       distinct: ["entityType"],
       select: { entityType: true },
       orderBy: { entityType: "asc" },

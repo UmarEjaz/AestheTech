@@ -17,6 +17,7 @@ import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
 import { invalidateDashboardCache } from "@/lib/redis";
+import { getOrganizationSalonIds } from "./branch";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
@@ -221,9 +222,12 @@ export async function createAppointment(
   const { clientId, serviceId, staffId, startTime, notes } = validationResult.data;
 
   try {
-    // Get service to calculate end time
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
+    // Get org salon IDs to validate cross-branch references within the organization
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+
+    // Get service to calculate end time (org-scoped)
+    const service = await prisma.service.findFirst({
+      where: { id: serviceId, salonId: { in: orgSalonIds } },
       select: { duration: true, isActive: true },
     });
 
@@ -245,9 +249,9 @@ export async function createAppointment(
       return { success: false, error: "This time slot conflicts with another appointment" };
     }
 
-    // Verify client exists and is active
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
+    // Verify client exists and is active (org-scoped)
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, salonId: { in: orgSalonIds } },
       select: { isActive: true },
     });
 
@@ -328,9 +332,10 @@ export async function updateAppointment(
       return { success: false, error: "Cannot update completed or cancelled appointments" };
     }
 
-    // Get service to calculate end time
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
+    // Get service to calculate end time (org-scoped)
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    const service = await prisma.service.findFirst({
+      where: { id: serviceId, salonId: { in: orgSalonIds } },
       select: { duration: true },
     });
 
@@ -341,6 +346,16 @@ export async function updateAppointment(
     // Calculate end time
     const endTime = new Date(startTime);
     endTime.setMinutes(endTime.getMinutes() + service.duration);
+
+    // Verify client exists and is active (org-scoped)
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, salonId: { in: orgSalonIds } },
+      select: { isActive: true },
+    });
+
+    if (!client || !client.isActive) {
+      return { success: false, error: "Client not found or inactive" };
+    }
 
     // Check for conflicts (excluding this appointment)
     const hasConflict = await checkConflict(staffId, startTime, endTime, id, authResult.salonId);
@@ -620,9 +635,10 @@ export async function getAvailableSlots(params: {
   const { staffId, date, serviceId, excludeAppointmentId } = params;
 
   try {
-    // Get service duration
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
+    // Get service duration (org-scoped)
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    const service = await prisma.service.findFirst({
+      where: { id: serviceId, salonId: { in: orgSalonIds } },
       select: { duration: true },
     });
 

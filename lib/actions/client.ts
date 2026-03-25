@@ -9,6 +9,7 @@ import { Role, Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
+import { getOrganizationSalonIds } from "./branch";
 
 async function checkAuth(permission: string): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
@@ -57,8 +58,11 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
   const skip = (safePage - 1) * safeLimit;
 
   try {
+    // Get all salon IDs in the organization for cross-branch client visibility
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+
     const where = {
-      salonId: authResult.salonId,
+      salonId: { in: orgSalonIds },
       isActive,
       ...(query && {
         OR: [
@@ -176,8 +180,11 @@ export async function getClient(id: string): Promise<ActionResult<ClientWithRela
   }
 
   try {
+    // Allow viewing clients from any branch in the organization
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+
     const client = await prisma.client.findFirst({
-      where: { id, salonId: authResult.salonId },
+      where: { id, salonId: { in: orgSalonIds } },
       include: getClientInclude(),
     });
 
@@ -324,19 +331,20 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
 
   const { id, birthday, email, photoUrl, ...rest } = validationResult.data;
 
-  // Check if client exists and belongs to this salon
+  // Check if client exists and belongs to the organization
+  const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
   const existingClient = await prisma.client.findFirst({
-    where: { id, salonId: authResult.salonId },
+    where: { id, salonId: { in: orgSalonIds } },
   });
 
   if (!existingClient) {
     return { success: false, error: "Client not found" };
   }
 
-  // Check for duplicate phone number if phone is being updated
+  // Check for duplicate phone number if phone is being updated (at client's home branch)
   if (rest.phone && rest.phone !== existingClient.phone) {
     const duplicatePhone = await prisma.client.findUnique({
-      where: { salonId_phone: { salonId: authResult.salonId, phone: rest.phone } },
+      where: { salonId_phone: { salonId: existingClient.salonId, phone: rest.phone } },
     });
 
     if (duplicatePhone) {
@@ -381,8 +389,10 @@ export async function deleteClient(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
+  // Allow deleting clients from any branch in the org
+  const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
   const client = await prisma.client.findFirst({
-    where: { id, salonId: authResult.salonId },
+    where: { id, salonId: { in: orgSalonIds } },
     include: {
       _count: {
         select: {
@@ -423,8 +433,9 @@ export async function restoreClient(id: string): Promise<ActionResult> {
     return { success: false, error: "Unauthorized" };
   }
 
+  const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
   const client = await prisma.client.findFirst({
-    where: { id, salonId: authResult.salonId },
+    where: { id, salonId: { in: orgSalonIds } },
   });
 
   if (!client) {
@@ -457,9 +468,10 @@ export async function getAllTags(): Promise<ActionResult<string[]>> {
   }
 
   try {
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const clients = await prisma.client.findMany({
       select: { tags: true },
-      where: { salonId: authResult.salonId, isActive: true },
+      where: { salonId: { in: orgSalonIds }, isActive: true },
     });
 
     const allTags = new Set<string>();

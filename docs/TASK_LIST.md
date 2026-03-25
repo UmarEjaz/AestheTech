@@ -283,36 +283,35 @@
 ## Phase 6: Multi-Location Support
 
 ### Schema & Architecture
-- [ ] Redesign salon-user relationship to allow staff across branches of the same owner
-- [ ] Add location/branch model (linked to a parent salon or organization)
-- [ ] Update middleware to handle branch selection and switching
-- [ ] Add branch switcher to UI
+- [x] Redesign salon-user relationship to allow staff across branches of the same owner
+- [x] Add location/branch model (linked to a parent salon or organization)
+- [x] Update middleware to handle branch selection and switching
+- [x] Add branch switcher to UI
 
 ### Data & Operations
-- [ ] Scope appointments, sales, invoices, and schedules per branch
-- [ ] Allow shared clients across branches
-- [ ] Allow shared services/products or per-branch catalogs
-- [ ] Update dashboard and reports to filter by branch or show combined view
+- [x] Scope appointments, sales, invoices, and schedules per branch
+- [x] Allow shared clients across branches
+- [x] Allow shared services/products or per-branch catalogs
+- [x] Update dashboard and reports to filter by branch or show combined view
 
 ### Admin & Settings
-- [ ] Create branch management page for owners
-- [ ] Per-branch settings (hours, timezone, currency)
-- [ ] Staff assignment and transfer between branches
-- [ ] Cross-branch reporting for owners
+- [x] Create branch management page for owners
+- [x] Per-branch settings (hours, timezone, currency)
+- [x] Staff assignment and transfer between branches
+- [x] Cross-branch reporting for owners
 
 ---
 
 ## Phase 7: Financial Management
 
-### Profit Tracking & Analytics
-- [ ] Add cost/expense fields to services and products where missing
-- [ ] Calculate profit per client (revenue minus costs)
-- [ ] Calculate profit margin per service and product
-- [ ] Create daily sales summary (total sales, total costs, net profit)
-- [ ] Create monthly sales summary with trends
-- [ ] Create monthly profit report with breakdown
-- [ ] Add profit widgets to dashboard
-- [ ] Add profit charts and visualizations to reports page
+### Staff Salaries & Payroll
+- [ ] Create `Salary` model in database (staffId, amount, payPeriod, payDate, status)
+- [ ] Create salary configuration per staff member (monthly/hourly rate)
+- [ ] Create salary payment tracking page
+- [ ] Create payroll management dashboard
+- [ ] Create payroll summary report (monthly/yearly)
+- [ ] Track salary payment history per staff member
+- [ ] Add salary expenses to overall expense tracking
 
 ### Daily Income & Expense Tracking
 - [ ] Create `Expense` model in database (amount, category, date, description, receipt)
@@ -323,14 +322,15 @@
 - [ ] Create monthly income vs expense report
 - [ ] Add expense widgets to dashboard
 
-### Staff Salaries & Payroll
-- [ ] Create `Salary` model in database (staffId, amount, payPeriod, payDate, status)
-- [ ] Create salary configuration per staff member (monthly/hourly rate)
-- [ ] Create salary payment tracking page
-- [ ] Create payroll management dashboard
-- [ ] Create payroll summary report (monthly/yearly)
-- [ ] Track salary payment history per staff member
-- [ ] Add salary expenses to overall expense tracking
+### Profit Tracking & Analytics
+- [ ] Add cost/expense fields to services and products where missing
+- [ ] Calculate profit per client (revenue minus costs)
+- [ ] Calculate profit margin per service and product
+- [ ] Create daily sales summary (total sales, total costs, net profit)
+- [ ] Create monthly sales summary with trends
+- [ ] Create monthly profit report with breakdown
+- [ ] Add profit widgets to dashboard
+- [ ] Add profit charts and visualizations to reports page
 
 ---
 
@@ -495,9 +495,9 @@
 
 ## Progress Tracking
 
-**Last Updated**: March 18, 2026
+**Last Updated**: March 19, 2026
 
-**Overall Progress**: ~85% of core features completed
+**Overall Progress**: ~90% of core features completed
 
 ### Phase Status
 - [x] Phase 1: Project Foundation (100%)
@@ -505,7 +505,7 @@
 - [x] Phase 3: Core Features Part 2 (100%)
 - [x] Phase 4: Advanced Features (100%)
 - [x] Phase 5: International Currency Support (100%)
-- [ ] Phase 6: Multi-Location Support (0%)
+- [x] Phase 6: Multi-Location Support (100%)
 - [ ] Phase 7: Financial Management (0%)
 - [ ] Phase 8: Polish & Testing (0%)
 - [ ] Phase 9: Deployment & Launch (0%)

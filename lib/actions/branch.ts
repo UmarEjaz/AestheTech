@@ -8,6 +8,46 @@ import { branchSchema, BranchFormData } from "@/lib/validations/branch";
 import { Role } from "@prisma/client";
 import { logAudit } from "./audit";
 
+/**
+ * Get all salon IDs in the same organization as the given salon.
+ * For standalone salons, returns just [salonId].
+ * For multi-branch orgs, returns parent + all branch IDs.
+ */
+/**
+ * Get the root salon ID for the organization (parent salon, or itself if standalone).
+ * Used for org-scoped cache keys.
+ */
+export async function getOrgRootSalonId(salonId: string): Promise<string> {
+  const salon = await prisma.salon.findUnique({
+    where: { id: salonId },
+    select: { parentSalonId: true },
+  });
+  return salon?.parentSalonId || salonId;
+}
+
+export async function getOrganizationSalonIds(salonId: string): Promise<string[]> {
+  const salon = await prisma.salon.findUnique({
+    where: { id: salonId },
+    select: { id: true, parentSalonId: true },
+  });
+
+  if (!salon) return [salonId];
+
+  const rootSalonId = salon.parentSalonId || salon.id;
+
+  const orgSalons = await prisma.salon.findMany({
+    where: {
+      OR: [
+        { id: rootSalonId },
+        { parentSalonId: rootSalonId },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return orgSalons.length > 0 ? orgSalons.map((s) => s.id) : [salonId];
+}
+
 export type BranchListItem = {
   id: string;
   name: string;

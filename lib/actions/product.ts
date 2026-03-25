@@ -12,6 +12,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { getOrganizationSalonIds } from "./branch";
 
 const productListInclude = Prisma.validator<Prisma.ProductInclude>()({
   _count: {
@@ -43,8 +44,11 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
   const skip = (safePage - 1) * safeLimit;
 
   try {
+    // Get all salon IDs in the organization for cross-branch product visibility
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+
     const where: Prisma.ProductWhereInput = {
-      salonId: authResult.salonId,
+      salonId: { in: orgSalonIds },
       isActive,
       ...(query && {
         OR: [
@@ -67,7 +71,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
       }),
       lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
       prisma.product.findMany({
-        where: { salonId: authResult.salonId, isActive: true },
+        where: { salonId: { in: orgSalonIds }, isActive: true },
         select: { category: true },
         distinct: ["category"],
       }),
@@ -113,8 +117,9 @@ export async function getProduct(id: string): Promise<ActionResult<ProductListIt
   }
 
   try {
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const product = await prisma.product.findFirst({
-      where: { id, salonId: authResult.salonId },
+      where: { id, salonId: { in: orgSalonIds } },
       include: productListInclude,
     });
 
@@ -324,8 +329,9 @@ export async function getAllProductCategories(): Promise<ActionResult<string[]>>
   }
 
   try {
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const products = await prisma.product.findMany({
-      where: { salonId: authResult.salonId, isActive: true },
+      where: { salonId: { in: orgSalonIds }, isActive: true },
       select: { category: true },
       distinct: ["category"],
     });
@@ -358,6 +364,7 @@ export async function getActiveProducts(): Promise<ActionResult<{
   }
 
   try {
+    // Use current branch only — inventory/stock is branch-specific
     const products = await prisma.product.findMany({
       where: { salonId: authResult.salonId, isActive: true },
       select: {

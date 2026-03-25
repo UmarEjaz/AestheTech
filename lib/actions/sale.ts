@@ -20,6 +20,7 @@ import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
+import { getOrganizationSalonIds } from "./branch";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
@@ -258,9 +259,12 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
   const { clientId, items, discount, discountType } = validationResult.data;
 
   try {
-    // Verify client exists and belongs to this salon
+    // Get org salon IDs to validate cross-branch references within the organization
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+
+    // Verify client exists within the organization
     const client = await prisma.client.findFirst({
-      where: { id: clientId, salonId: authResult.salonId },
+      where: { id: clientId, salonId: { in: orgSalonIds } },
       select: { isActive: true },
     });
 
@@ -268,20 +272,20 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       return { success: false, error: "Client not found or inactive" };
     }
 
-    // Verify services and products
+    // Verify services and products belong to the organization
     const serviceIds = items.filter((i) => i.serviceId).map((i) => i.serviceId!);
     const productIds = items.filter((i) => i.productId).map((i) => i.productId!);
 
     const [services, products] = await Promise.all([
       serviceIds.length > 0
         ? prisma.service.findMany({
-            where: { id: { in: serviceIds }, salonId: authResult.salonId },
+            where: { id: { in: serviceIds }, salonId: { in: orgSalonIds } },
             select: { id: true, price: true, isActive: true },
           })
         : [],
       productIds.length > 0
         ? prisma.product.findMany({
-            where: { id: { in: productIds }, salonId: authResult.salonId },
+            where: { id: { in: productIds }, salonId: { in: orgSalonIds } },
             select: { id: true, name: true, price: true, isActive: true, stock: true },
           })
         : [],
@@ -782,7 +786,7 @@ export async function getTodaysSalesSummary(): Promise<ActionResult<{
   }
 }
 
-// Get client's purchase history
+// Get client's purchase history (across all branches in the organization)
 export async function getClientSales(clientId: string): Promise<ActionResult<SaleListItem[]>> {
   const authResult = await checkAuth("sales:view");
   if (!authResult) {
@@ -790,8 +794,9 @@ export async function getClientSales(clientId: string): Promise<ActionResult<Sal
   }
 
   try {
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const sales = await prisma.sale.findMany({
-      where: { clientId, salonId: authResult.salonId },
+      where: { clientId, salonId: { in: orgSalonIds } },
       include: saleListInclude,
       orderBy: { createdAt: "desc" },
       take: 20,

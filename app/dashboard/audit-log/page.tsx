@@ -5,7 +5,9 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { hasPermission } from "@/lib/permissions";
 import { getAuditLogs, getAuditActions, getAuditEntityTypes } from "@/lib/actions/audit";
 import { getActiveStaff } from "@/lib/actions/user";
+import { getBranches } from "@/lib/actions/branch";
 import { AuditLogClient } from "@/components/audit/audit-log-client";
+import { BranchFilter } from "@/components/dashboard/branch-filter";
 
 export default async function AuditLogPage({
   searchParams,
@@ -17,6 +19,7 @@ export default async function AuditLogPage({
     userId?: string;
     from?: string;
     to?: string;
+    branch?: string;
   }>;
 }) {
   const session = await auth();
@@ -30,6 +33,7 @@ export default async function AuditLogPage({
   }
   const userRole = (session.user.salonRole ?? null) as Role | null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   if (!hasPermission(userRole, "audit:view", isSuperAdmin)) {
     redirect("/dashboard/access-denied");
@@ -37,8 +41,9 @@ export default async function AuditLogPage({
 
   const params = await searchParams;
   const page = params.page ? parseInt(params.page) : 1;
+  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
 
-  const [logsResult, actionsResult, entityTypesResult, staffResult] = await Promise.all([
+  const [logsResult, actionsResult, entityTypesResult, staffResult, branchesResult] = await Promise.all([
     getAuditLogs({
       page,
       pageSize: 50,
@@ -47,11 +52,18 @@ export default async function AuditLogPage({
       userId: params.userId,
       from: params.from,
       to: params.to,
+      branchFilter,
     }),
-    getAuditActions(),
-    getAuditEntityTypes(),
-    getActiveStaff(),
+    getAuditActions(branchFilter),
+    getAuditEntityTypes(branchFilter),
+    getActiveStaff(branchFilter),
+    isOwner ? getBranches() : Promise.resolve(null),
   ]);
+
+  const hasMultipleBranches = branchesResult?.success && branchesResult.data.length > 1;
+  const currentSalonName = branchesResult?.success
+    ? branchesResult.data.find((b) => b.id === session.user.salonId)?.name
+    : undefined;
 
   if (!logsResult.success) {
     return (
@@ -65,6 +77,14 @@ export default async function AuditLogPage({
 
   return (
     <DashboardLayout userRole={userRole}>
+      {hasMultipleBranches && (
+        <div className="flex justify-end mb-4">
+          <BranchFilter
+            currentFilter={branchFilter}
+            currentSalonName={currentSalonName}
+          />
+        </div>
+      )}
       <AuditLogClient
         logs={logsResult.data.logs}
         total={logsResult.data.total}
