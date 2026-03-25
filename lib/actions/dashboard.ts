@@ -71,6 +71,10 @@ export interface DashboardStats {
     appointmentsCount: number;
     revenue: number;
   }[];
+  todaysExpenses: {
+    amount: number;
+    count: number;
+  };
   currencyCode: string;
 }
 
@@ -134,6 +138,7 @@ export async function getDashboardStats(params?: {
       recentSalesData,
       upcomingAppointmentsData,
       staffPerformanceData,
+      todaysExpensesData,
     ] = await Promise.all([
       // Today's appointments
       prisma.appointment.groupBy({
@@ -238,6 +243,15 @@ export async function getDashboardStats(params?: {
         _count: { id: true },
         _sum: { price: true },
       }),
+
+      // Today's expenses
+      prisma.expense.findMany({
+        where: {
+          salonId: salonFilter,
+          date: { gte: todayStart, lt: todayEnd },
+        },
+        select: { amount: true },
+      }),
     ]);
 
     // Process appointments data
@@ -312,6 +326,9 @@ export async function getDashboardStats(params?: {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
+    // Process today's expenses
+    const todaysExpenseTotal = todaysExpensesData.reduce((sum, e) => sum + Number(e.amount), 0);
+
     const data: DashboardStats = {
       todaysAppointments: {
         total: totalAppointments,
@@ -333,6 +350,10 @@ export async function getDashboardStats(params?: {
       recentSales,
       upcomingAppointments,
       staffPerformance,
+      todaysExpenses: {
+        amount: todaysExpenseTotal,
+        count: todaysExpensesData.length,
+      },
       currencyCode,
     };
 
@@ -347,17 +368,19 @@ export async function getDashboardStats(params?: {
 
 // Reports data
 export interface ReportData {
-  revenueByDay: { date: string; revenue: number; salesCount: number }[];
+  revenueByDay: { date: string; revenue: number; salesCount: number; expenses: number }[];
   revenueByItem: { item: string; revenue: number; percentage: number }[];
   revenueByStaff: { staff: string; revenue: number; appointments: number }[];
   appointmentsByStatus: { status: string; count: number }[];
   clientGrowth: { date: string; newClients: number; totalClients: number }[];
   peakHours: { hour: number; count: number }[];
+  expensesByCategory: { category: string; color: string; amount: number }[];
   totals: {
     revenue: number;
     sales: number;
     appointments: number;
     newClients: number;
+    expenses: number;
   };
   currencyCode: string;
 }
@@ -413,6 +436,7 @@ export async function getReportData(params: {
       appointmentsData,
       clientsData,
       saleItemsData,
+      expensesData,
     ] = await Promise.all([
       // Sales in date range
       prisma.sale.findMany({
@@ -459,6 +483,19 @@ export async function getReportData(params: {
           staff: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
+
+      // Expenses in date range
+      prisma.expense.findMany({
+        where: {
+          salonId: salonFilter,
+          date: { gte: startDate, lte: endDate },
+        },
+        select: {
+          amount: true,
+          date: true,
+          category: { select: { name: true, color: true } },
+        },
+      }),
     ]);
 
     // Revenue by day
@@ -471,8 +508,22 @@ export async function getReportData(params: {
       revenueByDayMap.set(dateKey, existing);
     });
 
-    const revenueByDay = Array.from(revenueByDayMap.entries())
-      .map(([date, data]) => ({ date, ...data }))
+    // Expenses by day
+    const expensesByDayMap = new Map<string, number>();
+    expensesData.forEach((expense) => {
+      const dateKey = formatInTz(expense.date, "yyyy-MM-dd", tz);
+      expensesByDayMap.set(dateKey, (expensesByDayMap.get(dateKey) || 0) + Number(expense.amount));
+    });
+
+    // Merge revenue and expenses by day (include all dates from both maps)
+    const allDates = new Set([...revenueByDayMap.keys(), ...expensesByDayMap.keys()]);
+    const revenueByDay = Array.from(allDates)
+      .map((date) => ({
+        date,
+        revenue: revenueByDayMap.get(date)?.revenue || 0,
+        salesCount: revenueByDayMap.get(date)?.salesCount || 0,
+        expenses: expensesByDayMap.get(date) || 0,
+      }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
     // Revenue by item (services + products)
@@ -550,12 +601,34 @@ export async function getReportData(params: {
       .map(([hour, count]) => ({ hour, count }))
       .sort((a, b) => a.hour - b.hour);
 
+    // Expenses by category
+    const expCatMap = new Map<string, { color: string; amount: number }>();
+    expensesData.forEach((expense) => {
+      const catName = expense.category.name;
+      const existing = expCatMap.get(catName);
+      if (existing) {
+        existing.amount += Number(expense.amount);
+      } else {
+        expCatMap.set(catName, {
+          color: expense.category.color || "#6B7280",
+          amount: Number(expense.amount),
+        });
+      }
+    });
+
+    const expensesByCategory = Array.from(expCatMap.entries())
+      .map(([category, data]) => ({ category, ...data }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const totalExpenses = expensesData.reduce((sum, e) => sum + Number(e.amount), 0);
+
     // Totals
     const totals = {
       revenue: salesData.reduce((sum, s) => sum + Number(s.finalAmount), 0),
       sales: salesData.length,
       appointments: appointmentsData.length,
       newClients: clientsData.length,
+      expenses: totalExpenses,
     };
 
     const data: ReportData = {
@@ -565,6 +638,7 @@ export async function getReportData(params: {
       appointmentsByStatus,
       clientGrowth,
       peakHours,
+      expensesByCategory,
       totals,
       currencyCode,
     };
