@@ -29,6 +29,7 @@ import {
   RecurringDateConfig,
 } from "@/lib/utils/recurring";
 import { ActionResult } from "@/lib/types";
+import { getOrganizationSalonIds } from "./branch";
 
 async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
   const session = await auth();
@@ -163,10 +164,11 @@ export async function createRecurringSeries(
   const tz = await getTimezone();
 
   try {
-    // Verify client, service, and staff exist and are active
+    // Verify client, service, and staff exist and are active (org-scoped)
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const [client, service, staff] = await Promise.all([
-      prisma.client.findUnique({ where: { id: validData.clientId }, select: { isActive: true } }),
-      prisma.service.findUnique({ where: { id: validData.serviceId }, select: { duration: true, price: true, isActive: true } }),
+      prisma.client.findFirst({ where: { id: validData.clientId, salonId: { in: orgSalonIds } }, select: { isActive: true } }),
+      prisma.service.findFirst({ where: { id: validData.serviceId, salonId: { in: orgSalonIds } }, select: { duration: true, price: true, isActive: true } }),
       prisma.user.findUnique({ where: { id: validData.staffId }, select: { isActive: true } }),
     ]);
 
@@ -1348,9 +1350,10 @@ export async function previewRecurringConflicts(
   const validData = validationResult.data;
 
   try {
-    // Verify service exists and get duration
-    const service = await prisma.service.findUnique({
-      where: { id: validData.serviceId },
+    // Verify service exists and get duration (org-scoped)
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    const service = await prisma.service.findFirst({
+      where: { id: validData.serviceId, salonId: { in: orgSalonIds } },
       select: { duration: true, isActive: true },
     });
 
@@ -1541,8 +1544,10 @@ export async function getAlternativeSlots(params: {
   const { staffId, date, serviceId, preferredTime } = params;
 
   try {
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
+    // Org-scoped service lookup
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    const service = await prisma.service.findFirst({
+      where: { id: serviceId, salonId: { in: orgSalonIds } },
       select: { duration: true },
     });
 

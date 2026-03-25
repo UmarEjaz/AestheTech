@@ -794,7 +794,6 @@ export async function getClientSales(clientId: string): Promise<ActionResult<Sal
   }
 
   try {
-    const { getOrganizationSalonIds } = await import("./branch");
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const sales = await prisma.sale.findMany({
       where: { clientId, salonId: { in: orgSalonIds } },
