@@ -347,6 +347,16 @@ export async function updateAppointment(
     const endTime = new Date(startTime);
     endTime.setMinutes(endTime.getMinutes() + service.duration);
 
+    // Verify client exists and is active (org-scoped)
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, salonId: { in: orgSalonIds } },
+      select: { isActive: true },
+    });
+
+    if (!client || !client.isActive) {
+      return { success: false, error: "Client not found or inactive" };
+    }
+
     // Check for conflicts (excluding this appointment)
     const hasConflict = await checkConflict(staffId, startTime, endTime, id, authResult.salonId);
     if (hasConflict) {
