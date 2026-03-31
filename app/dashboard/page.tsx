@@ -31,13 +31,14 @@ export default async function DashboardPage({
   const userRole = (user.salonRole ?? null) as Role | null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const canViewReports = hasPermission(userRole, "reports:view", isSuperAdmin);
+  const canViewExpenses = hasPermission(userRole, "expenses:view", isSuperAdmin);
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   const params = await searchParams;
   const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
 
   const [statsResult, tz, branchesResult] = await Promise.all([
-    getDashboardStats({ branchFilter }),
+    getDashboardStats({ branchFilter, canViewExpenses }),
     getTimezone(),
     isOwner ? getBranches() : Promise.resolve(null),
   ]);

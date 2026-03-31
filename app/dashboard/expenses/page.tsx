@@ -40,6 +40,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
 
+  const canCreate = hasPermission(userRole, "expenses:create", isSuperAdmin);
   const canManage = hasPermission(userRole, "expenses:update", isSuperAdmin);
   const canDelete = hasPermission(userRole, "expenses:delete", isSuperAdmin);
   const canManageCategories = hasPermission(userRole, "expense-categories:manage", isSuperAdmin);
@@ -68,6 +69,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   ]);
 
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
+  const timezone = settingsResult.success ? settingsResult.data.timezone : "UTC";
   const categories = categoriesResult.success ? categoriesResult.data : [];
   const summary = summaryResult.success ? summaryResult.data : null;
 
@@ -103,7 +105,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                 </Link>
               </Button>
             )}
-            {canManage && (
+            {canCreate && (
               <Button asChild>
                 <Link href="/dashboard/expenses/new">
                   <Plus className="mr-2 h-4 w-4" />
@@ -137,6 +139,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           canManage={canManage}
           canDelete={canDelete}
           currencyCode={currencyCode}
+          timezone={timezone}
         />
       </div>
     </DashboardLayout>

@@ -30,7 +30,7 @@ export const createExpenseSchema = z.object({
   date: z.coerce.date({ message: "Date is required" }),
   receiptUrl: z
     .string()
-    .url("Receipt URL must be a valid URL")
+    .url({ protocol: /^https?$/, message: "Receipt URL must be a valid HTTP(S) URL" })
     .optional()
     .or(z.literal("")),
   isRecurring: z.boolean().default(false),
@@ -48,8 +48,8 @@ export const expenseSearchSchema = z.object({
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   isRecurring: z.boolean().optional(),
-  page: z.number().int().positive().optional(),
-  limit: z.number().int().positive().max(100).optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
 });
 
 // Types — output types (after Zod validation/coercion)

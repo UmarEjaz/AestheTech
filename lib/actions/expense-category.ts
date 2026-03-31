@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
@@ -49,6 +50,7 @@ async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
       color: cat.color,
       isDefault: true,
     })),
+    skipDuplicates: true,
   });
 }
 
@@ -157,8 +159,8 @@ export async function createExpenseCategory(
     return { success: true, data: { id: category.id } };
   } catch (error) {
     if (
-      error instanceof Error &&
-      error.message.includes("Unique constraint")
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
     ) {
       return { success: false, error: "A category with this name already exists" };
     }
@@ -220,8 +222,8 @@ export async function updateExpenseCategory(
     return { success: true, data: { id: category.id } };
   } catch (error) {
     if (
-      error instanceof Error &&
-      error.message.includes("Unique constraint")
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
     ) {
       return { success: false, error: "A category with this name already exists" };
     }

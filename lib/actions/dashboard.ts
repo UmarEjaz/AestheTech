@@ -71,7 +71,7 @@ export interface DashboardStats {
     appointmentsCount: number;
     revenue: number;
   }[];
-  todaysExpenses: {
+  todaysExpenses?: {
     amount: number;
     count: number;
   };
@@ -80,6 +80,7 @@ export interface DashboardStats {
 
 export async function getDashboardStats(params?: {
   branchFilter?: "current" | "all";
+  canViewExpenses?: boolean;
 }): Promise<ActionResult<DashboardStats>> {
   const authResult = await checkAuth();
   if (!authResult) {
@@ -88,6 +89,7 @@ export async function getDashboardStats(params?: {
 
   try {
     const branchFilter = params?.branchFilter || "current";
+    const canViewExpenses = params?.canViewExpenses ?? false;
     const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
     // Determine which salon IDs to query (only owners can view all branches)
@@ -120,6 +122,9 @@ export async function getDashboardStats(params?: {
     const { start: todayStart, end: todayEnd } = getTodayRange(tz);
     const { start: weekStart } = getWeekRange(tz);
     const { start: monthStart } = getMonthRange(tz);
+
+    // Date-only boundary for expense queries (@db.Date stored as midnight UTC)
+    const expTodayDate = new Date(formatInTz(new Date(), "yyyy-MM-dd", tz) + "T00:00:00Z");
 
     // Yesterday's range for comparison (timezone-aware to handle DST transitions)
     const yesterdayInTz = subDays(getNow(tz), 1);
@@ -244,14 +249,16 @@ export async function getDashboardStats(params?: {
         _sum: { price: true },
       }),
 
-      // Today's expenses
-      prisma.expense.findMany({
-        where: {
-          salonId: salonFilter,
-          date: { gte: todayStart, lt: todayEnd },
-        },
-        select: { amount: true },
-      }),
+      // Today's expenses (only if user has permission)
+      canViewExpenses
+        ? prisma.expense.findMany({
+            where: {
+              salonId: salonFilter,
+              date: { equals: expTodayDate },
+            },
+            select: { amount: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     // Process appointments data
@@ -326,9 +333,6 @@ export async function getDashboardStats(params?: {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
-    // Process today's expenses
-    const todaysExpenseTotal = todaysExpensesData.reduce((sum, e) => sum + Number(e.amount), 0);
-
     const data: DashboardStats = {
       todaysAppointments: {
         total: totalAppointments,
@@ -350,10 +354,12 @@ export async function getDashboardStats(params?: {
       recentSales,
       upcomingAppointments,
       staffPerformance,
-      todaysExpenses: {
-        amount: todaysExpenseTotal,
-        count: todaysExpensesData.length,
-      },
+      ...(canViewExpenses && {
+        todaysExpenses: {
+          amount: todaysExpensesData.reduce((sum, e) => sum + Number(e.amount), 0),
+          count: todaysExpensesData.length,
+        },
+      }),
       currencyCode,
     };
 

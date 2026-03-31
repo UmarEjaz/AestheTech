@@ -31,15 +31,31 @@ export default async function NewExpensePage() {
     getActiveExpenseCategories(),
     getSettings(),
   ]);
-  const categories = categoriesResult.success ? categoriesResult.data : [];
-  const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
+
+  if (!categoriesResult.success || !settingsResult.success) {
+    const errorMsg = !categoriesResult.success
+      ? categoriesResult.error
+      : settingsResult.success
+        ? undefined
+        : settingsResult.error;
+    return (
+      <DashboardLayout userRole={userRole}>
+        <div className="text-center py-12">
+          <p className="text-destructive">{errorMsg || "Failed to load required data"}</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const categories = categoriesResult.data;
+  const currencyCode = settingsResult.data.currencyCode;
 
   return (
     <DashboardLayout userRole={userRole}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/dashboard/expenses">
+            <Link href="/dashboard/expenses" aria-label="Back to expenses">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>

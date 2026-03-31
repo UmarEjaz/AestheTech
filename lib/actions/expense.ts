@@ -16,7 +16,8 @@ import {
 import { getOrgRootSalonId, getOrganizationSalonIds } from "./branch";
 import { logAudit } from "./audit";
 import { getSettings } from "./settings";
-import { getTodayRange, getMonthRange } from "@/lib/utils/timezone";
+import { getTodayRange, getMonthRange, formatInTz, getNow } from "@/lib/utils/timezone";
+import { endOfMonth, startOfMonth } from "date-fns";
 
 export type ExpenseListItem = {
   id: string;
@@ -157,10 +158,13 @@ export async function getExpense(id: string): Promise<ActionResult<ExpenseListIt
   }
 
   try {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    const salonIds =
+      authResult.role === "OWNER" || authResult.isSuperAdmin
+        ? await getOrganizationSalonIds(authResult.salonId)
+        : [authResult.salonId];
 
     const expense = await prisma.expense.findFirst({
-      where: { id, salonId: { in: orgSalonIds } },
+      where: { id, salonId: { in: salonIds } },
       select: expenseSelect,
     });
 
@@ -254,10 +258,13 @@ export async function updateExpense(
   const { id, categoryId, amount, description, date, receiptUrl, isRecurring } = validation.data;
 
   try {
-    // Verify expense belongs to this org
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    // Verify expense belongs to the user's accessible salons
+    const salonIds =
+      authResult.role === "OWNER" || authResult.isSuperAdmin
+        ? await getOrganizationSalonIds(authResult.salonId)
+        : [authResult.salonId];
     const existing = await prisma.expense.findFirst({
-      where: { id, salonId: { in: orgSalonIds } },
+      where: { id, salonId: { in: salonIds } },
       include: { category: { select: { name: true } } },
     });
 
@@ -373,8 +380,21 @@ export async function getIncomeExpenseSummary(): Promise<
     const settingsResult = await getSettings();
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
+    // Timezone-adjusted DateTime ranges for sales (createdAt is a full timestamp)
     const { start: todayStart, end: todayEnd } = getTodayRange(tz);
     const { start: monthStart, end: monthEnd } = getMonthRange(tz);
+
+    // Date-only boundaries for expenses (date is @db.Date — stored as midnight UTC)
+    const todayStr = formatInTz(new Date(), "yyyy-MM-dd", tz);
+    const expTodayDate = new Date(todayStr + "T00:00:00Z");
+
+    const now = getNow(tz);
+    const expMonthStart = new Date(
+      formatInTz(startOfMonth(now), "yyyy-MM-dd", tz) + "T00:00:00Z"
+    );
+    const expMonthEnd = new Date(
+      formatInTz(endOfMonth(now), "yyyy-MM-dd", tz) + "T00:00:00Z"
+    );
 
     const salonId = authResult.salonId;
 
@@ -390,7 +410,7 @@ export async function getIncomeExpenseSummary(): Promise<
       prisma.expense.findMany({
         where: {
           salonId,
-          date: { gte: todayStart, lt: todayEnd },
+          date: { equals: expTodayDate },
         },
         select: { amount: true },
       }),
@@ -405,7 +425,7 @@ export async function getIncomeExpenseSummary(): Promise<
       prisma.expense.findMany({
         where: {
           salonId,
-          date: { gte: monthStart, lte: monthEnd },
+          date: { gte: expMonthStart, lte: expMonthEnd },
         },
         select: { amount: true },
       }),

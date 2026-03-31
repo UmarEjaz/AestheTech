@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
 import {
   ChevronLeft,
   ChevronRight,
@@ -52,6 +52,7 @@ interface ExpenseListProps {
   canManage?: boolean;
   canDelete?: boolean;
   currencyCode?: string;
+  timezone?: string;
 }
 
 export function ExpenseList({
@@ -63,6 +64,7 @@ export function ExpenseList({
   canManage = false,
   canDelete = false,
   currencyCode = "USD",
+  timezone = "UTC",
 }: ExpenseListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -117,7 +119,7 @@ export function ExpenseList({
             {expenses.map((expense) => (
               <TableRow key={expense.id}>
                 <TableCell className="whitespace-nowrap">
-                  {format(new Date(expense.date), "MMM d, yyyy")}
+                  {formatInTz(expense.date, "MMM d, yyyy", timezone)}
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
