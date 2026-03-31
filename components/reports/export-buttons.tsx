@@ -42,6 +42,7 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
     const columns: ExportColumn<typeof data.revenueByDay[0]>[] = [
       { header: "Date", accessor: (row) => formatInTz(row.date, "MMM d, yyyy", timezone) },
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencyCode) },
+      { header: "Expenses", accessor: (row) => formatCurrencyForExport(row.expenses, data.currencyCode) },
       { header: "Sales Count", accessor: "salesCount" },
     ];
 
