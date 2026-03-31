@@ -80,7 +80,6 @@ export interface DashboardStats {
 
 export async function getDashboardStats(params?: {
   branchFilter?: "current" | "all";
-  canViewExpenses?: boolean;
 }): Promise<ActionResult<DashboardStats>> {
   const authResult = await checkAuth();
   if (!authResult) {
@@ -89,7 +88,7 @@ export async function getDashboardStats(params?: {
 
   try {
     const branchFilter = params?.branchFilter || "current";
-    const canViewExpenses = params?.canViewExpenses ?? false;
+    const canViewExpenses = hasPermission(authResult.role, "expenses:view", authResult.isSuperAdmin);
     const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
     // Determine which salon IDs to query (only owners can view all branches)
@@ -110,9 +109,9 @@ export async function getDashboardStats(params?: {
     let cacheKey: string;
     if (branchFilter === "all" && isOwnerOrSuperAdmin) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}`;
+      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}`;
+      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}`;
     }
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
@@ -514,10 +513,10 @@ export async function getReportData(params: {
       revenueByDayMap.set(dateKey, existing);
     });
 
-    // Expenses by day
+    // Expenses by day (use stored calendar date — @db.Date is midnight UTC)
     const expensesByDayMap = new Map<string, number>();
     expensesData.forEach((expense) => {
-      const dateKey = formatInTz(expense.date, "yyyy-MM-dd", tz);
+      const dateKey = expense.date.toISOString().slice(0, 10);
       expensesByDayMap.set(dateKey, (expensesByDayMap.get(dateKey) || 0) + Number(expense.amount));
     });
 

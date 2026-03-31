@@ -21,7 +21,13 @@ export const expenseCategorySchema = z.object({
 // Schema for creating an expense
 export const createExpenseSchema = z.object({
   categoryId: z.string().min(1, "Category is required"),
-  amount: z.number().positive("Amount must be greater than 0"),
+  amount: z
+    .number()
+    .positive("Amount must be greater than 0")
+    .max(99999999.99, "Amount must not exceed 99,999,999.99")
+    .refine((val) => Math.round(val * 100) / 100 === val, {
+      message: "Amount can have at most 2 decimal places",
+    }),
   description: z
     .string()
     .max(500, "Description must be less than 500 characters")

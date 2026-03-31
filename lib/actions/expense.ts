@@ -16,6 +16,7 @@ import {
 import { getOrgRootSalonId, getOrganizationSalonIds } from "./branch";
 import { logAudit } from "./audit";
 import { getSettings } from "./settings";
+import { invalidateDashboardCache } from "@/lib/redis";
 import { getTodayRange, getMonthRange, formatInTz, getNow } from "@/lib/utils/timezone";
 import { endOfMonth, startOfMonth } from "date-fns";
 
@@ -232,6 +233,7 @@ export async function createExpense(
     });
 
     revalidatePath("/dashboard/expenses");
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: expense as ExpenseListItem };
   } catch (error) {
     console.error("Error creating expense:", error);
@@ -310,6 +312,7 @@ export async function updateExpense(
     });
 
     revalidatePath("/dashboard/expenses");
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: expense as ExpenseListItem };
   } catch (error) {
     console.error("Error updating expense:", error);
@@ -353,6 +356,7 @@ export async function deleteExpense(id: string): Promise<ActionResult<void>> {
     });
 
     revalidatePath("/dashboard/expenses");
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: undefined };
   } catch (error) {
     console.error("Error deleting expense:", error);
