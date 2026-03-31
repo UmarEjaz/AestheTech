@@ -7,6 +7,8 @@ async function main() {
   console.log("🌱 Starting seed...");
 
   // Clean existing data (order matters for foreign keys)
+  await prisma.expense.deleteMany();
+  await prisma.expenseCategory.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.recurringSeriesAuditLog.deleteMany();
   await prisma.recurringSeriesException.deleteMany();
@@ -615,6 +617,85 @@ async function main() {
   });
 
   console.log("📆 Created appointments");
+
+  // ============================================
+  // EXPENSE CATEGORIES & EXPENSES
+  // ============================================
+
+  const expenseCategories = await Promise.all([
+    prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Rent", icon: "Building2", color: "#6366F1", isDefault: true },
+    }),
+    prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Utilities", icon: "Zap", color: "#F59E0B", isDefault: true },
+    }),
+    prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Supplies", icon: "Package", color: "#10B981", isDefault: true },
+    }),
+    prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Equipment", icon: "Wrench", color: "#8B5CF6", isDefault: true },
+    }),
+    prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Marketing", icon: "Megaphone", color: "#EC4899", isDefault: true },
+    }),
+  ]);
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const fifteenDaysAgo = new Date();
+  fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  await prisma.expense.createMany({
+    data: [
+      {
+        salonId: salon.id,
+        categoryId: expenseCategories[0].id,
+        amount: 2500,
+        description: "Monthly rent payment",
+        date: thirtyDaysAgo,
+        isRecurring: true,
+        createdById: owner.id,
+      },
+      {
+        salonId: salon.id,
+        categoryId: expenseCategories[1].id,
+        amount: 350,
+        description: "Electricity bill",
+        date: fifteenDaysAgo,
+        isRecurring: true,
+        createdById: owner.id,
+      },
+      {
+        salonId: salon.id,
+        categoryId: expenseCategories[2].id,
+        amount: 180,
+        description: "Hair color supplies restock",
+        date: sevenDaysAgo,
+        createdById: owner.id,
+      },
+      {
+        salonId: salon.id,
+        categoryId: expenseCategories[3].id,
+        amount: 450,
+        description: "New hair dryer",
+        date: fifteenDaysAgo,
+        createdById: owner.id,
+      },
+      {
+        salonId: salon.id,
+        categoryId: expenseCategories[4].id,
+        amount: 200,
+        description: "Social media ads",
+        date: sevenDaysAgo,
+        isRecurring: true,
+        createdById: owner.id,
+      },
+    ],
+  });
+
+  console.log("💰 Created expense categories and sample expenses");
 
   console.log("✅ Seed completed successfully!");
   console.log("");

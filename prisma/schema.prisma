@@ -122,6 +122,8 @@ model Salon {
   loyaltyTransactions        LoyaltyTransaction[]
   recurringAppointmentSeries RecurringAppointmentSeries[]
   auditLogs                  AuditLog[]
+  expenseCategories          ExpenseCategory[]
+  expenses                   Expense[]
 
   @@index([parentSalonId])
   @@map("salons")
@@ -152,6 +154,7 @@ model User {
   refunds         Refund[]
   recurringSeries RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
   auditLogs       AuditLog[]
+  expenses        Expense[]                    @relation("UserExpenses")
 
   @@index([salonId])
   @@map("users")
@@ -598,6 +601,53 @@ model AuditLog {
   @@index([userId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ExpenseCategory model — org-wide (stored with org root salonId)
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  salonId   String // org root salon ID — shared across all branches
+  name      String
+  icon      String? // Lucide icon name
+  color     String? // Hex color for UI display
+  isDefault Boolean  @default(false) // True for system-seeded defaults
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@unique([salonId, name])
+  @@index([salonId])
+  @@map("expense_categories")
+}
+
+// Expense model — branch-scoped (each expense belongs to the branch where it was incurred)
+model Expense {
+  id          String   @id @default(cuid())
+  salonId     String // Branch salon ID
+  categoryId  String
+  amount      Decimal  @db.Decimal(10, 2)
+  description String?
+  date        DateTime @db.Date // The date the expense occurred
+  receiptUrl  String? // URL to uploaded receipt image
+  createdById String
+  isRecurring Boolean  @default(false) // Flag for recurring expenses (informational only)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  salon     Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id])
+  createdBy User            @relation("UserExpenses", fields: [createdById], references: [id])
+
+  @@index([salonId, date])
+  @@index([categoryId])
+  @@index([createdById])
+  @@index([date])
+  @@map("expenses")
 }
 
 // Settings model for salon configuration — 1:1 with Salon
