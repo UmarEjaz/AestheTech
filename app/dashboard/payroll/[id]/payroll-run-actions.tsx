@@ -35,7 +35,8 @@ export function PayrollRunActions({ runId, status, canManage, canPay }: PayrollR
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [createExpenses, setCreateExpenses] = useState(true);
 
-  const handleFinalize = async () => {
+  const handleFinalize = async (e: React.MouseEvent) => {
+    e.preventDefault();
     setIsLoading(true);
     try {
       const result = await finalizePayrollRun(runId);
@@ -53,7 +54,8 @@ export function PayrollRunActions({ runId, status, canManage, canPay }: PayrollR
     }
   };
 
-  const handlePay = async () => {
+  const handlePay = async (e: React.MouseEvent) => {
+    e.preventDefault();
     setIsLoading(true);
     try {
       const result = await markPayrollRunPaid(runId, createExpenses);
@@ -71,7 +73,8 @@ export function PayrollRunActions({ runId, status, canManage, canPay }: PayrollR
     }
   };
 
-  const handleCancel = async () => {
+  const handleCancel = async (e: React.MouseEvent) => {
+    e.preventDefault();
     setIsLoading(true);
     try {
       const result = await cancelPayrollRun(runId);

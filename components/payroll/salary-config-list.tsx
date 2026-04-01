@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { formatInTz } from "@/lib/utils/timezone";
+import { formatDateOnly } from "@/lib/utils/timezone";
 import { Edit, MoreVertical, ToggleLeft, ToggleRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,14 +28,12 @@ interface SalaryConfigListProps {
   configs: SalaryConfigListItem[];
   canManage?: boolean;
   currencyCode?: string;
-  timezone?: string;
 }
 
 export function SalaryConfigList({
   configs,
   canManage = false,
   currencyCode = "USD",
-  timezone = "UTC",
 }: SalaryConfigListProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -43,13 +41,18 @@ export function SalaryConfigList({
 
   const handleToggle = async (id: string) => {
     setTogglingId(id);
-    const result = await deleteSalaryConfig(id);
-    if (result.success) {
-      toast.success("Salary configuration updated");
-    } else {
-      toast.error(result.error);
+    try {
+      const result = await deleteSalaryConfig(id);
+      if (result.success) {
+        toast.success("Salary configuration updated");
+      } else {
+        toast.error(result.error);
+      }
+    } catch {
+      toast.error("Failed to update salary configuration");
+    } finally {
+      setTogglingId(null);
     }
-    setTogglingId(null);
   };
 
   if (configs.length === 0) {
@@ -89,7 +92,7 @@ export function SalaryConfigList({
                 {config.payType === "HOURLY" && <span className="text-muted-foreground">/hr</span>}
               </TableCell>
               <TableCell className="whitespace-nowrap">
-                {formatInTz(config.effectiveDate, "MMM d, yyyy", timezone)}
+                {formatDateOnly(config.effectiveDate, "MMM d, yyyy")}
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
                 {config.salon.name}

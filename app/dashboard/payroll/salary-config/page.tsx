@@ -34,7 +34,6 @@ export default async function SalaryConfigPage() {
   ]);
 
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
-  const timezone = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
   if (!result.success) {
     return (
@@ -78,7 +77,6 @@ export default async function SalaryConfigPage() {
           configs={result.data}
           canManage={canManage}
           currencyCode={currencyCode}
-          timezone={timezone}
         />
       </div>
     </DashboardLayout>

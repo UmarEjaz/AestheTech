@@ -13,7 +13,7 @@ import { getPayrollRun } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { formatCurrency } from "@/lib/utils/currency";
-import { formatInTz } from "@/lib/utils/timezone";
+import { formatInTz, formatDateOnly } from "@/lib/utils/timezone";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -89,8 +89,8 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
                 </Badge>
               </div>
               <p className="text-muted-foreground">
-                {formatInTz(run.periodStart, "MMM d", timezone)} -{" "}
-                {formatInTz(run.periodEnd, "MMM d, yyyy", timezone)} | {run.salon.name}
+                {formatDateOnly(run.periodStart, "MMM d")} -{" "}
+                {formatDateOnly(run.periodEnd, "MMM d, yyyy")} | {run.salon.name}
               </p>
             </div>
           </div>
@@ -161,7 +161,9 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
         {run.paidAt && (
           <p className="text-sm text-muted-foreground">
             Paid on {formatInTz(run.paidAt, "MMM d, yyyy 'at' h:mm a", timezone)} by{" "}
-            {run.createdBy.firstName} {run.createdBy.lastName}
+            {run.paidBy
+              ? `${run.paidBy.firstName} ${run.paidBy.lastName}`
+              : `${run.createdBy.firstName} ${run.createdBy.lastName}`}
           </p>
         )}
 

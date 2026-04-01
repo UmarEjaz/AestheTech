@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { formatInTz } from "@/lib/utils/timezone";
+import { formatInTz, formatDateOnly } from "@/lib/utils/timezone";
 import {
   ChevronLeft,
   ChevronRight,
@@ -101,6 +101,7 @@ export function PayrollRunList({
       if (result.success) {
         toast.success("Payroll run deleted");
         setDeleteId(null);
+        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -116,6 +117,7 @@ export function PayrollRunList({
       if (result.success) {
         toast.success("Payroll run cancelled");
         setCancelId(null);
+        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -156,8 +158,8 @@ export function PayrollRunList({
                 onClick={() => router.push(`/dashboard/payroll/${run.id}`)}
               >
                 <TableCell className="whitespace-nowrap font-medium">
-                  {formatInTz(run.periodStart, "MMM d", timezone)} -{" "}
-                  {formatInTz(run.periodEnd, "MMM d, yyyy", timezone)}
+                  {formatDateOnly(run.periodStart, "MMM d")} -{" "}
+                  {formatDateOnly(run.periodEnd, "MMM d, yyyy")}
                 </TableCell>
                 <TableCell>{getStatusBadge(run.status)}</TableCell>
                 <TableCell className="text-center">{run._count.entries}</TableCell>

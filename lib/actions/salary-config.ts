@@ -123,6 +123,16 @@ export async function getStaffCurrentConfig(
   }
 
   try {
+    // Verify the caller has access to this salon
+    const authorizedSalonIds =
+      authResult.role === "OWNER" || authResult.isSuperAdmin
+        ? await getOrganizationSalonIds(authResult.salonId)
+        : [authResult.salonId];
+
+    if (!authorizedSalonIds.includes(salonId)) {
+      return { success: false, error: "Unauthorized access to this branch" };
+    }
+
     const config = await prisma.salaryConfig.findFirst({
       where: {
         userId,
@@ -235,6 +245,17 @@ export async function updateSalaryConfig(
 
     if (!existing) {
       return { success: false, error: "Salary configuration not found" };
+    }
+
+    // If userId changed, verify the new staff member belongs to this branch
+    if (userId !== existing.userId) {
+      const userSalon = await prisma.userSalon.findFirst({
+        where: { userId, salonId: existing.salonId, isActive: true },
+      });
+
+      if (!userSalon) {
+        return { success: false, error: "Staff member not found at this branch" };
+      }
     }
 
     const config = await prisma.salaryConfig.update({

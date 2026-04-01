@@ -383,18 +383,19 @@ export async function getDashboardStats(params?: {
         },
       }),
       ...(canViewPayroll && monthlyPayrollData.length > 0 && {
-        monthlyPayroll: {
-          totalNetPay: monthlyPayrollData.reduce(
-            (sum: number, g: { _sum: { netPay: unknown } }) => sum + Number(g._sum.netPay || 0),
-            0
-          ),
-          paidCount: monthlyPayrollData
-            .filter((g: { status: string }) => g.status === "PAID")
-            .reduce((sum: number, g: { _count: { id: number } }) => sum + g._count.id, 0),
-          pendingCount: monthlyPayrollData
-            .filter((g: { status: string }) => g.status !== "PAID")
-            .reduce((sum: number, g: { _count: { id: number } }) => sum + g._count.id, 0),
-        },
+        monthlyPayroll: (() => {
+          type PayrollGroup = { status: string; _sum: { netPay: unknown }; _count: { id: number } };
+          const groups = monthlyPayrollData as PayrollGroup[];
+          return {
+            totalNetPay: groups.reduce((sum, g) => sum + Number(g._sum.netPay || 0), 0),
+            paidCount: groups
+              .filter((g) => g.status === "PAID")
+              .reduce((sum, g) => sum + g._count.id, 0),
+            pendingCount: groups
+              .filter((g) => g.status === "PENDING")
+              .reduce((sum, g) => sum + g._count.id, 0),
+          };
+        })(),
       }),
       currencyCode,
     };

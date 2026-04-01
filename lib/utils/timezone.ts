@@ -17,6 +17,19 @@ export function formatInTz(date: Date | string, pattern: string, tz: string): st
 }
 
 /**
+ * Formats a date-only (@db.Date) field for display.
+ * Unlike formatInTz, this does NOT apply timezone conversion — because
+ * date-only fields represent a calendar date, not a point in time.
+ * Prisma returns @db.Date as midnight UTC; converting to a timezone would
+ * shift the displayed date by ±1 day.
+ */
+export function formatDateOnly(date: Date | string, pattern: string): string {
+  const d = new Date(date);
+  const utcDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return format(utcDate, pattern);
+}
+
+/**
  * Returns today's start/end as UTC Dates for Prisma queries,
  * based on the salon timezone.
  */

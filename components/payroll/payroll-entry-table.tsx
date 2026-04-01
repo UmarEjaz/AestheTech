@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,7 @@ export function PayrollEntryTable({
   runStatus,
   currencyCode = "USD",
 }: PayrollEntryTableProps) {
+  const router = useRouter();
   const isDraft = runStatus === "DRAFT";
   const [editedEntries, setEditedEntries] = useState<Record<string, EditedEntry>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -107,6 +109,10 @@ export function PayrollEntryTable({
 
       if (result.success) {
         toast.success(`Updated entry for ${entry.user.firstName} ${entry.user.lastName}`);
+        // Refresh server data so the entries prop updates with saved values,
+        // then clear the edit buffer. Without refresh, deleting from the buffer
+        // would snap the UI back to stale prop values.
+        router.refresh();
         setEditedEntries((prev) => {
           const next = { ...prev };
           delete next[entryId];

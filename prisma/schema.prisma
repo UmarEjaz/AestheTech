@@ -178,6 +178,7 @@ model User {
   expenses           Expense[]                    @relation("UserExpenses")
   salaryConfigs      SalaryConfig[]
   payrollRunsCreated PayrollRun[]                 @relation("PayrollRunCreator")
+  payrollRunsPaid    PayrollRun[]                 @relation("PayrollRunPayer")
   payrollEntries     PayrollEntry[]               @relation("PayrollEntries")
 
   @@index([salonId])
@@ -710,18 +711,21 @@ model PayrollRun {
   totalNetPay     Decimal          @default(0) @db.Decimal(12, 2)
   notes           String?
   paidAt          DateTime?
+  paidById        String?
   createdById     String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
   salon     Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
   createdBy User           @relation("PayrollRunCreator", fields: [createdById], references: [id])
+  paidBy    User?          @relation("PayrollRunPayer", fields: [paidById], references: [id], onDelete: SetNull)
   entries   PayrollEntry[]
 
   @@unique([salonId, periodStart, periodEnd])
   @@index([salonId])
   @@index([salonId, periodStart])
   @@index([status])
+  @@index([paidById])
   @@index([createdById])
   @@map("payroll_runs")
 }

@@ -73,13 +73,18 @@ export const updatePayrollEntrySchema = z.object({
 });
 
 // Schema for payroll search/filter
-export const payrollSearchSchema = z.object({
-  status: z.nativeEnum(PayrollRunStatus).optional(),
-  startDate: z.coerce.date().optional(),
-  endDate: z.coerce.date().optional(),
-  page: z.coerce.number().int().positive().optional(),
-  limit: z.coerce.number().int().positive().max(100).optional(),
-});
+export const payrollSearchSchema = z
+  .object({
+    status: z.nativeEnum(PayrollRunStatus).optional(),
+    startDate: z.coerce.date().optional(),
+    endDate: z.coerce.date().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(100).optional(),
+  })
+  .refine(
+    (data) => !data.startDate || !data.endDate || data.endDate >= data.startDate,
+    { message: "End date must be on or after start date", path: ["endDate"] }
+  );
 
 // Types
 export type SalaryConfigInput = z.infer<typeof salaryConfigSchema>;

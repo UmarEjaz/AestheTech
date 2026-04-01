@@ -104,6 +104,8 @@ export function PayrollSearch() {
             <Badge variant="secondary" className="gap-1">
               Status: {statusLabels[selectedStatus] || selectedStatus}
               <button
+                type="button"
+                aria-label="Clear status filter"
                 onClick={() => updateUrl({ status: "" })}
                 className="ml-1 hover:text-destructive"
               >
@@ -115,6 +117,8 @@ export function PayrollSearch() {
             <Badge variant="secondary" className="gap-1">
               From: {startDate}
               <button
+                type="button"
+                aria-label="Clear start date filter"
                 onClick={() => updateUrl({ startDate: "" })}
                 className="ml-1 hover:text-destructive"
               >
@@ -126,6 +130,8 @@ export function PayrollSearch() {
             <Badge variant="secondary" className="gap-1">
               To: {endDate}
               <button
+                type="button"
+                aria-label="Clear end date filter"
                 onClick={() => updateUrl({ endDate: "" })}
                 className="ml-1 hover:text-destructive"
               >

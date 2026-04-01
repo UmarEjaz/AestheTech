@@ -32,6 +32,7 @@ export default async function NewSalaryConfigPage() {
   ]);
 
   const staff = staffResult.success ? staffResult.data : [];
+  const staffLoadFailed = !staffResult.success;
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
@@ -51,6 +52,14 @@ export default async function NewSalaryConfigPage() {
             </p>
           </div>
         </div>
+
+        {staffLoadFailed && (
+          <div className="rounded-md border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-900/20 p-4">
+            <p className="text-sm text-yellow-800 dark:text-yellow-300">
+              Failed to load staff list. Please go back and try again.
+            </p>
+          </div>
+        )}
 
         <SalaryConfigForm mode="create" staff={staff} currencyCode={currencyCode} />
       </div>

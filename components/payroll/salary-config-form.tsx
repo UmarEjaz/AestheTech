@@ -40,9 +40,12 @@ export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: 
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Use local date parts to avoid UTC timezone shift
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const toLocalDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const dateValue = config?.effectiveDate
-    ? new Date(config.effectiveDate).toISOString().split("T")[0]
-    : new Date().toISOString().split("T")[0];
+    ? toLocalDateStr(new Date(config.effectiveDate))
+    : toLocalDateStr(new Date());
 
   const {
     register,

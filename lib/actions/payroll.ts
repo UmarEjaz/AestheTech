@@ -30,6 +30,11 @@ export type PayrollRunListItem = {
   totalNetPay: Prisma.Decimal;
   notes: string | null;
   paidAt: Date | null;
+  paidBy: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  } | null;
   createdAt: Date;
   _count: { entries: number };
   createdBy: {
@@ -83,6 +88,9 @@ const payrollRunListSelect = {
   totalNetPay: true,
   notes: true,
   paidAt: true,
+  paidBy: {
+    select: { id: true, firstName: true, lastName: true },
+  },
   createdAt: true,
   _count: { select: { entries: true } },
   createdBy: {
@@ -219,6 +227,111 @@ export async function getPayrollRun(id: string): Promise<ActionResult<PayrollRun
   }
 }
 
+// Preview types
+export type PayrollPreviewStaff = {
+  userId: string;
+  name: string;
+  payType: string;
+  baseRate: number;
+};
+
+export type PayrollPreviewSkipped = {
+  userId: string;
+  name: string;
+  reason: string;
+};
+
+export type PayrollPreview = {
+  totalStaff: number;
+  included: PayrollPreviewStaff[];
+  skipped: PayrollPreviewSkipped[];
+};
+
+/**
+ * Preview a payroll run before creating it.
+ * Shows which staff will be included and which will be skipped.
+ */
+export async function previewPayrollRun(
+  data: CreatePayrollRunInput
+): Promise<ActionResult<PayrollPreview>> {
+  const authResult = await checkAuth("payroll:manage");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const validation = createPayrollRunSchema.safeParse(data);
+  if (!validation.success) {
+    return { success: false, error: validation.error.issues[0].message };
+  }
+
+  const { periodEnd } = validation.data;
+
+  try {
+    // Get all active staff at this branch
+    const activeStaff = await prisma.userSalon.findMany({
+      where: { salonId: authResult.salonId, isActive: true },
+      include: { user: { select: { id: true, firstName: true, lastName: true } } },
+    });
+
+    if (activeStaff.length === 0) {
+      return { success: false, error: "No active staff members found at this branch" };
+    }
+
+    const staffIds = activeStaff.map((s) => s.userId);
+
+    // Find salary configs
+    const allConfigs = await prisma.salaryConfig.findMany({
+      where: {
+        salonId: authResult.salonId,
+        userId: { in: staffIds },
+        isActive: true,
+        effectiveDate: { lte: periodEnd },
+      },
+      orderBy: { effectiveDate: "desc" },
+    });
+
+    // Group by userId, take most recent
+    const configByUser = new Map<string, { payType: string; baseRate: number }>();
+    for (const config of allConfigs) {
+      if (!configByUser.has(config.userId)) {
+        configByUser.set(config.userId, {
+          payType: config.payType,
+          baseRate: Number(config.baseRate),
+        });
+      }
+    }
+
+    const included: PayrollPreviewStaff[] = [];
+    const skipped: PayrollPreviewSkipped[] = [];
+
+    for (const staff of activeStaff) {
+      const config = configByUser.get(staff.userId);
+      const name = `${staff.user.firstName} ${staff.user.lastName}`;
+
+      if (!config) {
+        skipped.push({ userId: staff.userId, name, reason: "No salary configuration" });
+      } else if (config.payType === "HOURLY") {
+        skipped.push({ userId: staff.userId, name, reason: "Hourly rate — hours not tracked" });
+      } else {
+        included.push({
+          userId: staff.userId,
+          name,
+          payType: config.payType,
+          baseRate: config.baseRate,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      data: { totalStaff: activeStaff.length, included, skipped },
+    };
+  } catch (error) {
+    console.error("Error previewing payroll run:", error);
+    return { success: false, error: "Failed to preview payroll run" };
+  }
+}
+
 /**
  * Create a new payroll run. Auto-populates entries from salary configs.
  */
@@ -277,16 +390,22 @@ export async function createPayrollRun(
       });
 
       // Group by userId, take first (most recent due to desc order) per user
-      const configByUser = new Map<string, number>();
+      const configByUser = new Map<string, { payType: string; baseRate: number }>();
       for (const config of allConfigs) {
         if (!configByUser.has(config.userId)) {
-          configByUser.set(config.userId, Number(config.baseRate));
+          configByUser.set(config.userId, {
+            payType: config.payType,
+            baseRate: Number(config.baseRate),
+          });
         }
       }
 
+      // Only include monthly staff; skip hourly (hours not tracked) and staff without configs
       const entries: { userId: string; basePay: number }[] = [];
-      for (const [userId, basePay] of configByUser) {
-        entries.push({ userId, basePay });
+      for (const [userId, config] of configByUser) {
+        if (config.payType !== "HOURLY") {
+          entries.push({ userId, basePay: config.baseRate });
+        }
       }
 
       if (entries.length === 0) {
@@ -366,64 +485,67 @@ export async function updatePayrollEntry(
   const { id, basePay, bonus, deductions, deductionNotes, notes } = validation.data;
 
   try {
-    await prisma.$transaction(async (tx) => {
-      // Get entry with run info
-      const entry = await tx.payrollEntry.findUnique({
-        where: { id },
-        include: {
-          payrollRun: { select: { id: true, status: true, salonId: true } },
-        },
-      });
+    await prisma.$transaction(
+      async (tx) => {
+        // Get entry with run info
+        const entry = await tx.payrollEntry.findUnique({
+          where: { id },
+          include: {
+            payrollRun: { select: { id: true, status: true, salonId: true } },
+          },
+        });
 
-      if (!entry) {
-        throw new Error("Payroll entry not found");
-      }
+        if (!entry) {
+          throw new Error("Payroll entry not found");
+        }
 
-      // Verify access
-      const salonIds =
-        authResult.role === "OWNER" || authResult.isSuperAdmin
-          ? await getOrganizationSalonIds(authResult.salonId)
-          : [authResult.salonId];
+        // Verify access
+        const salonIds =
+          authResult.role === "OWNER" || authResult.isSuperAdmin
+            ? await getOrganizationSalonIds(authResult.salonId)
+            : [authResult.salonId];
 
-      if (!salonIds.includes(entry.payrollRun.salonId)) {
-        throw new Error("Payroll entry not found");
-      }
+        if (!salonIds.includes(entry.payrollRun.salonId)) {
+          throw new Error("Payroll entry not found");
+        }
 
-      if (entry.payrollRun.status !== "DRAFT") {
-        throw new Error("Can only edit entries in DRAFT payroll runs");
-      }
+        if (entry.payrollRun.status !== "DRAFT") {
+          throw new Error("Can only edit entries in DRAFT payroll runs");
+        }
 
-      const netPay = basePay + bonus - deductions;
+        const netPay = basePay + bonus - deductions;
 
-      // Update entry
-      await tx.payrollEntry.update({
-        where: { id },
-        data: {
-          basePay,
-          bonus,
-          deductions,
-          deductionNotes: deductionNotes || null,
-          notes: notes || null,
-          netPay,
-        },
-      });
+        // Update entry
+        await tx.payrollEntry.update({
+          where: { id },
+          data: {
+            basePay,
+            bonus,
+            deductions,
+            deductionNotes: deductionNotes || null,
+            notes: notes || null,
+            netPay,
+          },
+        });
 
-      // Recalculate run totals (findMany returns updated values within the transaction)
-      const allEntries = await tx.payrollEntry.findMany({
-        where: { payrollRunId: entry.payrollRunId },
-        select: { basePay: true, bonus: true, deductions: true, netPay: true },
-      });
+        // Recalculate run totals (findMany returns updated values within the transaction)
+        const allEntries = await tx.payrollEntry.findMany({
+          where: { payrollRunId: entry.payrollRunId },
+          select: { basePay: true, bonus: true, deductions: true, netPay: true },
+        });
 
-      await tx.payrollRun.update({
-        where: { id: entry.payrollRunId },
-        data: {
-          totalBasePay: allEntries.reduce((sum, e) => sum + Number(e.basePay), 0),
-          totalBonus: allEntries.reduce((sum, e) => sum + Number(e.bonus), 0),
-          totalDeductions: allEntries.reduce((sum, e) => sum + Number(e.deductions), 0),
-          totalNetPay: allEntries.reduce((sum, e) => sum + Number(e.netPay), 0),
-        },
-      });
-    });
+        await tx.payrollRun.update({
+          where: { id: entry.payrollRunId },
+          data: {
+            totalBasePay: allEntries.reduce((sum, e) => sum + Number(e.basePay), 0),
+            totalBonus: allEntries.reduce((sum, e) => sum + Number(e.bonus), 0),
+            totalDeductions: allEntries.reduce((sum, e) => sum + Number(e.deductions), 0),
+            totalNetPay: allEntries.reduce((sum, e) => sum + Number(e.netPay), 0),
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
 
     await logAudit({
       action: "PAYROLL_ENTRY_UPDATED",
@@ -499,6 +621,7 @@ export async function finalizePayrollRun(id: string): Promise<ActionResult<void>
     });
 
     revalidatePath("/dashboard/payroll");
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: undefined };
   } catch (error) {
     if (error instanceof Error) {
@@ -564,7 +687,7 @@ export async function markPayrollRunPaid(
       // Update run to PAID
       await tx.payrollRun.update({
         where: { id },
-        data: { status: "PAID", paidAt: now },
+        data: { status: "PAID", paidAt: now, paidById: authResult.userId },
       });
 
       // Optionally create expense records
@@ -580,24 +703,28 @@ export async function markPayrollRunPaid(
           },
         });
 
-        if (salariesCategory) {
-          const expenseDate = run.periodEnd;
-          const periodLabel = `${run.periodStart.toISOString().slice(0, 10)} to ${run.periodEnd.toISOString().slice(0, 10)}`;
+        if (!salariesCategory) {
+          throw new Error(
+            "Cannot create salary expenses: the \"Salaries\" expense category was not found. Please create it under Expense Categories first, then try again."
+          );
+        }
 
-          const expenseData = run.entries
-            .filter((entry) => Number(entry.netPay) > 0)
-            .map((entry) => ({
-              salonId: run.salonId,
-              categoryId: salariesCategory.id,
-              amount: entry.netPay,
-              description: `Salary: ${entry.user.firstName} ${entry.user.lastName} (${periodLabel})`,
-              date: expenseDate,
-              createdById: authResult.userId,
-            }));
+        const expenseDate = run.periodEnd;
+        const periodLabel = `${run.periodStart.toISOString().slice(0, 10)} to ${run.periodEnd.toISOString().slice(0, 10)}`;
 
-          if (expenseData.length > 0) {
-            await tx.expense.createMany({ data: expenseData });
-          }
+        const expenseData = run.entries
+          .filter((entry) => Number(entry.netPay) > 0)
+          .map((entry) => ({
+            salonId: run.salonId,
+            categoryId: salariesCategory.id,
+            amount: entry.netPay,
+            description: `Salary: ${entry.user.firstName} ${entry.user.lastName} (${periodLabel})`,
+            date: expenseDate,
+            createdById: authResult.userId,
+          }));
+
+        if (expenseData.length > 0) {
+          await tx.expense.createMany({ data: expenseData });
         }
       }
     });
@@ -679,6 +806,7 @@ export async function cancelPayrollRun(id: string): Promise<ActionResult<void>> 
     });
 
     revalidatePath("/dashboard/payroll");
+    await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: undefined };
   } catch (error) {
     if (error instanceof Error) {
