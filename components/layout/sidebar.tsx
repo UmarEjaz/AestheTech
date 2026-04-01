@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Building2,
   Receipt,
+  Banknote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -107,6 +108,12 @@ const navItems: NavItem[] = [
     title: "Expenses",
     href: "/dashboard/expenses",
     icon: Receipt,
+    roles: [Role.OWNER, Role.ADMIN],
+  },
+  {
+    title: "Payroll",
+    href: "/dashboard/payroll",
+    icon: Banknote,
     roles: [Role.OWNER, Role.ADMIN],
   },
   {
