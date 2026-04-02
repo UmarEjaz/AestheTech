@@ -109,15 +109,10 @@ export function PayrollEntryTable({
 
       if (result.success) {
         toast.success(`Updated entry for ${entry.user.firstName} ${entry.user.lastName}`);
-        // Refresh server data so the entries prop updates with saved values,
-        // then clear the edit buffer. Without refresh, deleting from the buffer
-        // would snap the UI back to stale prop values.
+        // Refresh server data so the entries prop updates with saved values.
+        // Keep the edit buffer intact — it holds the correct saved values and
+        // prevents a flicker while the refresh is in flight.
         router.refresh();
-        setEditedEntries((prev) => {
-          const next = { ...prev };
-          delete next[entryId];
-          return next;
-        });
       } else {
         toast.error(result.error);
       }

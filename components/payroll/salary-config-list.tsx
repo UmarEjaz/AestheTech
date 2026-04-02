@@ -37,10 +37,10 @@ export function SalaryConfigList({
 }: SalaryConfigListProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
   const handleToggle = async (id: string) => {
-    setTogglingId(id);
+    setPendingIds((prev) => new Set(prev).add(id));
     try {
       const result = await deleteSalaryConfig(id);
       if (result.success) {
@@ -51,7 +51,11 @@ export function SalaryConfigList({
     } catch {
       toast.error("Failed to update salary configuration");
     } finally {
-      setTogglingId(null);
+      setPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -128,7 +132,7 @@ export function SalaryConfigList({
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => handleToggle(config.id)}
-                        disabled={togglingId === config.id}
+                        disabled={pendingIds.has(config.id)}
                       >
                         {config.isActive ? (
                           <>
