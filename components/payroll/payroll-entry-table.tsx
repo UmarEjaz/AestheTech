@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -56,7 +56,32 @@ export function PayrollEntryTable({
   const router = useRouter();
   const isDraft = runStatus === "DRAFT";
   const [editedEntries, setEditedEntries] = useState<Record<string, EditedEntry>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [pendingSaveIds, setPendingSaveIds] = useState<Set<string>>(new Set());
+
+  // Reconcile edit buffer with fresh server data.
+  // Clear buffer entries that match the prop (save confirmed) or when no longer DRAFT.
+  useEffect(() => {
+    if (!isDraft) {
+      setEditedEntries({});
+      return;
+    }
+
+    setEditedEntries((prev) => {
+      const next: Record<string, EditedEntry> = { ...prev };
+      for (const entry of entries) {
+        const edited = next[entry.id];
+        if (!edited) continue;
+        const unchanged =
+          edited.basePay === Number(entry.basePay) &&
+          edited.bonus === Number(entry.bonus) &&
+          edited.deductions === Number(entry.deductions) &&
+          edited.deductionNotes === (entry.deductionNotes || "") &&
+          edited.notes === (entry.notes || "");
+        if (unchanged) delete next[entry.id];
+      }
+      return next;
+    });
+  }, [entries, isDraft]);
 
   const getEntryValues = (entry: PayrollEntryItem): EditedEntry => {
     return (
@@ -95,7 +120,7 @@ export function PayrollEntryTable({
     if (!entry) return;
 
     const values = getEntryValues(entry);
-    setSavingId(entryId);
+    setPendingSaveIds((prev) => new Set(prev).add(entryId));
 
     try {
       const result = await updatePayrollEntry({
@@ -119,7 +144,11 @@ export function PayrollEntryTable({
     } catch {
       toast.error("Failed to save entry");
     } finally {
-      setSavingId(null);
+      setPendingSaveIds((prev) => {
+        const next = new Set(prev);
+        next.delete(entryId);
+        return next;
+      });
     }
   };
 
@@ -131,11 +160,19 @@ export function PayrollEntryTable({
     );
   }
 
-  // Calculate totals
-  const totalBasePay = entries.reduce((sum, e) => sum + (editedEntries[e.id]?.basePay ?? Number(e.basePay)), 0);
-  const totalBonus = entries.reduce((sum, e) => sum + (editedEntries[e.id]?.bonus ?? Number(e.bonus)), 0);
-  const totalDeductions = entries.reduce((sum, e) => sum + (editedEntries[e.id]?.deductions ?? Number(e.deductions)), 0);
-  const totalNetPay = entries.reduce((sum, e) => sum + calculateNetPay(e), 0);
+  // Calculate totals — use edit buffer only in DRAFT mode
+  const totalBasePay = entries.reduce(
+    (sum, e) => sum + (isDraft ? (editedEntries[e.id]?.basePay ?? Number(e.basePay)) : Number(e.basePay)), 0
+  );
+  const totalBonus = entries.reduce(
+    (sum, e) => sum + (isDraft ? (editedEntries[e.id]?.bonus ?? Number(e.bonus)) : Number(e.bonus)), 0
+  );
+  const totalDeductions = entries.reduce(
+    (sum, e) => sum + (isDraft ? (editedEntries[e.id]?.deductions ?? Number(e.deductions)) : Number(e.deductions)), 0
+  );
+  const totalNetPay = entries.reduce(
+    (sum, e) => sum + (isDraft ? calculateNetPay(e) : Number(e.netPay)), 0
+  );
 
   return (
     <div className="rounded-md border">
@@ -225,9 +262,9 @@ export function PayrollEntryTable({
                       <Button
                         size="sm"
                         onClick={() => handleSave(entry.id)}
-                        disabled={savingId === entry.id}
+                        disabled={pendingSaveIds.has(entry.id)}
                       >
-                        {savingId === entry.id ? (
+                        {pendingSaveIds.has(entry.id) ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Save className="h-4 w-4" />
