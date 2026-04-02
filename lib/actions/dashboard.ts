@@ -75,6 +75,11 @@ export interface DashboardStats {
     amount: number;
     count: number;
   };
+  monthlyPayroll?: {
+    totalNetPay: number;
+    paidCount: number;
+    pendingCount: number;
+  };
   currencyCode: string;
 }
 
@@ -89,6 +94,7 @@ export async function getDashboardStats(params?: {
   try {
     const branchFilter = params?.branchFilter || "current";
     const canViewExpenses = hasPermission(authResult.role, "expenses:view", authResult.isSuperAdmin);
+    const canViewPayroll = hasPermission(authResult.role, "payroll:view", authResult.isSuperAdmin);
     const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
     // Determine which salon IDs to query (only owners can view all branches)
@@ -109,9 +115,9 @@ export async function getDashboardStats(params?: {
     let cacheKey: string;
     if (branchFilter === "all" && isOwnerOrSuperAdmin) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}`;
+      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}`;
+      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}`;
     }
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
@@ -143,6 +149,7 @@ export async function getDashboardStats(params?: {
       upcomingAppointmentsData,
       staffPerformanceData,
       todaysExpensesData,
+      monthlyPayrollData,
     ] = await Promise.all([
       // Today's appointments
       prisma.appointment.groupBy({
@@ -258,6 +265,22 @@ export async function getDashboardStats(params?: {
             select: { amount: true },
           })
         : Promise.resolve([]),
+
+      // Monthly payroll data (only if user has permission)
+      canViewPayroll
+        ? prisma.payrollEntry.groupBy({
+            by: ["status"],
+            where: {
+              payrollRun: {
+                salonId: salonFilter,
+                periodStart: { gte: monthStart },
+                status: { in: ["PAID", "FINALIZED"] },
+              },
+            },
+            _sum: { netPay: true },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     // Process appointments data
@@ -358,6 +381,21 @@ export async function getDashboardStats(params?: {
           amount: todaysExpensesData.reduce((sum, e) => sum + Number(e.amount), 0),
           count: todaysExpensesData.length,
         },
+      }),
+      ...(canViewPayroll && monthlyPayrollData.length > 0 && {
+        monthlyPayroll: (() => {
+          type PayrollGroup = { status: string; _sum: { netPay: unknown }; _count: { id: number } };
+          const groups = monthlyPayrollData as PayrollGroup[];
+          return {
+            totalNetPay: groups.reduce((sum, g) => sum + Number(g._sum.netPay || 0), 0),
+            paidCount: groups
+              .filter((g) => g.status === "PAID")
+              .reduce((sum, g) => sum + g._count.id, 0),
+            pendingCount: groups
+              .filter((g) => g.status === "PENDING")
+              .reduce((sum, g) => sum + g._count.id, 0),
+          };
+        })(),
       }),
       currencyCode,
     };

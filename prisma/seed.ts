@@ -1,4 +1,4 @@
-import { PrismaClient, Role, LoyaltyTier } from "@prisma/client";
+import { PrismaClient, Role, LoyaltyTier, PayType } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -7,6 +7,9 @@ async function main() {
   console.log("🌱 Starting seed...");
 
   // Clean existing data (order matters for foreign keys)
+  await prisma.payrollEntry.deleteMany();
+  await prisma.payrollRun.deleteMany();
+  await prisma.salaryConfig.deleteMany();
   await prisma.expense.deleteMany();
   await prisma.expenseCategory.deleteMany();
   await prisma.auditLog.deleteMany();
@@ -696,6 +699,153 @@ async function main() {
   });
 
   console.log("💰 Created expense categories and sample expenses");
+
+  // ============================================
+  // SALARY CONFIGS & PAYROLL
+  // ============================================
+
+  // Add "Salaries" expense category if not already in the list
+  let salariesCategory = expenseCategories.find((c) => c.name === "Salaries");
+  if (!salariesCategory) {
+    salariesCategory = await prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Salaries", icon: "Users", color: "#EF4444", isDefault: true },
+    });
+  }
+
+  // Create salary configs for staff members
+  const salaryConfigDate = new Date("2026-01-01");
+  await Promise.all([
+    prisma.salaryConfig.create({
+      data: {
+        salonId: salon.id,
+        userId: admin.id,
+        payType: PayType.MONTHLY,
+        baseRate: 4000,
+        effectiveDate: salaryConfigDate,
+        notes: "Admin monthly salary",
+      },
+    }),
+    prisma.salaryConfig.create({
+      data: {
+        salonId: salon.id,
+        userId: staff1.id,
+        payType: PayType.MONTHLY,
+        baseRate: 3000,
+        effectiveDate: salaryConfigDate,
+        notes: "Stylist monthly salary",
+      },
+    }),
+    prisma.salaryConfig.create({
+      data: {
+        salonId: salon.id,
+        userId: staff2.id,
+        payType: PayType.MONTHLY,
+        baseRate: 3000,
+        effectiveDate: salaryConfigDate,
+        notes: "Stylist monthly salary",
+      },
+    }),
+    prisma.salaryConfig.create({
+      data: {
+        salonId: salon.id,
+        userId: lisa.id,
+        payType: PayType.MONTHLY,
+        baseRate: 2500,
+        effectiveDate: salaryConfigDate,
+        notes: "Receptionist monthly salary",
+      },
+    }),
+  ]);
+
+  // Create a completed (PAID) payroll run for last month
+  const lastMonthStart = new Date(2026, 2, 1); // March 1, 2026
+  const lastMonthEnd = new Date(2026, 2, 31); // March 31, 2026
+
+  await prisma.payrollRun.create({
+    data: {
+      salonId: salon.id,
+      periodStart: lastMonthStart,
+      periodEnd: lastMonthEnd,
+      status: "PAID",
+      totalBasePay: 12500,
+      totalBonus: 500,
+      totalDeductions: 300,
+      totalNetPay: 12700,
+      paidAt: new Date(2026, 2, 31),
+      createdById: owner.id,
+      entries: {
+        create: [
+          {
+            userId: admin.id,
+            basePay: 4000,
+            bonus: 200,
+            deductions: 100,
+            deductionNotes: "Tax withholding",
+            netPay: 4100,
+            status: "PAID",
+            paidAt: new Date(2026, 2, 31),
+          },
+          {
+            userId: staff1.id,
+            basePay: 3000,
+            bonus: 150,
+            deductions: 100,
+            deductionNotes: "Tax withholding",
+            netPay: 3050,
+            status: "PAID",
+            paidAt: new Date(2026, 2, 31),
+          },
+          {
+            userId: staff2.id,
+            basePay: 3000,
+            bonus: 150,
+            deductions: 100,
+            deductionNotes: "Tax withholding",
+            netPay: 3050,
+            status: "PAID",
+            paidAt: new Date(2026, 2, 31),
+          },
+          {
+            userId: lisa.id,
+            basePay: 2500,
+            bonus: 0,
+            deductions: 0,
+            netPay: 2500,
+            status: "PAID",
+            paidAt: new Date(2026, 2, 31),
+          },
+        ],
+      },
+    },
+  });
+
+  // Create a draft payroll run for current month (April 2026)
+  const currentMonthStart = new Date(2026, 3, 1); // April 1, 2026
+  const currentMonthEnd = new Date(2026, 3, 30); // April 30, 2026
+
+  await prisma.payrollRun.create({
+    data: {
+      salonId: salon.id,
+      periodStart: currentMonthStart,
+      periodEnd: currentMonthEnd,
+      status: "DRAFT",
+      totalBasePay: 12500,
+      totalBonus: 0,
+      totalDeductions: 0,
+      totalNetPay: 12500,
+      createdById: owner.id,
+      entries: {
+        create: [
+          { userId: admin.id, basePay: 4000, bonus: 0, deductions: 0, netPay: 4000, status: "PENDING" },
+          { userId: staff1.id, basePay: 3000, bonus: 0, deductions: 0, netPay: 3000, status: "PENDING" },
+          { userId: staff2.id, basePay: 3000, bonus: 0, deductions: 0, netPay: 3000, status: "PENDING" },
+          { userId: lisa.id, basePay: 2500, bonus: 0, deductions: 0, netPay: 2500, status: "PENDING" },
+        ],
+      },
+    },
+  });
+
+  console.log("💸 Created salary configs and payroll runs");
 
   console.log("✅ Seed completed successfully!");
   console.log("");

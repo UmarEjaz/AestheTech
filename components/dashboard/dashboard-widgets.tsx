@@ -13,6 +13,7 @@ import {
   Star,
   ArrowRight,
   Wallet,
+  Banknote,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
     upcomingAppointments,
     staffPerformance,
     todaysExpenses,
+    monthlyPayroll,
     currencyCode,
   } = stats;
 
@@ -140,6 +142,24 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
                 <span className={todaysRevenue.amount - todaysExpenses.amount >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
                   {formatCurrency(todaysRevenue.amount - todaysExpenses.amount, currencyCode)}
                 </span>
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Monthly Payroll (only for roles with payroll:view) */}
+        {monthlyPayroll && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Monthly Payroll</CardTitle>
+              <Banknote className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {formatCurrency(monthlyPayroll.totalNetPay, currencyCode)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {monthlyPayroll.paidCount} paid &middot; {monthlyPayroll.pendingCount} pending
               </p>
             </CardContent>
           </Card>
