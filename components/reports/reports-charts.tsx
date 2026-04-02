@@ -23,8 +23,8 @@ import {
   Calendar as CalendarIcon,
   DollarSign,
   TrendingUp,
-  Users,
   Wallet,
+  PiggyBank,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -178,16 +178,74 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
       </Card>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium">Revenue</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{fmtCurrency(data.totals.revenue)}</div>
             <p className="text-xs text-muted-foreground">
-              {data.totals.sales} sales completed
+              {data.totals.sales} sales
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">COGS</CardTitle>
+            <PiggyBank className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{fmtCurrency(data.totals.cost)}</div>
+            <p className="text-xs text-muted-foreground">
+              Cost of goods sold
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${data.totals.grossProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+              {fmtCurrency(data.totals.grossProfit)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {data.totals.profitMargin}% margin
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Expenses</CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+              {fmtCurrency(data.totals.expenses)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Operating expenses
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${data.totals.netProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+              {fmtCurrency(data.totals.netProfit)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              After all expenses
             </p>
           </CardContent>
         </Card>
@@ -200,48 +258,17 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           <CardContent>
             <div className="text-2xl font-bold">{data.totals.appointments}</div>
             <p className="text-xs text-muted-foreground">
-              Total scheduled
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">New Clients</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.totals.newClients}</div>
-            <p className="text-xs text-muted-foreground">
-              Joined this period
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-              {fmtCurrency(data.totals.expenses)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Net:{" "}
-              <span className={data.totals.revenue - data.totals.expenses >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
-                {fmtCurrency(data.totals.revenue - data.totals.expenses)}
-              </span>
+              {data.totals.newClients} new clients
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Income vs Expenses Chart */}
+      {/* Income, Cost & Profit Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Income vs Expenses</CardTitle>
-          <CardDescription>Daily revenue and expenses for the selected period</CardDescription>
+          <CardTitle>Revenue, Cost & Profit</CardTitle>
+          <CardDescription>Daily revenue, cost of goods, and gross profit</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -252,6 +279,10 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorExpenses" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
@@ -269,19 +300,41 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     className="text-xs"
                   />
                   <Tooltip
-                    formatter={(value, name) => [
-                      fmtCurrency(value as number),
-                      name === "revenue" ? "Income" : "Expenses",
-                    ]}
+                    formatter={(value, name) => {
+                      const labels: Record<string, string> = {
+                        revenue: "Revenue",
+                        cost: "COGS",
+                        profit: "Gross Profit",
+                        expenses: "Expenses",
+                      };
+                      return [fmtCurrency(value as number), labels[name as string] || name];
+                    }}
                     labelFormatter={(label) => formatInTz(label as string, "MMM d, yyyy", timezone)}
                   />
-                  <Legend formatter={(value) => (value === "revenue" ? "Income" : "Expenses")} />
+                  <Legend
+                    formatter={(value) => {
+                      const labels: Record<string, string> = {
+                        revenue: "Revenue",
+                        cost: "COGS",
+                        profit: "Gross Profit",
+                        expenses: "Expenses",
+                      };
+                      return labels[value] || value;
+                    }}
+                  />
                   <Area
                     type="monotone"
                     dataKey="revenue"
                     stroke="#8b5cf6"
                     fillOpacity={1}
                     fill="url(#colorRevenue)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="profit"
+                    stroke="#10b981"
+                    fillOpacity={1}
+                    fill="url(#colorProfit)"
                   />
                   <Area
                     type="monotone"
@@ -341,6 +394,48 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardContent>
         </Card>
 
+        {/* Profit Margin by Item */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Profit Margin by Item</CardTitle>
+            <CardDescription>Revenue vs cost per service/product</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              {data.revenueByItem.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.revenueByItem} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis type="number" tickFormatter={(value) => fmtCurrency(value)} />
+                    <YAxis dataKey="item" type="category" width={120} className="text-xs" />
+                    <Tooltip
+                      formatter={(value, name) => {
+                        const labels: Record<string, string> = {
+                          revenue: "Revenue",
+                          cost: "Cost",
+                          profit: "Profit",
+                        };
+                        return [fmtCurrency(value as number), labels[name as string] || name];
+                      }}
+                    />
+                    <Legend />
+                    <Bar dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="cost" fill="#f59e0b" name="Cost" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  No item data for this period
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Second Two Column Layout */}
+      <div className="grid gap-4 md:grid-cols-2">
         {/* Appointments by Status */}
         <Card>
           <CardHeader>
@@ -424,11 +519,49 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </CardContent>
       </Card>
 
+      {/* Client Profitability */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Client Profitability</CardTitle>
+          <CardDescription>Top clients by profit contribution</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[350px]">
+            {data.profitByClient.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.profitByClient} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis type="number" tickFormatter={(value) => fmtCurrency(value)} />
+                  <YAxis dataKey="client" type="category" width={130} className="text-xs" />
+                  <Tooltip
+                    formatter={(value, name) => {
+                      const labels: Record<string, string> = {
+                        revenue: "Revenue",
+                        cost: "Cost",
+                        profit: "Profit",
+                      };
+                      return [fmtCurrency(value as number), labels[name as string] || name];
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No client data for this period
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Staff Performance */}
       <Card>
         <CardHeader>
           <CardTitle>Staff Performance</CardTitle>
-          <CardDescription>Revenue and appointments by staff member</CardDescription>
+          <CardDescription>Revenue, profit, and service count by staff member</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -437,16 +570,21 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                 <BarChart data={data.revenueByStaff}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="staff" className="text-xs" />
-                  <YAxis yAxisId="left" tickFormatter={(value) => fmtCurrency(value)} />
-                  <YAxis yAxisId="right" orientation="right" />
+                  <YAxis tickFormatter={(value) => fmtCurrency(value)} />
                   <Tooltip
-                    formatter={(value, name) =>
-                      name === "revenue" ? fmtCurrency(value as number) : value
-                    }
+                    formatter={(value, name) => {
+                      const labels: Record<string, string> = {
+                        revenue: "Revenue",
+                        profit: "Profit",
+                        appointments: "Items",
+                      };
+                      if (name === "appointments") return [value, labels[name as string] || name];
+                      return [fmtCurrency(value as number), labels[name as string] || name];
+                    }}
                   />
                   <Legend />
-                  <Bar yAxisId="left" dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[4, 4, 0, 0]} />
-                  <Bar yAxisId="right" dataKey="appointments" fill="#06b6d4" name="Items" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

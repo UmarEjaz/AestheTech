@@ -280,13 +280,13 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       serviceIds.length > 0
         ? prisma.service.findMany({
             where: { id: { in: serviceIds }, salonId: { in: orgSalonIds } },
-            select: { id: true, price: true, isActive: true },
+            select: { id: true, price: true, cost: true, isActive: true },
           })
         : [],
       productIds.length > 0
         ? prisma.product.findMany({
             where: { id: { in: productIds }, salonId: { in: orgSalonIds } },
-            select: { id: true, name: true, price: true, isActive: true, stock: true },
+            select: { id: true, name: true, price: true, cost: true, isActive: true, stock: true },
           })
         : [],
     ]);
@@ -343,14 +343,26 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
         discount: discountAmount,
         finalAmount,
         items: {
-          create: items.map((item) => ({
-            salonId: authResult.salonId,
-            serviceId: item.serviceId || null,
-            staffId: item.staffId || null,
-            productId: item.productId || null,
-            quantity: item.quantity,
-            price: item.price,
-          })),
+          create: items.map((item) => {
+            // Snapshot cost at time of sale for profit tracking
+            let costAtSale: number | null = null;
+            if (item.serviceId) {
+              const svc = serviceMap.get(item.serviceId);
+              if (svc?.cost) costAtSale = Number(svc.cost);
+            } else if (item.productId) {
+              const prod = productMap.get(item.productId);
+              if (prod?.cost) costAtSale = Number(prod.cost);
+            }
+            return {
+              salonId: authResult.salonId,
+              serviceId: item.serviceId || null,
+              staffId: item.staffId || null,
+              productId: item.productId || null,
+              quantity: item.quantity,
+              price: item.price,
+              costAtSale,
+            };
+          }),
         },
       },
       include: saleListInclude,

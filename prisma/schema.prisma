@@ -247,6 +247,7 @@ model Service {
   description String?
   duration    Int // in minutes
   price       Decimal  @db.Decimal(10, 2)
+  cost        Decimal? @db.Decimal(10, 2) // cost to deliver this service (for profit tracking)
   points      Int      @default(0) // loyalty points earned
   category    String?
   isActive    Boolean  @default(true)
@@ -367,9 +368,10 @@ model SaleItem {
   serviceId String?
   staffId   String? // staff who performed the service
   productId String?
-  quantity  Int      @default(1)
-  price     Decimal  @db.Decimal(10, 2)
-  createdAt DateTime @default(now())
+  quantity    Int      @default(1)
+  price       Decimal  @db.Decimal(10, 2)
+  costAtSale  Decimal? @db.Decimal(10, 2) // snapshot of cost at time of sale (for profit tracking)
+  createdAt   DateTime @default(now())
 
   // Relations — simple FKs (composite FKs removed to allow cross-branch service/product sharing)
   salon   Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)

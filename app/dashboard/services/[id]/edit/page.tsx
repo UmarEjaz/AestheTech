@@ -72,6 +72,7 @@ export default async function EditServicePage({ params }: PageProps) {
             description: service.description,
             duration: service.duration,
             price: Number(service.price),
+            cost: service.cost ? Number(service.cost) : null,
             points: service.points,
             category: service.category,
             isActive: service.isActive,

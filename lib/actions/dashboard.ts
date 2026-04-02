@@ -80,6 +80,12 @@ export interface DashboardStats {
     paidCount: number;
     pendingCount: number;
   };
+  todaysProfit?: {
+    revenue: number;
+    cost: number;
+    grossProfit: number;
+    margin: number; // percentage
+  };
   currencyCode: string;
 }
 
@@ -95,6 +101,7 @@ export async function getDashboardStats(params?: {
     const branchFilter = params?.branchFilter || "current";
     const canViewExpenses = hasPermission(authResult.role, "expenses:view", authResult.isSuperAdmin);
     const canViewPayroll = hasPermission(authResult.role, "payroll:view", authResult.isSuperAdmin);
+    const canViewProfit = hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin);
     const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
     // Determine which salon IDs to query (only owners can view all branches)
@@ -115,9 +122,9 @@ export async function getDashboardStats(params?: {
     let cacheKey: string;
     if (branchFilter === "all" && isOwnerOrSuperAdmin) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}`;
+      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}`;
+      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
     }
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
@@ -150,6 +157,7 @@ export async function getDashboardStats(params?: {
       staffPerformanceData,
       todaysExpensesData,
       monthlyPayrollData,
+      todaysSaleItemsData,
     ] = await Promise.all([
       // Today's appointments
       prisma.appointment.groupBy({
@@ -281,6 +289,18 @@ export async function getDashboardStats(params?: {
             _count: { id: true },
           })
         : Promise.resolve([]),
+
+      // Today's sale item costs (for profit tracking, only if owner)
+      canViewProfit
+        ? prisma.saleItem.findMany({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: todayStart, lt: todayEnd },
+              sale: { invoice: { isNot: null } },
+            },
+            select: { price: true, quantity: true, costAtSale: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     // Process appointments data
@@ -397,6 +417,20 @@ export async function getDashboardStats(params?: {
           };
         })(),
       }),
+      ...(canViewProfit && {
+        todaysProfit: (() => {
+          type SaleItemCost = { price: unknown; quantity: number; costAtSale: unknown };
+          const items = todaysSaleItemsData as SaleItemCost[];
+          const revenue = todaysRevenue;
+          const totalCost = items.reduce((sum, item) => {
+            if (item.costAtSale == null) return sum;
+            return sum + Number(item.costAtSale) * item.quantity;
+          }, 0);
+          const grossProfit = revenue - totalCost;
+          const margin = revenue > 0 ? Math.round((grossProfit / revenue) * 1000) / 10 : 0;
+          return { revenue, cost: totalCost, grossProfit, margin };
+        })(),
+      }),
       currencyCode,
     };
 
@@ -411,19 +445,24 @@ export async function getDashboardStats(params?: {
 
 // Reports data
 export interface ReportData {
-  revenueByDay: { date: string; revenue: number; salesCount: number; expenses: number }[];
-  revenueByItem: { item: string; revenue: number; percentage: number }[];
-  revenueByStaff: { staff: string; revenue: number; appointments: number }[];
+  revenueByDay: { date: string; revenue: number; salesCount: number; expenses: number; cost: number; profit: number }[];
+  revenueByItem: { item: string; revenue: number; cost: number; profit: number; margin: number; percentage: number }[];
+  revenueByStaff: { staff: string; revenue: number; cost: number; profit: number; appointments: number }[];
+  profitByClient: { client: string; revenue: number; cost: number; profit: number; margin: number; salesCount: number }[];
   appointmentsByStatus: { status: string; count: number }[];
   clientGrowth: { date: string; newClients: number; totalClients: number }[];
   peakHours: { hour: number; count: number }[];
   expensesByCategory: { category: string; color: string; amount: number }[];
   totals: {
     revenue: number;
+    cost: number;
+    grossProfit: number;
+    profitMargin: number;
     sales: number;
     appointments: number;
     newClients: number;
     expenses: number;
+    netProfit: number;
   };
   currencyCode: string;
 }
@@ -524,6 +563,7 @@ export async function getReportData(params: {
           service: { select: { name: true } },
           product: { select: { name: true } },
           staff: { select: { id: true, firstName: true, lastName: true } },
+          sale: { select: { clientId: true, client: { select: { firstName: true, lastName: true } } } },
         },
       }),
 
@@ -551,6 +591,14 @@ export async function getReportData(params: {
       revenueByDayMap.set(dateKey, existing);
     });
 
+    // Cost by day (from sale items with costAtSale)
+    const costByDayMap = new Map<string, number>();
+    saleItemsData.forEach((item) => {
+      if (item.costAtSale == null) return;
+      const dateKey = formatInTz(item.createdAt, "yyyy-MM-dd", tz);
+      costByDayMap.set(dateKey, (costByDayMap.get(dateKey) || 0) + Number(item.costAtSale) * item.quantity);
+    });
+
     // Expenses by day (use stored calendar date — @db.Date is midnight UTC)
     const expensesByDayMap = new Map<string, number>();
     expensesData.forEach((expense) => {
@@ -558,51 +606,109 @@ export async function getReportData(params: {
       expensesByDayMap.set(dateKey, (expensesByDayMap.get(dateKey) || 0) + Number(expense.amount));
     });
 
-    // Merge revenue and expenses by day (include all dates from both maps)
-    const allDates = new Set([...revenueByDayMap.keys(), ...expensesByDayMap.keys()]);
+    // Merge revenue, expenses, and cost by day (include all dates from all maps)
+    const allDates = new Set([...revenueByDayMap.keys(), ...expensesByDayMap.keys(), ...costByDayMap.keys()]);
     const revenueByDay = Array.from(allDates)
-      .map((date) => ({
-        date,
-        revenue: revenueByDayMap.get(date)?.revenue || 0,
-        salesCount: revenueByDayMap.get(date)?.salesCount || 0,
-        expenses: expensesByDayMap.get(date) || 0,
-      }))
+      .map((date) => {
+        const revenue = revenueByDayMap.get(date)?.revenue || 0;
+        const cost = costByDayMap.get(date) || 0;
+        return {
+          date,
+          revenue,
+          salesCount: revenueByDayMap.get(date)?.salesCount || 0,
+          expenses: expensesByDayMap.get(date) || 0,
+          cost,
+          profit: revenue - cost,
+        };
+      })
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Revenue by item (services + products)
-    const itemRevenueMap = new Map<string, number>();
+    // Revenue by item (services + products) with cost tracking
+    const itemDataMap = new Map<string, { revenue: number; cost: number }>();
     let totalItemRevenue = 0;
     saleItemsData.forEach((saleItem) => {
       const itemName = saleItem.service?.name || saleItem.product?.name || "Unknown";
       const amount = Number(saleItem.price) * saleItem.quantity;
-      itemRevenueMap.set(itemName, (itemRevenueMap.get(itemName) || 0) + amount);
+      const itemCost = saleItem.costAtSale != null ? Number(saleItem.costAtSale) * saleItem.quantity : 0;
+      const existing = itemDataMap.get(itemName) || { revenue: 0, cost: 0 };
+      existing.revenue += amount;
+      existing.cost += itemCost;
+      itemDataMap.set(itemName, existing);
       totalItemRevenue += amount;
     });
 
-    const revenueByItem = Array.from(itemRevenueMap.entries())
-      .map(([item, revenue]) => ({
-        item,
-        revenue,
-        percentage: totalItemRevenue > 0 ? Math.round((revenue / totalItemRevenue) * 100) : 0,
-      }))
+    const revenueByItem = Array.from(itemDataMap.entries())
+      .map(([item, data]) => {
+        const profit = data.revenue - data.cost;
+        const margin = data.revenue > 0 ? Math.round((profit / data.revenue) * 1000) / 10 : 0;
+        return {
+          item,
+          revenue: data.revenue,
+          cost: data.cost,
+          profit,
+          margin,
+          percentage: totalItemRevenue > 0 ? Math.round((data.revenue / totalItemRevenue) * 100) : 0,
+        };
+      })
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
 
-    // Revenue by staff
-    const staffRevenueMap = new Map<string, { revenue: number; appointments: number }>();
+    // Revenue by staff with cost tracking
+    const staffRevenueMap = new Map<string, { revenue: number; cost: number; appointments: number }>();
     saleItemsData.forEach((item) => {
       if (!item.staff) return; // skip product-only items with no staff
       const staffName = `${item.staff.firstName} ${item.staff.lastName}`;
       const amount = Number(item.price) * item.quantity;
-      const existing = staffRevenueMap.get(staffName) || { revenue: 0, appointments: 0 };
+      const itemCost = item.costAtSale != null ? Number(item.costAtSale) * item.quantity : 0;
+      const existing = staffRevenueMap.get(staffName) || { revenue: 0, cost: 0, appointments: 0 };
       existing.revenue += amount;
+      existing.cost += itemCost;
       existing.appointments += 1;
       staffRevenueMap.set(staffName, existing);
     });
 
     const revenueByStaff = Array.from(staffRevenueMap.entries())
-      .map(([staff, data]) => ({ staff, ...data }))
+      .map(([staff, data]) => ({ staff, ...data, profit: data.revenue - data.cost }))
       .sort((a, b) => b.revenue - a.revenue);
+
+    // Profit by client
+    const clientProfitMap = new Map<string, { revenue: number; cost: number; salesCount: number }>();
+    saleItemsData.forEach((item) => {
+      const clientName = item.sale?.client
+        ? `${item.sale.client.firstName} ${item.sale.client.lastName || ""}`.trim()
+        : "Unknown";
+      const amount = Number(item.price) * item.quantity;
+      const itemCost = item.costAtSale != null ? Number(item.costAtSale) * item.quantity : 0;
+      const existing = clientProfitMap.get(clientName) || { revenue: 0, cost: 0, salesCount: 0 };
+      existing.revenue += amount;
+      existing.cost += itemCost;
+      clientProfitMap.set(clientName, existing);
+    });
+    const clientSalesCount = new Map<string, Set<string>>();
+    saleItemsData.forEach((item) => {
+      const clientName = item.sale?.client
+        ? `${item.sale.client.firstName} ${item.sale.client.lastName || ""}`.trim()
+        : "Unknown";
+      const set = clientSalesCount.get(clientName) || new Set();
+      set.add(item.saleId);
+      clientSalesCount.set(clientName, set);
+    });
+
+    const profitByClient = Array.from(clientProfitMap.entries())
+      .map(([client, data]) => {
+        const profit = data.revenue - data.cost;
+        const margin = data.revenue > 0 ? Math.round((profit / data.revenue) * 1000) / 10 : 0;
+        return {
+          client,
+          revenue: data.revenue,
+          cost: data.cost,
+          profit,
+          margin,
+          salesCount: clientSalesCount.get(client)?.size || 0,
+        };
+      })
+      .sort((a, b) => b.profit - a.profit)
+      .slice(0, 15);
 
     // Appointments by status
     const statusCountMap = new Map<string, number>();
@@ -666,18 +772,32 @@ export async function getReportData(params: {
     const totalExpenses = expensesData.reduce((sum, e) => sum + Number(e.amount), 0);
 
     // Totals
+    const totalRevenue = salesData.reduce((sum, s) => sum + Number(s.finalAmount), 0);
+    const totalCost = saleItemsData.reduce((sum, item) => {
+      if (item.costAtSale == null) return sum;
+      return sum + Number(item.costAtSale) * item.quantity;
+    }, 0);
+    const grossProfit = totalRevenue - totalCost;
+    const profitMargin = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 1000) / 10 : 0;
+    const netProfit = grossProfit - totalExpenses;
+
     const totals = {
-      revenue: salesData.reduce((sum, s) => sum + Number(s.finalAmount), 0),
+      revenue: totalRevenue,
+      cost: totalCost,
+      grossProfit,
+      profitMargin,
       sales: salesData.length,
       appointments: appointmentsData.length,
       newClients: clientsData.length,
       expenses: totalExpenses,
+      netProfit,
     };
 
     const data: ReportData = {
       revenueByDay,
       revenueByItem,
       revenueByStaff,
+      profitByClient,
       appointmentsByStatus,
       clientGrowth,
       peakHours,

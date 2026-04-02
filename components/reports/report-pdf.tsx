@@ -145,34 +145,38 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
             <Text style={styles.summaryValue}>{fmtCurrency(data.totals.revenue)}</Text>
           </View>
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Sales</Text>
-            <Text style={styles.summaryValue}>{data.totals.sales}</Text>
+            <Text style={styles.summaryLabel}>Gross Profit ({data.totals.profitMargin}%)</Text>
+            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.grossProfit)}</Text>
           </View>
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Appointments</Text>
-            <Text style={styles.summaryValue}>{data.totals.appointments}</Text>
+            <Text style={styles.summaryLabel}>Expenses</Text>
+            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.expenses)}</Text>
           </View>
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>New Clients</Text>
-            <Text style={styles.summaryValue}>{data.totals.newClients}</Text>
+            <Text style={styles.summaryLabel}>Net Profit</Text>
+            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.netProfit)}</Text>
           </View>
         </View>
 
         {/* Revenue by Item */}
         {data.revenueByItem.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Revenue by Item</Text>
+            <Text style={styles.sectionTitle}>Profitability by Item</Text>
             <View style={styles.table}>
               <View style={styles.tableHeader}>
                 <Text style={styles.tableCell}>Item</Text>
                 <Text style={styles.tableCellRight}>Revenue</Text>
-                <Text style={styles.tableCellRight}>Percentage</Text>
+                <Text style={styles.tableCellRight}>Cost</Text>
+                <Text style={styles.tableCellRight}>Profit</Text>
+                <Text style={styles.tableCellRight}>Margin</Text>
               </View>
               {data.revenueByItem.map((entry, index) => (
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
                   <Text style={styles.tableCell}>{entry.item}</Text>
                   <Text style={styles.tableCellRight}>{fmtCurrency(entry.revenue)}</Text>
-                  <Text style={styles.tableCellRight}>{entry.percentage}%</Text>
+                  <Text style={styles.tableCellRight}>{fmtCurrency(entry.cost)}</Text>
+                  <Text style={styles.tableCellRight}>{fmtCurrency(entry.profit)}</Text>
+                  <Text style={styles.tableCellRight}>{entry.margin}%</Text>
                 </View>
               ))}
             </View>
@@ -188,12 +192,37 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
                 <Text style={styles.tableCell}>Staff Member</Text>
                 <Text style={styles.tableCellRight}>Services</Text>
                 <Text style={styles.tableCellRight}>Revenue</Text>
+                <Text style={styles.tableCellRight}>Profit</Text>
               </View>
               {data.revenueByStaff.map((item, index) => (
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
                   <Text style={styles.tableCell}>{item.staff}</Text>
                   <Text style={styles.tableCellRight}>{item.appointments}</Text>
                   <Text style={styles.tableCellRight}>{fmtCurrency(item.revenue)}</Text>
+                  <Text style={styles.tableCellRight}>{fmtCurrency(item.profit)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Client Profitability */}
+        {data.profitByClient.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Client Profitability</Text>
+            <View style={styles.table}>
+              <View style={styles.tableHeader}>
+                <Text style={styles.tableCell}>Client</Text>
+                <Text style={styles.tableCellRight}>Revenue</Text>
+                <Text style={styles.tableCellRight}>Profit</Text>
+                <Text style={styles.tableCellRight}>Margin</Text>
+              </View>
+              {data.profitByClient.map((item, index) => (
+                <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
+                  <Text style={styles.tableCell}>{item.client}</Text>
+                  <Text style={styles.tableCellRight}>{fmtCurrency(item.revenue)}</Text>
+                  <Text style={styles.tableCellRight}>{fmtCurrency(item.profit)}</Text>
+                  <Text style={styles.tableCellRight}>{item.margin}%</Text>
                 </View>
               ))}
             </View>

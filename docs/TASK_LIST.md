@@ -305,13 +305,18 @@
 ## Phase 7: Financial Management
 
 ### Staff Salaries & Payroll
-- [ ] Create `Salary` model in database (staffId, amount, payPeriod, payDate, status)
-- [ ] Create salary configuration per staff member (monthly/hourly rate)
-- [ ] Create salary payment tracking page
-- [ ] Create payroll management dashboard
-- [ ] Create payroll summary report (monthly/yearly)
-- [ ] Track salary payment history per staff member
-- [ ] Add salary expenses to overall expense tracking
+- [x] Create SalaryConfig, PayrollRun, PayrollEntry models in database
+- [x] Create salary configuration per staff member (monthly/hourly rate)
+- [x] Create salary config management pages (list, add, edit, deactivate)
+- [x] Create payroll run lifecycle (draft/finalize/pay/cancel/delete)
+- [x] Create payroll management dashboard with summary cards
+- [x] Create payroll run detail page with editable entry table
+- [x] Auto-populate entries from salary configs with preview confirmation
+- [x] Track salary payment history per staff member
+- [x] Add salary expenses to overall expense tracking (auto-create on pay)
+- [x] Add paidById tracking for accountability
+- [x] Add Monthly Payroll widget to dashboard
+- [x] Add payroll permissions (view, manage, pay, delete)
 
 ### Daily Income & Expense Tracking
 - [x] Create `Expense` model in database (amount, category, date, description, receipt)
@@ -323,14 +328,20 @@
 - [x] Add expense widgets to dashboard
 
 ### Profit Tracking & Analytics
-- [ ] Add cost/expense fields to services and products where missing
-- [ ] Calculate profit per client (revenue minus costs)
-- [ ] Calculate profit margin per service and product
-- [ ] Create daily sales summary (total sales, total costs, net profit)
-- [ ] Create monthly sales summary with trends
-- [ ] Create monthly profit report with breakdown
-- [ ] Add profit widgets to dashboard
-- [ ] Add profit charts and visualizations to reports page
+- [x] Add `cost` field to Service model and `costAtSale` to SaleItem model
+- [x] Add cost field to service form and validation schema
+- [x] Snapshot cost at time of sale (costAtSale) for historical accuracy
+- [x] Add `profit:view` permission (OWNER only)
+- [x] Calculate profit margin per service and product in reports
+- [x] Create daily profit tracking (revenue, COGS, gross profit, expenses, net profit)
+- [x] Add profit summary cards to reports page (Revenue, COGS, Gross Profit, Expenses, Net Profit, Appointments)
+- [x] Add "Revenue, Cost & Profit" area chart to reports
+- [x] Add "Profit Margin by Item" bar chart to reports
+- [x] Update Staff Performance chart with profit data
+- [x] Add "Today's Profit" widget to dashboard (OWNER only)
+- [x] Update CSV exports with cost, profit, and margin columns
+- [x] Update PDF report with profit data (profitability by item, staff profit)
+- [x] Calculate profit per client (revenue minus costs) with chart, CSV export, and PDF table
 
 ---
 
@@ -495,9 +506,9 @@
 
 ## Progress Tracking
 
-**Last Updated**: March 19, 2026
+**Last Updated**: April 3, 2026
 
-**Overall Progress**: ~90% of core features completed
+**Overall Progress**: ~93% of core features completed
 
 ### Phase Status
 - [x] Phase 1: Project Foundation (100%)
@@ -506,7 +517,7 @@
 - [x] Phase 4: Advanced Features (100%)
 - [x] Phase 5: International Currency Support (100%)
 - [x] Phase 6: Multi-Location Support (100%)
-- [ ] Phase 7: Financial Management (~33% — Daily Income & Expense Tracking complete)
+- [x] Phase 7: Financial Management (100% — Expense Tracking + Staff Payroll + Profit Tracking complete)
 - [ ] Phase 8: Polish & Testing (0%)
 - [ ] Phase 9: Deployment & Launch (0%)
 
