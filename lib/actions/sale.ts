@@ -348,10 +348,10 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
             let costAtSale: number | null = null;
             if (item.serviceId) {
               const svc = serviceMap.get(item.serviceId);
-              if (svc?.cost) costAtSale = Number(svc.cost);
+              if (svc?.cost != null) costAtSale = Number(svc.cost);
             } else if (item.productId) {
               const prod = productMap.get(item.productId);
-              if (prod?.cost) costAtSale = Number(prod.cost);
+              if (prod?.cost != null) costAtSale = Number(prod.cost);
             }
             return {
               salonId: authResult.salonId,

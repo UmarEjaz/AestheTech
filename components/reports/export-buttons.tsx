@@ -25,6 +25,8 @@ interface ExportButtonsProps {
 export function ExportButtons({ data, startDate, endDate, timezone }: ExportButtonsProps) {
   const [isExporting, setIsExporting] = useState(false);
 
+  const canViewProfit = data.capabilities?.includes("profit:view");
+
   const handleExportPDF = async () => {
     setIsExporting(true);
     try {
@@ -42,10 +44,12 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
     const columns: ExportColumn<typeof data.revenueByDay[0]>[] = [
       { header: "Date", accessor: (row) => formatInTz(row.date, "MMM d, yyyy", timezone) },
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencyCode) },
-      { header: "COGS", accessor: (row) => formatCurrencyForExport(row.cost, data.currencyCode) },
-      { header: "Gross Profit", accessor: (row) => formatCurrencyForExport(row.profit, data.currencyCode) },
+      ...(canViewProfit ? [
+        { header: "COGS", accessor: (row: typeof data.revenueByDay[0]) => formatCurrencyForExport(row.cost ?? 0, data.currencyCode) },
+        { header: "Gross Profit", accessor: (row: typeof data.revenueByDay[0]) => formatCurrencyForExport(row.profit ?? 0, data.currencyCode) },
+      ] : []),
       { header: "Expenses", accessor: (row) => formatCurrencyForExport(row.expenses, data.currencyCode) },
-      { header: "Sales Count", accessor: "salesCount" },
+      { header: "Sales Count", accessor: "salesCount" as const },
     ];
 
     downloadCSV(data.revenueByDay, columns, `revenue-by-day-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
@@ -54,11 +58,13 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
 
   const handleExportItemsCSV = () => {
     const columns: ExportColumn<typeof data.revenueByItem[0]>[] = [
-      { header: "Item", accessor: "item" },
+      { header: "Item", accessor: "item" as const },
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencyCode) },
-      { header: "Cost", accessor: (row) => formatCurrencyForExport(row.cost, data.currencyCode) },
-      { header: "Profit", accessor: (row) => formatCurrencyForExport(row.profit, data.currencyCode) },
-      { header: "Margin", accessor: (row) => `${row.margin}%` },
+      ...(canViewProfit ? [
+        { header: "Cost", accessor: (row: typeof data.revenueByItem[0]) => formatCurrencyForExport(row.cost ?? 0, data.currencyCode) },
+        { header: "Profit", accessor: (row: typeof data.revenueByItem[0]) => formatCurrencyForExport(row.profit ?? 0, data.currencyCode) },
+        { header: "Margin", accessor: (row: typeof data.revenueByItem[0]) => `${row.margin ?? 0}%` },
+      ] : []),
       { header: "Revenue %", accessor: (row) => `${row.percentage}%` },
     ];
 
@@ -68,11 +74,13 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
 
   const handleExportStaffCSV = () => {
     const columns: ExportColumn<typeof data.revenueByStaff[0]>[] = [
-      { header: "Staff Member", accessor: "staff" },
-      { header: "Services Performed", accessor: "appointments" },
+      { header: "Staff Member", accessor: "staff" as const },
+      { header: "Services Performed", accessor: "appointments" as const },
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencyCode) },
-      { header: "Cost", accessor: (row) => formatCurrencyForExport(row.cost, data.currencyCode) },
-      { header: "Profit", accessor: (row) => formatCurrencyForExport(row.profit, data.currencyCode) },
+      ...(canViewProfit ? [
+        { header: "Cost", accessor: (row: typeof data.revenueByStaff[0]) => formatCurrencyForExport(row.cost ?? 0, data.currencyCode) },
+        { header: "Profit", accessor: (row: typeof data.revenueByStaff[0]) => formatCurrencyForExport(row.profit ?? 0, data.currencyCode) },
+      ] : []),
     ];
 
     downloadCSV(data.revenueByStaff, columns, `staff-performance-${formatInTz(startDate, "yyyy-MM-dd", timezone)}`);
@@ -111,7 +119,8 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
   };
 
   const handleExportClientProfitCSV = () => {
-    const columns: ExportColumn<typeof data.profitByClient[0]>[] = [
+    if (!data.profitByClient) return;
+    const columns: ExportColumn<NonNullable<typeof data.profitByClient>[0]>[] = [
       { header: "Client", accessor: "client" },
       { header: "Sales", accessor: "salesCount" },
       { header: "Revenue", accessor: (row) => formatCurrencyForExport(row.revenue, data.currencyCode) },
@@ -165,10 +174,12 @@ export function ExportButtons({ data, startDate, endDate, timezone }: ExportButt
           <FileSpreadsheet className="h-4 w-4 mr-2" />
           Client Growth (CSV)
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleExportClientProfitCSV}>
-          <FileSpreadsheet className="h-4 w-4 mr-2" />
-          Client Profitability (CSV)
-        </DropdownMenuItem>
+        {canViewProfit && data.profitByClient && (
+          <DropdownMenuItem onClick={handleExportClientProfitCSV}>
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Client Profitability (CSV)
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

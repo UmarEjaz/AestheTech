@@ -135,7 +135,7 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
       salonId: authResult.salonId,
       description: description || null,
       category: category || null,
-      cost: cost || null,
+      cost: cost ?? null,
     },
   });
 
@@ -145,7 +145,7 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
     entityId: service.id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { name: rest.name, price: rest.price, cost: cost || null, duration: rest.duration },
+    details: { name: rest.name, price: rest.price, cost: cost ?? null, duration: rest.duration },
   });
 
   revalidatePath("/dashboard/services");
@@ -181,14 +181,14 @@ export async function updateService(
       ...rest,
       ...(description !== undefined && { description: description || null }),
       ...(category !== undefined && { category: category || null }),
-      ...(cost !== undefined && { cost: cost || null }),
+      ...(cost !== undefined && { cost: cost ?? null }),
     },
   });
 
   const changes: Record<string, { from: string | number | null; to: string | number | null }> = {};
   if (rest.name !== undefined && rest.name !== existingService.name) changes.name = { from: existingService.name, to: rest.name };
   if (rest.price !== undefined && Number(rest.price) !== Number(existingService.price)) changes.price = { from: Number(existingService.price), to: Number(rest.price) };
-  if (cost !== undefined && Number(cost || 0) !== Number(existingService.cost || 0)) changes.cost = { from: Number(existingService.cost || 0), to: Number(cost || 0) };
+  if (cost !== undefined && Number(cost ?? 0) !== Number(existingService.cost ?? 0)) changes.cost = { from: Number(existingService.cost ?? 0), to: Number(cost ?? 0) };
   if (rest.duration !== undefined && rest.duration !== existingService.duration) changes.duration = { from: existingService.duration, to: rest.duration };
   if (category !== undefined && (category || null) !== existingService.category) changes.category = { from: existingService.category, to: category || null };
 

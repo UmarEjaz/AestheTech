@@ -445,25 +445,26 @@ export async function getDashboardStats(params?: {
 
 // Reports data
 export interface ReportData {
-  revenueByDay: { date: string; revenue: number; salesCount: number; expenses: number; cost: number; profit: number }[];
-  revenueByItem: { item: string; revenue: number; cost: number; profit: number; margin: number; percentage: number }[];
-  revenueByStaff: { staff: string; revenue: number; cost: number; profit: number; appointments: number }[];
-  profitByClient: { client: string; revenue: number; cost: number; profit: number; margin: number; salesCount: number }[];
+  revenueByDay: { date: string; revenue: number; salesCount: number; expenses: number; cost?: number; profit?: number }[];
+  revenueByItem: { item: string; revenue: number; percentage: number; cost?: number; profit?: number; margin?: number }[];
+  revenueByStaff: { staff: string; revenue: number; appointments: number; cost?: number; profit?: number }[];
+  profitByClient?: { client: string; revenue: number; cost: number; profit: number; margin: number; salesCount: number }[];
   appointmentsByStatus: { status: string; count: number }[];
   clientGrowth: { date: string; newClients: number; totalClients: number }[];
   peakHours: { hour: number; count: number }[];
   expensesByCategory: { category: string; color: string; amount: number }[];
   totals: {
     revenue: number;
-    cost: number;
-    grossProfit: number;
-    profitMargin: number;
     sales: number;
     appointments: number;
     newClients: number;
     expenses: number;
-    netProfit: number;
+    cost?: number;
+    grossProfit?: number;
+    profitMargin?: number;
+    netProfit?: number;
   };
+  capabilities: string[];
   currencyCode: string;
 }
 
@@ -498,14 +499,15 @@ export async function getReportData(params: {
     const settingsResult = await getSettings();
     const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
+    const canViewProfit = hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin);
 
     // Check cache — use org root ID for org-wide queries so invalidation works correctly
     let cacheKey: string;
     if (branchFilter === "all" && isOwnerOrSuperAdmin) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:${startDate.toISOString()}:${endDate.toISOString()}`;
+      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:${startDate.toISOString()}:${endDate.toISOString()}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:${startDate.toISOString()}:${endDate.toISOString()}`;
+      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:${startDate.toISOString()}:${endDate.toISOString()}`;
     }
     const cached = await cacheGet<ReportData>(cacheKey);
     if (cached) {
@@ -558,6 +560,7 @@ export async function getReportData(params: {
         where: {
           salonId: salonFilter,
           createdAt: { gte: startDate, lte: endDate },
+          sale: { invoice: { isNot: null } },
         },
         include: {
           service: { select: { name: true } },
@@ -611,14 +614,15 @@ export async function getReportData(params: {
     const revenueByDay = Array.from(allDates)
       .map((date) => {
         const revenue = revenueByDayMap.get(date)?.revenue || 0;
-        const cost = costByDayMap.get(date) || 0;
         return {
           date,
           revenue,
           salesCount: revenueByDayMap.get(date)?.salesCount || 0,
           expenses: expensesByDayMap.get(date) || 0,
-          cost,
-          profit: revenue - cost,
+          ...(canViewProfit && {
+            cost: costByDayMap.get(date) || 0,
+            profit: revenue - (costByDayMap.get(date) || 0),
+          }),
         };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -644,10 +648,8 @@ export async function getReportData(params: {
         return {
           item,
           revenue: data.revenue,
-          cost: data.cost,
-          profit,
-          margin,
           percentage: totalItemRevenue > 0 ? Math.round((data.revenue / totalItemRevenue) * 100) : 0,
+          ...(canViewProfit && { cost: data.cost, profit, margin }),
         };
       })
       .sort((a, b) => b.revenue - a.revenue)
@@ -668,47 +670,48 @@ export async function getReportData(params: {
     });
 
     const revenueByStaff = Array.from(staffRevenueMap.entries())
-      .map(([staff, data]) => ({ staff, ...data, profit: data.revenue - data.cost }))
+      .map(([staff, data]) => ({
+        staff,
+        revenue: data.revenue,
+        appointments: data.appointments,
+        ...(canViewProfit && { cost: data.cost, profit: data.revenue - data.cost }),
+      }))
       .sort((a, b) => b.revenue - a.revenue);
 
-    // Profit by client
-    const clientProfitMap = new Map<string, { revenue: number; cost: number; salesCount: number }>();
-    saleItemsData.forEach((item) => {
-      const clientName = item.sale?.client
-        ? `${item.sale.client.firstName} ${item.sale.client.lastName || ""}`.trim()
-        : "Unknown";
-      const amount = Number(item.price) * item.quantity;
-      const itemCost = item.costAtSale != null ? Number(item.costAtSale) * item.quantity : 0;
-      const existing = clientProfitMap.get(clientName) || { revenue: 0, cost: 0, salesCount: 0 };
-      existing.revenue += amount;
-      existing.cost += itemCost;
-      clientProfitMap.set(clientName, existing);
-    });
-    const clientSalesCount = new Map<string, Set<string>>();
-    saleItemsData.forEach((item) => {
-      const clientName = item.sale?.client
-        ? `${item.sale.client.firstName} ${item.sale.client.lastName || ""}`.trim()
-        : "Unknown";
-      const set = clientSalesCount.get(clientName) || new Set();
-      set.add(item.saleId);
-      clientSalesCount.set(clientName, set);
-    });
+    // Profit by client (keyed by clientId for stability across name changes/duplicates)
+    let profitByClient: ReportData["profitByClient"];
+    if (canViewProfit) {
+      const clientProfitMap = new Map<string, { name: string; revenue: number; cost: number; saleIds: Set<string> }>();
+      saleItemsData.forEach((item) => {
+        const clientId = item.sale?.clientId ?? "unknown";
+        const clientName = item.sale?.client
+          ? `${item.sale.client.firstName} ${item.sale.client.lastName || ""}`.trim()
+          : "Unknown";
+        const amount = Number(item.price) * item.quantity;
+        const itemCost = item.costAtSale != null ? Number(item.costAtSale) * item.quantity : 0;
+        const existing = clientProfitMap.get(clientId) || { name: clientName, revenue: 0, cost: 0, saleIds: new Set<string>() };
+        existing.revenue += amount;
+        existing.cost += itemCost;
+        existing.saleIds.add(item.saleId);
+        clientProfitMap.set(clientId, existing);
+      });
 
-    const profitByClient = Array.from(clientProfitMap.entries())
-      .map(([client, data]) => {
-        const profit = data.revenue - data.cost;
-        const margin = data.revenue > 0 ? Math.round((profit / data.revenue) * 1000) / 10 : 0;
-        return {
-          client,
-          revenue: data.revenue,
-          cost: data.cost,
-          profit,
-          margin,
-          salesCount: clientSalesCount.get(client)?.size || 0,
-        };
-      })
-      .sort((a, b) => b.profit - a.profit)
-      .slice(0, 15);
+      profitByClient = Array.from(clientProfitMap.values())
+        .map((data) => {
+          const profit = data.revenue - data.cost;
+          const margin = data.revenue > 0 ? Math.round((profit / data.revenue) * 1000) / 10 : 0;
+          return {
+            client: data.name,
+            revenue: data.revenue,
+            cost: data.cost,
+            profit,
+            margin,
+            salesCount: data.saleIds.size,
+          };
+        })
+        .sort((a, b) => b.profit - a.profit)
+        .slice(0, 15);
+    }
 
     // Appointments by status
     const statusCountMap = new Map<string, number>();
@@ -773,36 +776,37 @@ export async function getReportData(params: {
 
     // Totals
     const totalRevenue = salesData.reduce((sum, s) => sum + Number(s.finalAmount), 0);
-    const totalCost = saleItemsData.reduce((sum, item) => {
-      if (item.costAtSale == null) return sum;
-      return sum + Number(item.costAtSale) * item.quantity;
-    }, 0);
-    const grossProfit = totalRevenue - totalCost;
-    const profitMargin = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 1000) / 10 : 0;
-    const netProfit = grossProfit - totalExpenses;
-
-    const totals = {
+    const totals: ReportData["totals"] = {
       revenue: totalRevenue,
-      cost: totalCost,
-      grossProfit,
-      profitMargin,
       sales: salesData.length,
       appointments: appointmentsData.length,
       newClients: clientsData.length,
       expenses: totalExpenses,
-      netProfit,
     };
+
+    if (canViewProfit) {
+      const totalCost = saleItemsData.reduce((sum, item) => {
+        if (item.costAtSale == null) return sum;
+        return sum + Number(item.costAtSale) * item.quantity;
+      }, 0);
+      const grossProfit = totalRevenue - totalCost;
+      totals.cost = totalCost;
+      totals.grossProfit = grossProfit;
+      totals.profitMargin = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 1000) / 10 : 0;
+      totals.netProfit = grossProfit - totalExpenses;
+    }
 
     const data: ReportData = {
       revenueByDay,
       revenueByItem,
       revenueByStaff,
-      profitByClient,
+      ...(profitByClient && { profitByClient }),
       appointmentsByStatus,
       clientGrowth,
       peakHours,
       expensesByCategory,
       totals,
+      capabilities: canViewProfit ? ["profit:view"] : [],
       currencyCode,
     };
 

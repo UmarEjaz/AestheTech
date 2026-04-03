@@ -61,6 +61,8 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
   const [endDate, setEndDate] = useState<Date>(endOfMonth(new Date()));
   const [isLoading, setIsLoading] = useState(false);
 
+  const canViewProfit = data.capabilities?.includes("profit:view");
+
   const handleDateRangeChange = async (range: "week" | "month" | "custom") => {
     setDateRange(range);
     let newStartDate: Date;
@@ -178,7 +180,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
       </Card>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className={`grid gap-4 md:grid-cols-2 lg:grid-cols-3 ${canViewProfit ? "xl:grid-cols-6" : ""}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Revenue</CardTitle>
@@ -192,33 +194,37 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">COGS</CardTitle>
-            <PiggyBank className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{fmtCurrency(data.totals.cost)}</div>
-            <p className="text-xs text-muted-foreground">
-              Cost of goods sold
-            </p>
-          </CardContent>
-        </Card>
+        {canViewProfit && (
+          <>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">COGS</CardTitle>
+                <PiggyBank className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{fmtCurrency(data.totals.cost ?? 0)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Cost of goods sold
+                </p>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${data.totals.grossProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-              {fmtCurrency(data.totals.grossProfit)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {data.totals.profitMargin}% margin
-            </p>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${(data.totals.grossProfit ?? 0) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                  {fmtCurrency(data.totals.grossProfit ?? 0)}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {data.totals.profitMargin ?? 0}% margin
+                </p>
+              </CardContent>
+            </Card>
+          </>
+        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -235,20 +241,22 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${data.totals.netProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-              {fmtCurrency(data.totals.netProfit)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              After all expenses
-            </p>
-          </CardContent>
-        </Card>
+        {canViewProfit && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${(data.totals.netProfit ?? 0) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                {fmtCurrency(data.totals.netProfit ?? 0)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                After all expenses
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -264,11 +272,11 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </Card>
       </div>
 
-      {/* Income, Cost & Profit Chart */}
+      {/* Revenue/Profit Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Revenue, Cost & Profit</CardTitle>
-          <CardDescription>Daily revenue, cost of goods, and gross profit</CardDescription>
+          <CardTitle>{canViewProfit ? "Revenue, Cost, Profit & Expenses" : "Revenue & Expenses"}</CardTitle>
+          <CardDescription>{canViewProfit ? "Daily revenue, COGS, gross profit, and expenses" : "Daily revenue and expenses"}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -280,10 +288,18 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                       <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                     </linearGradient>
-                    <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
+                    {canViewProfit && (
+                      <>
+                        <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                      </>
+                    )}
                     <linearGradient id="colorExpenses" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
@@ -329,13 +345,24 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     fillOpacity={1}
                     fill="url(#colorRevenue)"
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="profit"
-                    stroke="#10b981"
-                    fillOpacity={1}
-                    fill="url(#colorProfit)"
-                  />
+                  {canViewProfit && (
+                    <>
+                      <Area
+                        type="monotone"
+                        dataKey="cost"
+                        stroke="#f59e0b"
+                        fillOpacity={1}
+                        fill="url(#colorCost)"
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="profit"
+                        stroke="#10b981"
+                        fillOpacity={1}
+                        fill="url(#colorProfit)"
+                      />
+                    </>
+                  )}
                   <Area
                     type="monotone"
                     dataKey="expenses"
@@ -394,88 +421,131 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardContent>
         </Card>
 
-        {/* Profit Margin by Item */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Profit Margin by Item</CardTitle>
-            <CardDescription>Revenue vs cost per service/product</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px]">
-              {data.revenueByItem.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.revenueByItem} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis type="number" tickFormatter={(value) => fmtCurrency(value)} />
-                    <YAxis dataKey="item" type="category" width={120} className="text-xs" />
-                    <Tooltip
-                      formatter={(value, name) => {
-                        const labels: Record<string, string> = {
-                          revenue: "Revenue",
-                          cost: "Cost",
-                          profit: "Profit",
-                        };
-                        return [fmtCurrency(value as number), labels[name as string] || name];
-                      }}
-                    />
-                    <Legend />
-                    <Bar dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[0, 4, 4, 0]} />
-                    <Bar dataKey="cost" fill="#f59e0b" name="Cost" radius={[0, 4, 4, 0]} />
-                    <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No item data for this period
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Profitability by Item (owner only) */}
+        {canViewProfit ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Profitability by Item</CardTitle>
+              <CardDescription>Revenue vs cost per service/product</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                {data.revenueByItem.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.revenueByItem} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis type="number" tickFormatter={(value) => fmtCurrency(value)} />
+                      <YAxis dataKey="item" type="category" width={120} className="text-xs" />
+                      <Tooltip
+                        formatter={(value, name) => {
+                          const labels: Record<string, string> = {
+                            revenue: "Revenue",
+                            cost: "Cost",
+                            profit: "Profit",
+                          };
+                          return [fmtCurrency(value as number), labels[name as string] || name];
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="cost" fill="#f59e0b" name="Cost" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    No item data for this period
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Appointments by Status</CardTitle>
+              <CardDescription>Breakdown of appointment outcomes</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                {data.appointmentsByStatus.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.appointmentsByStatus} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis type="number" />
+                      <YAxis
+                        dataKey="status"
+                        type="category"
+                        width={100}
+                        tickFormatter={(value) => value.toLowerCase().replace("_", " ")}
+                        className="text-xs capitalize"
+                      />
+                      <Tooltip />
+                      <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                        {data.appointmentsByStatus.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={STATUS_COLORS[entry.status] || COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    No appointment data for this period
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Second Two Column Layout */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Appointments by Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Appointments by Status</CardTitle>
-            <CardDescription>Breakdown of appointment outcomes</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px]">
-              {data.appointmentsByStatus.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.appointmentsByStatus} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis type="number" />
-                    <YAxis
-                      dataKey="status"
-                      type="category"
-                      width={100}
-                      tickFormatter={(value) => value.toLowerCase().replace("_", " ")}
-                      className="text-xs capitalize"
-                    />
-                    <Tooltip />
-                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                      {data.appointmentsByStatus.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={STATUS_COLORS[entry.status] || COLORS[index % COLORS.length]}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No appointment data for this period
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {canViewProfit && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Appointments by Status */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Appointments by Status</CardTitle>
+              <CardDescription>Breakdown of appointment outcomes</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                {data.appointmentsByStatus.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.appointmentsByStatus} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis type="number" />
+                      <YAxis
+                        dataKey="status"
+                        type="category"
+                        width={100}
+                        tickFormatter={(value) => value.toLowerCase().replace("_", " ")}
+                        className="text-xs capitalize"
+                      />
+                      <Tooltip />
+                      <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                        {data.appointmentsByStatus.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={STATUS_COLORS[entry.status] || COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    No appointment data for this period
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Expenses by Category */}
       <Card>
@@ -519,15 +589,15 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </CardContent>
       </Card>
 
-      {/* Client Profitability */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Client Profitability</CardTitle>
-          <CardDescription>Top clients by profit contribution</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[350px]">
-            {data.profitByClient.length > 0 ? (
+      {/* Client Profitability (owner only) */}
+      {canViewProfit && data.profitByClient && data.profitByClient.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Client Profitability</CardTitle>
+            <CardDescription>Top clients by profit contribution</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[350px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.profitByClient} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -548,20 +618,16 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                   <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                No client data for this period
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Staff Performance */}
       <Card>
         <CardHeader>
           <CardTitle>Staff Performance</CardTitle>
-          <CardDescription>Revenue, profit, and service count by staff member</CardDescription>
+          <CardDescription>{canViewProfit ? "Revenue, profit, and service count by staff member" : "Revenue and service count by staff member"}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -584,7 +650,9 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                   />
                   <Legend />
                   <Bar dataKey="revenue" fill="#8b5cf6" name="Revenue" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[4, 4, 0, 0]} />
+                  {canViewProfit && (
+                    <Bar dataKey="profit" fill="#10b981" name="Profit" radius={[4, 4, 0, 0]} />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             ) : (
