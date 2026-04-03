@@ -276,13 +276,17 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
       </div>
 
       {/* Missing Cost Warning */}
-      {canViewProfit && (data.missingCostCount ?? 0) > 0 && (
+      {canViewProfit && data.hasMissingCosts && (
         <Alert variant="default" className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           <AlertDescription className="text-amber-800 dark:text-amber-200">
-            <strong>Incomplete cost data</strong> — {data.missingCostCount} of {data.totalItemCount} items sold in this period don&apos;t have costs configured. Profit and margin figures may be higher than actual.{" "}
+            <strong>Incomplete cost data</strong> — Some items sold in this period don&apos;t have costs configured. Profit and margin figures may be higher than actual.{" "}
             <Link href="/dashboard/services" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-100">
-              Configure service costs &rarr;
+              Review services &rarr;
+            </Link>
+            {" | "}
+            <Link href="/dashboard/products" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-100">
+              Review products &rarr;
             </Link>
           </AlertDescription>
         </Alert>
@@ -612,7 +616,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           <CardContent>
             <div className="h-[350px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.profitByClient} layout="vertical">
+                <BarChart data={data.profitByClient.slice(0, 15)} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis type="number" tickFormatter={(value) => fmtCurrency(value)} />
                   <YAxis dataKey="client" type="category" width={130} className="text-xs" />
@@ -640,7 +644,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
       <Card>
         <CardHeader>
           <CardTitle>Staff Performance</CardTitle>
-          <CardDescription>{canViewProfit ? "Revenue, profit, and service count by staff member" : "Revenue and service count by staff member"}</CardDescription>
+          <CardDescription>{canViewProfit ? "Revenue and profit by staff member" : "Revenue by staff member"}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">

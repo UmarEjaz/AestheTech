@@ -464,8 +464,7 @@ export interface ReportData {
     profitMargin?: number;
     netProfit?: number;
   };
-  missingCostCount?: number;
-  totalItemCount?: number;
+  hasMissingCosts?: boolean;
   capabilities: string[];
   currencyCode: string;
 }
@@ -657,23 +656,24 @@ export async function getReportData(params: {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
 
-    // Revenue by staff with cost tracking
-    const staffRevenueMap = new Map<string, { revenue: number; cost: number; appointments: number }>();
+    // Revenue by staff with cost tracking (keyed by staff ID for stability)
+    const staffRevenueMap = new Map<string, { name: string; revenue: number; cost: number; appointments: number }>();
     saleItemsData.forEach((item) => {
       if (!item.staff) return; // skip product-only items with no staff
+      const staffId = item.staff.id;
       const staffName = `${item.staff.firstName} ${item.staff.lastName}`;
       const amount = Number(item.price) * item.quantity;
       const itemCost = item.costAtSale != null ? Number(item.costAtSale) * item.quantity : 0;
-      const existing = staffRevenueMap.get(staffName) || { revenue: 0, cost: 0, appointments: 0 };
+      const existing = staffRevenueMap.get(staffId) || { name: staffName, revenue: 0, cost: 0, appointments: 0 };
       existing.revenue += amount;
       existing.cost += itemCost;
       existing.appointments += 1;
-      staffRevenueMap.set(staffName, existing);
+      staffRevenueMap.set(staffId, existing);
     });
 
-    const revenueByStaff = Array.from(staffRevenueMap.entries())
-      .map(([staff, data]) => ({
-        staff,
+    const revenueByStaff = Array.from(staffRevenueMap.values())
+      .map((data) => ({
+        staff: data.name,
         revenue: data.revenue,
         appointments: data.appointments,
         ...(canViewProfit && { cost: data.cost, profit: data.revenue - data.cost }),
@@ -711,8 +711,7 @@ export async function getReportData(params: {
             salesCount: data.saleIds.size,
           };
         })
-        .sort((a, b) => b.profit - a.profit)
-        .slice(0, 15);
+        .sort((a, b) => b.profit - a.profit);
     }
 
     // Appointments by status
@@ -786,8 +785,7 @@ export async function getReportData(params: {
       expenses: totalExpenses,
     };
 
-    let missingCostCount: number | undefined;
-    let totalItemCount: number | undefined;
+    let hasMissingCosts: boolean | undefined;
 
     if (canViewProfit) {
       const totalCost = saleItemsData.reduce((sum, item) => {
@@ -800,8 +798,7 @@ export async function getReportData(params: {
       totals.profitMargin = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 1000) / 10 : 0;
       totals.netProfit = grossProfit - totalExpenses;
 
-      totalItemCount = saleItemsData.length;
-      missingCostCount = saleItemsData.filter((item) => item.costAtSale == null).length;
+      hasMissingCosts = saleItemsData.some((item) => item.costAtSale == null);
     }
 
     const data: ReportData = {
@@ -814,7 +811,7 @@ export async function getReportData(params: {
       peakHours,
       expensesByCategory,
       totals,
-      ...(canViewProfit && { missingCostCount, totalItemCount }),
+      ...(canViewProfit && { hasMissingCosts }),
       capabilities: canViewProfit ? ["profit:view"] : [],
       currencyCode,
     };
