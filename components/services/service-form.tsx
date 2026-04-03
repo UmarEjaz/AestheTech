@@ -22,6 +22,7 @@ interface ServiceFormProps {
     description: string | null;
     duration: number;
     price: number | string;
+    cost: number | string | null;
     points: number;
     category: string | null;
     isActive: boolean;
@@ -49,6 +50,7 @@ export function ServiceForm({ service, mode, categories, currencyCode = "USD" }:
       description: service?.description || "",
       duration: service?.duration || 30,
       price: service ? Number(service.price) : 0,
+      cost: service?.cost ? Number(service.cost) : 0,
       points: service?.points || 0,
       category: service?.category || "",
       isActive: service?.isActive ?? true,
@@ -139,7 +141,7 @@ export function ServiceForm({ service, mode, categories, currencyCode = "USD" }:
           <CardTitle>Pricing & Duration</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label htmlFor="duration">Duration (minutes) *</Label>
               <Input
@@ -167,6 +169,21 @@ export function ServiceForm({ service, mode, categories, currencyCode = "USD" }:
               {errors.price && (
                 <p className="text-sm text-destructive">{errors.price.message}</p>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cost">Cost ({currencyCode})</Label>
+              <Input
+                id="cost"
+                type="number"
+                step={priceStep}
+                {...register("cost", { valueAsNumber: true })}
+                placeholder={pricePlaceholder}
+                min="0"
+              />
+              {errors.cost && (
+                <p className="text-sm text-destructive">{errors.cost.message}</p>
+              )}
+              <p className="text-xs text-muted-foreground">Cost to deliver this service (for profit tracking)</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="points">Loyalty Points</Label>

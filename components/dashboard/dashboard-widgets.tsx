@@ -38,6 +38,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
     staffPerformance,
     todaysExpenses,
     monthlyPayroll,
+    todaysProfit,
     currencyCode,
   } = stats;
 
@@ -160,6 +161,24 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
               </div>
               <p className="text-xs text-muted-foreground">
                 {monthlyPayroll.paidCount} paid &middot; {monthlyPayroll.pendingCount} pending
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Today's Profit (only for OWNER) */}
+        {todaysProfit && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Today&apos;s Profit</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${todaysProfit.grossProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                {formatCurrency(todaysProfit.grossProfit, currencyCode)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {todaysProfit.margin}% margin &middot; Cost: {formatCurrency(todaysProfit.cost, currencyCode)}
               </p>
             </CardContent>
           </Card>

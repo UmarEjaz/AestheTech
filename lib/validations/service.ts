@@ -19,6 +19,12 @@ export const serviceSchema = z.object({
     .number()
     .min(0, "Price must be a positive number")
     .max(10000, "Price must be less than $10,000"),
+  cost: z
+    .number()
+    .min(0, "Cost must be a positive number")
+    .max(10000, "Cost must be less than $10,000")
+    .optional()
+    .or(z.literal(0)),
   points: z
     .number()
     .int("Points must be a whole number")
