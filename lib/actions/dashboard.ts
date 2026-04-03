@@ -464,6 +464,8 @@ export interface ReportData {
     profitMargin?: number;
     netProfit?: number;
   };
+  missingCostCount?: number;
+  totalItemCount?: number;
   capabilities: string[];
   currencyCode: string;
 }
@@ -784,6 +786,9 @@ export async function getReportData(params: {
       expenses: totalExpenses,
     };
 
+    let missingCostCount: number | undefined;
+    let totalItemCount: number | undefined;
+
     if (canViewProfit) {
       const totalCost = saleItemsData.reduce((sum, item) => {
         if (item.costAtSale == null) return sum;
@@ -794,6 +799,9 @@ export async function getReportData(params: {
       totals.grossProfit = grossProfit;
       totals.profitMargin = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 1000) / 10 : 0;
       totals.netProfit = grossProfit - totalExpenses;
+
+      totalItemCount = saleItemsData.length;
+      missingCostCount = saleItemsData.filter((item) => item.costAtSale == null).length;
     }
 
     const data: ReportData = {
@@ -806,6 +814,7 @@ export async function getReportData(params: {
       peakHours,
       expensesByCategory,
       totals,
+      ...(canViewProfit && { missingCostCount, totalItemCount }),
       capabilities: canViewProfit ? ["profit:view"] : [],
       currencyCode,
     };

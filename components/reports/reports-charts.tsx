@@ -20,6 +20,7 @@ import {
   Area,
 } from "recharts";
 import {
+  AlertTriangle,
   Calendar as CalendarIcon,
   DollarSign,
   TrendingUp,
@@ -34,8 +35,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ReportData } from "@/lib/actions/dashboard";
 import { ExportButtons } from "./export-buttons";
+import Link from "next/link";
 
 interface ReportsChartsProps {
   initialData: ReportData;
@@ -272,6 +275,19 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </Card>
       </div>
 
+      {/* Missing Cost Warning */}
+      {canViewProfit && (data.missingCostCount ?? 0) > 0 && (
+        <Alert variant="default" className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            <strong>Incomplete cost data</strong> — {data.missingCostCount} of {data.totalItemCount} items sold in this period don&apos;t have costs configured. Profit and margin figures may be higher than actual.{" "}
+            <Link href="/dashboard/services" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-100">
+              Configure service costs &rarr;
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Revenue/Profit Chart */}
       <Card>
         <CardHeader>
@@ -502,11 +518,9 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         )}
       </div>
 
-      {/* Second Two Column Layout */}
+      {/* Appointments by Status (shown separately for owners since profitability chart takes its grid slot) */}
       {canViewProfit && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Appointments by Status */}
-          <Card>
+        <Card>
             <CardHeader>
               <CardTitle>Appointments by Status</CardTitle>
               <CardDescription>Breakdown of appointment outcomes</CardDescription>
@@ -543,8 +557,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                 )}
               </div>
             </CardContent>
-          </Card>
-        </div>
+        </Card>
       )}
 
       {/* Expenses by Category */}
