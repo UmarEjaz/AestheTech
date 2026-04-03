@@ -628,9 +628,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                       const labels: Record<string, string> = {
                         revenue: "Revenue",
                         profit: "Profit",
-                        appointments: "Items",
                       };
-                      if (name === "appointments") return [value, labels[name as string] || name];
                       return [fmtCurrency(value as number), labels[name as string] || name];
                     }}
                   />
