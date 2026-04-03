@@ -295,10 +295,12 @@ export async function getDashboardStats(params?: {
         ? prisma.saleItem.findMany({
             where: {
               salonId: salonFilter,
-              createdAt: { gte: todayStart, lt: todayEnd },
-              sale: { invoice: { isNot: null } },
+              sale: {
+                createdAt: { gte: todayStart, lt: todayEnd },
+                invoice: { isNot: null },
+              },
             },
-            select: { price: true, quantity: true, costAtSale: true },
+            select: { quantity: true, costAtSale: true },
           })
         : Promise.resolve([]),
     ]);
@@ -419,7 +421,7 @@ export async function getDashboardStats(params?: {
       }),
       ...(canViewProfit && {
         todaysProfit: (() => {
-          type SaleItemCost = { price: unknown; quantity: number; costAtSale: unknown };
+          type SaleItemCost = { quantity: number; costAtSale: unknown };
           const items = todaysSaleItemsData as SaleItemCost[];
           const revenue = todaysRevenue;
           const totalCost = items.reduce((sum, item) => {
@@ -556,18 +558,20 @@ export async function getReportData(params: {
         orderBy: { createdAt: "asc" },
       }),
 
-      // Sale items for service/product breakdown
+      // Sale items for service/product breakdown (filter by sale.createdAt to match revenue bucketing)
       prisma.saleItem.findMany({
         where: {
           salonId: salonFilter,
-          createdAt: { gte: startDate, lte: endDate },
-          sale: { invoice: { isNot: null } },
+          sale: {
+            createdAt: { gte: startDate, lte: endDate },
+            invoice: { isNot: null },
+          },
         },
         include: {
-          service: { select: { name: true } },
-          product: { select: { name: true } },
+          service: { select: { id: true, name: true } },
+          product: { select: { id: true, name: true } },
           staff: { select: { id: true, firstName: true, lastName: true } },
-          sale: { select: { clientId: true, client: { select: { firstName: true, lastName: true } } } },
+          sale: { select: { createdAt: true, clientId: true, client: { select: { firstName: true, lastName: true } } } },
         },
       }),
 
@@ -595,11 +599,11 @@ export async function getReportData(params: {
       revenueByDayMap.set(dateKey, existing);
     });
 
-    // Cost by day (from sale items with costAtSale)
+    // Cost by day (from sale items with costAtSale, bucketed by sale.createdAt to match revenue)
     const costByDayMap = new Map<string, number>();
     saleItemsData.forEach((item) => {
       if (item.costAtSale == null) return;
-      const dateKey = formatInTz(item.createdAt, "yyyy-MM-dd", tz);
+      const dateKey = formatInTz(item.sale.createdAt, "yyyy-MM-dd", tz);
       costByDayMap.set(dateKey, (costByDayMap.get(dateKey) || 0) + Number(item.costAtSale) * item.quantity);
     });
 
@@ -628,26 +632,31 @@ export async function getReportData(params: {
       })
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Revenue by item (services + products) with cost tracking
-    const itemDataMap = new Map<string, { revenue: number; cost: number }>();
+    // Revenue by item (services + products) with cost tracking (keyed by type:id for stability)
+    const itemDataMap = new Map<string, { name: string; revenue: number; cost: number }>();
     let totalItemRevenue = 0;
     saleItemsData.forEach((saleItem) => {
+      const itemKey = saleItem.service?.id
+        ? `svc:${saleItem.service.id}`
+        : saleItem.product?.id
+          ? `prod:${saleItem.product.id}`
+          : `unknown:${saleItem.id}`;
       const itemName = saleItem.service?.name || saleItem.product?.name || "Unknown";
       const amount = Number(saleItem.price) * saleItem.quantity;
       const itemCost = saleItem.costAtSale != null ? Number(saleItem.costAtSale) * saleItem.quantity : 0;
-      const existing = itemDataMap.get(itemName) || { revenue: 0, cost: 0 };
+      const existing = itemDataMap.get(itemKey) || { name: itemName, revenue: 0, cost: 0 };
       existing.revenue += amount;
       existing.cost += itemCost;
-      itemDataMap.set(itemName, existing);
+      itemDataMap.set(itemKey, existing);
       totalItemRevenue += amount;
     });
 
-    const revenueByItem = Array.from(itemDataMap.entries())
-      .map(([item, data]) => {
+    const revenueByItem = Array.from(itemDataMap.values())
+      .map((data) => {
         const profit = data.revenue - data.cost;
         const margin = data.revenue > 0 ? Math.round((profit / data.revenue) * 1000) / 10 : 0;
         return {
-          item,
+          item: data.name,
           revenue: data.revenue,
           percentage: totalItemRevenue > 0 ? Math.round((data.revenue / totalItemRevenue) * 100) : 0,
           ...(canViewProfit && { cost: data.cost, profit, margin }),

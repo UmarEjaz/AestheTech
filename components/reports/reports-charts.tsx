@@ -57,6 +57,49 @@ const STATUS_COLORS: Record<string, string> = {
   IN_PROGRESS: "#3b82f6",
 };
 
+function AppointmentStatusCard({ appointmentsByStatus }: { appointmentsByStatus: ReportData["appointmentsByStatus"] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Appointments by Status</CardTitle>
+        <CardDescription>Breakdown of appointment outcomes</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[300px]">
+          {appointmentsByStatus.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={appointmentsByStatus} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis type="number" />
+                <YAxis
+                  dataKey="status"
+                  type="category"
+                  width={100}
+                  tickFormatter={(value) => value.toLowerCase().replace("_", " ")}
+                  className="text-xs capitalize"
+                />
+                <Tooltip />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                  {appointmentsByStatus.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={STATUS_COLORS[entry.status] || COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              No appointment data for this period
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ReportsCharts({ initialData, onDateRangeChange, timezone }: ReportsChartsProps) {
   const [data, setData] = useState<ReportData>(initialData);
   const [dateRange, setDateRange] = useState<"week" | "month" | "custom">("month");
@@ -441,7 +484,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardContent>
         </Card>
 
-        {/* Profitability by Item (owner only) */}
+        {/* Profitability by Item (owner only) / Appointments by Status (non-owner) */}
         {canViewProfit ? (
           <Card>
             <CardHeader>
@@ -481,87 +524,13 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
             </CardContent>
           </Card>
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Appointments by Status</CardTitle>
-              <CardDescription>Breakdown of appointment outcomes</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[300px]">
-                {data.appointmentsByStatus.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.appointmentsByStatus} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis type="number" />
-                      <YAxis
-                        dataKey="status"
-                        type="category"
-                        width={100}
-                        tickFormatter={(value) => value.toLowerCase().replace("_", " ")}
-                        className="text-xs capitalize"
-                      />
-                      <Tooltip />
-                      <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                        {data.appointmentsByStatus.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={STATUS_COLORS[entry.status] || COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    No appointment data for this period
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <AppointmentStatusCard appointmentsByStatus={data.appointmentsByStatus} />
         )}
       </div>
 
       {/* Appointments by Status (shown separately for owners since profitability chart takes its grid slot) */}
       {canViewProfit && (
-        <Card>
-            <CardHeader>
-              <CardTitle>Appointments by Status</CardTitle>
-              <CardDescription>Breakdown of appointment outcomes</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[300px]">
-                {data.appointmentsByStatus.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.appointmentsByStatus} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis type="number" />
-                      <YAxis
-                        dataKey="status"
-                        type="category"
-                        width={100}
-                        tickFormatter={(value) => value.toLowerCase().replace("_", " ")}
-                        className="text-xs capitalize"
-                      />
-                      <Tooltip />
-                      <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                        {data.appointmentsByStatus.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={STATUS_COLORS[entry.status] || COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    No appointment data for this period
-                  </div>
-                )}
-              </div>
-            </CardContent>
-        </Card>
+        <AppointmentStatusCard appointmentsByStatus={data.appointmentsByStatus} />
       )}
 
       {/* Expenses by Category */}
