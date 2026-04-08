@@ -13,7 +13,7 @@ import {
   CompleteSaleInput,
   SaleSearchParams,
 } from "@/lib/validations/sale";
-import { Role, Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
+import { Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
 import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
@@ -22,16 +22,17 @@ import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 import { getOrganizationSalonIds } from "./branch";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: string; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
   if (!session.user.salonRole) return null;
 
-  const role = session.user.salonRole as Role;
+  const role = session.user.salonRole;
   const salonId = session.user.salonId;
   if (!salonId) return null;
 
-  if (!hasPermission(role, permission)) {
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, permission, isSuperAdmin, salonId)) {
     return null;
   }
 

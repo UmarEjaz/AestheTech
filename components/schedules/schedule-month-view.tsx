@@ -6,7 +6,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import { EventDropArg, EventClickArg, DatesSetArg } from "@fullcalendar/core";
-import { ShiftType, Role } from "@prisma/client";
+import { ShiftType } from "@prisma/client";
 import { toast } from "sonner";
 
 import { reassignSchedule } from "@/lib/actions/schedule";
@@ -35,7 +35,7 @@ interface StaffWithSchedules {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
   schedules: Schedule[];
 }
 

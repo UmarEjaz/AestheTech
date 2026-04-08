@@ -2,11 +2,11 @@
 
 import { auth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/permissions";
-import { Role } from "@prisma/client";
+import { SYSTEM_ROLES } from "@/lib/roles";
 
 export interface AuthResult {
   userId: string;
-  role: Role;
+  role: string;
   salonId: string;
   isSuperAdmin: boolean;
 }
@@ -25,11 +25,11 @@ export async function checkAuth(permission: Permission): Promise<AuthResult | nu
   // Must have a salon selected (except SUPER_ADMIN platform-level actions handled separately)
   if (!salonId) return null;
 
-  const role = (salonRole as Role) ?? ("OWNER" as Role); // SUPER_ADMIN fallback
-  if (!salonRole && !isSuperAdmin) return null;
+  const role = salonRole ?? (isSuperAdmin ? SYSTEM_ROLES.OWNER : null);
+  if (!role) return null;
 
-  // SUPER_ADMIN bypasses permission checks
-  if (!hasPermission(role, permission, isSuperAdmin)) {
+  // SUPER_ADMIN bypasses permission checks; user overrides applied via userId
+  if (!(await hasPermission(role, permission, isSuperAdmin, salonId, userId))) {
     return null;
   }
 
@@ -48,7 +48,8 @@ export async function checkAuthBasic(): Promise<AuthResult | null> {
 
   if (!salonId) return null;
 
-  const role = (salonRole as Role) ?? ("OWNER" as Role); // SUPER_ADMIN fallback
+  const role = salonRole ?? (isSuperAdmin ? SYSTEM_ROLES.OWNER : null);
+  if (!role) return null;
 
   return { userId, role, salonId, isSuperAdmin };
 }

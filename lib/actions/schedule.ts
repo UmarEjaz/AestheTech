@@ -10,22 +10,24 @@ import {
   ScheduleFormData,
   WeekScheduleFormData,
 } from "@/lib/validations/schedule";
-import { Role, Prisma, ShiftType } from "@prisma/client";
+import { Prisma, ShiftType } from "@prisma/client";
+import { SYSTEM_ROLES } from "@/lib/roles";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: string; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
   if (!session.user.salonRole) return null;
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, permission)) {
-    return null;
-  }
-
+  const role = session.user.salonRole;
   const salonId = session.user.salonId;
   if (!salonId) return null;
+
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, permission, isSuperAdmin, salonId)) {
+    return null;
+  }
 
   return { userId: session.user.id, role, salonId };
 }
@@ -476,7 +478,7 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
   schedules: {
     id: string;
     dayOfWeek: number;
@@ -496,7 +498,7 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
       where: {
         salonId: authResult.salonId,
         isActive: true,
-        role: { in: [Role.STAFF, Role.ADMIN, Role.OWNER] },
+        role: { in: [SYSTEM_ROLES.STAFF, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.OWNER] },
       },
       select: {
         id: true,
@@ -525,7 +527,7 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
       firstName: u.firstName,
       lastName: u.lastName,
       email: u.email,
-      role: u.role as Role,
+      role: u.role,
       schedules: u.schedules,
     }));
 

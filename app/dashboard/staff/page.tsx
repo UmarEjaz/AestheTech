@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffTable } from "@/components/staff/staff-table";
 import { getUsers } from "@/lib/actions/user";
@@ -17,17 +16,18 @@ export default async function StaffPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
   // Check if user can view staff
-  if (!hasPermission(userRole, "staff:view", isSuperAdmin)) {
+  if (!await hasPermission(userRole, "staff:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canCreate = hasPermission(userRole, "staff:create", isSuperAdmin);
-  const canEdit = hasPermission(userRole, "staff:update", isSuperAdmin);
-  const canDelete = hasPermission(userRole, "staff:delete", isSuperAdmin);
+  const canCreate = await hasPermission(userRole, "staff:create", isSuperAdmin, salonId, session.user.id);
+  const canEdit = await hasPermission(userRole, "staff:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRole, "staff:delete", isSuperAdmin, salonId, session.user.id);
 
   const [usersResult, tz] = await Promise.all([
     getUsers({ page: 1, limit: 15 }),
@@ -36,7 +36,7 @@ export default async function StaffPage() {
 
   if (!usersResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{usersResult.error}</p>
         </div>
@@ -47,7 +47,7 @@ export default async function StaffPage() {
   const { users, total, page, totalPages } = usersResult.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div>

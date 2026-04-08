@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import {
   ArrowLeft,
   Edit,
@@ -51,9 +50,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canEdit = hasPermission(userRole, "clients:update", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const canEdit = await hasPermission(userRole, "clients:update", isSuperAdmin, salonId, session.user.id);
 
   const [result, settingsResult] = await Promise.all([
     getClient(id),
@@ -75,7 +75,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const initials = `${client.firstName[0]}${client.lastName?.[0] || ""}`.toUpperCase();
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">

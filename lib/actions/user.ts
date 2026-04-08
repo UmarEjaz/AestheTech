@@ -13,7 +13,6 @@ import {
   PasswordChangeData,
   UserSearchParams,
 } from "@/lib/validations/user";
-import { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
@@ -24,7 +23,7 @@ export type UserListItem = {
   lastName: string;
   email: string;
   phone: string | null;
-  role: Role;
+  role: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -40,7 +39,7 @@ export type UserDetail = {
   lastName: string;
   email: string;
   phone: string | null;
-  role: Role;
+  role: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -251,7 +250,7 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
   const { confirmPassword, role, ...userData } = validationResult.data;
 
   // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, role, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.role, role, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot create a user with this role" };
   }
 
@@ -339,13 +338,13 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
   }
 
   // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, existingRole, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.role, existingRole, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot modify this user" };
   }
 
   // If changing role, check if can assign new role
   if (newRole && newRole !== existingRole) {
-    if (!canManageRole(authResult.role, newRole, authResult.isSuperAdmin)) {
+    if (!(await canManageRole(authResult.role, newRole, authResult.isSuperAdmin, authResult.salonId))) {
       return { success: false, error: "You cannot assign this role" };
     }
   }
@@ -438,7 +437,7 @@ export async function changePassword(data: PasswordChangeData): Promise<ActionRe
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.role, targetRole, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot modify this user's password" };
   }
 
@@ -488,7 +487,7 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.role, targetRole, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot modify this user" };
   }
 
@@ -552,7 +551,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.role, targetRole, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot delete this user" };
   }
 
@@ -589,7 +588,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
 }
 
 // Get all active staff members (for dropdowns)
-export async function getActiveStaff(branchFilter: "current" | "all" = "current"): Promise<ActionResult<{ id: string; firstName: string; lastName: string; role: Role }[]>> {
+export async function getActiveStaff(branchFilter: "current" | "all" = "current"): Promise<ActionResult<{ id: string; firstName: string; lastName: string; role: string }[]>> {
   const authResult = await checkAuth("staff:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
@@ -617,7 +616,7 @@ export async function getActiveStaff(branchFilter: "current" | "all" = "current"
       orderBy: { firstName: "asc" },
     });
 
-    return { success: true, data: staff as { id: string; firstName: string; lastName: string; role: Role }[] };
+    return { success: true, data: staff };
   } catch (error) {
     console.error("Error fetching staff:", error);
     return { success: false, error: "Failed to fetch staff" };

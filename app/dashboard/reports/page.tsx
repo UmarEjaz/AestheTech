@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ReportsCharts } from "@/components/reports/reports-charts";
@@ -25,7 +24,7 @@ export default async function ReportsPage({
   if (!user.salonRole && !user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (user.salonRole ?? null) as Role | null;
+  const userRole = user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
@@ -52,7 +51,7 @@ export default async function ReportsPage({
 
   if (!reportResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="space-y-6">
           <div>
             <h2 className="text-3xl font-bold">Reports & Analytics</h2>
@@ -75,7 +74,7 @@ export default async function ReportsPage({
   }
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>

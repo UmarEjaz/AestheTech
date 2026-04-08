@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import { formatInTz } from "@/lib/utils/timezone";
 import { formatCurrency } from "@/lib/utils/currency";
 import Link from "next/link";
@@ -48,10 +47,11 @@ export default async function SaleDetailPage({
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "sales:view", isSuperAdmin)) {
+  if (!await hasPermission(userRole, "sales:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
@@ -138,14 +138,14 @@ export default async function SaleDetailPage({
   };
 
   // Calculate refund information
-  const canRefund = hasPermission(userRole, "invoices:refund", isSuperAdmin);
+  const canRefund = await hasPermission(userRole, "invoices:refund", isSuperAdmin, salonId, session.user.id);
   const invoiceRefunds = sale.invoice?.refunds || [];
   const totalRefunded = invoiceRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
   const maxRefundable = sale.invoice ? Number(sale.invoice.total) - totalRefunded : 0;
   const canIssueRefund = canRefund && sale.invoice?.status === "PAID" && maxRefundable > 0;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

@@ -10,7 +10,6 @@ import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getDashboardStats } from "@/lib/actions/dashboard";
 import { getTimezone } from "@/lib/actions/settings";
 import { getBranches } from "@/lib/actions/branch";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
 
 export default async function DashboardPage({
@@ -28,9 +27,10 @@ export default async function DashboardPage({
   if (!user.salonRole && !user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (user.salonRole ?? null) as Role | null;
+  const userRole = user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canViewReports = hasPermission(userRole, "reports:view", isSuperAdmin);
+  const salonId = user.salonId;
+  const canViewReports = await hasPermission(userRole, "reports:view", isSuperAdmin, salonId, user.id);
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   const params = await searchParams;
@@ -48,7 +48,7 @@ export default async function DashboardPage({
     : undefined;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">

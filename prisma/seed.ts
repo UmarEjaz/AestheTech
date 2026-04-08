@@ -1,12 +1,18 @@
-import { PrismaClient, Role, LoyaltyTier, PayType } from "@prisma/client";
+import { PrismaClient, LoyaltyTier, PayType } from "@prisma/client";
+import { PERMISSION_REGISTRY, DEFAULT_PERMISSION_ROLES } from "../lib/permissions-defaults";
+import { SYSTEM_ROLE_DEFINITIONS } from "../lib/roles";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🌱 Starting seed...");
+  console.log("Starting seed...");
 
   // Clean existing data (order matters for foreign keys)
+  await prisma.userPermission.deleteMany();
+  await prisma.rolePermission.deleteMany();
+  await prisma.permission.deleteMany();
+  await prisma.roleDefinition.deleteMany();
   await prisma.payrollEntry.deleteMany();
   await prisma.payrollRun.deleteMany();
   await prisma.salaryConfig.deleteMany();
@@ -33,7 +39,26 @@ async function main() {
   await prisma.user.deleteMany();
   await prisma.salon.deleteMany();
 
-  console.log("🗑️  Cleared existing data");
+  console.log("Cleared existing data");
+
+  // ============================================
+  // ROLE DEFINITIONS — Seed 4 system roles
+  // ============================================
+  for (const def of SYSTEM_ROLE_DEFINITIONS) {
+    await prisma.roleDefinition.create({
+      data: {
+        name: def.name,
+        slug: def.slug,
+        label: def.label,
+        description: def.description,
+        color: def.color,
+        hierarchyLevel: def.hierarchyLevel,
+        isSystem: true,
+        salonId: null,
+      },
+    });
+  }
+  console.log("Created system role definitions");
 
   // Create Default Salon
   const salon = await prisma.salon.create({
@@ -48,7 +73,7 @@ async function main() {
     },
   });
 
-  console.log("🏪 Created salon");
+  console.log("Created salon");
 
   // Create Settings (1:1 with Salon)
   await prisma.settings.create({
@@ -65,7 +90,7 @@ async function main() {
     },
   });
 
-  console.log("⚙️  Created settings");
+  console.log("Created settings");
 
   // Create Users with role and salonId directly
   const hashedPassword = await bcrypt.hash("password123", 10);
@@ -81,7 +106,7 @@ async function main() {
       phone: "+923001234567",
       isSuperAdmin: true,
       salonId: salon.id,
-      role: Role.OWNER,
+      role: "OWNER",
     },
   });
 
@@ -93,7 +118,7 @@ async function main() {
       lastName: "Johnson",
       phone: "+1234567890",
       salonId: salon.id,
-      role: Role.OWNER,
+      role: "OWNER",
     },
   });
 
@@ -105,7 +130,7 @@ async function main() {
       lastName: "Chen",
       phone: "+1234567891",
       salonId: salon.id,
-      role: Role.ADMIN,
+      role: "ADMIN",
     },
   });
 
@@ -117,7 +142,7 @@ async function main() {
       lastName: "Wilson",
       phone: "+1234567892",
       salonId: salon.id,
-      role: Role.STAFF,
+      role: "STAFF",
     },
   });
 
@@ -129,7 +154,7 @@ async function main() {
       lastName: "Brown",
       phone: "+1234567893",
       salonId: salon.id,
-      role: Role.STAFF,
+      role: "STAFF",
     },
   });
 
@@ -141,20 +166,20 @@ async function main() {
       lastName: "Martinez",
       phone: "+1234567894",
       salonId: salon.id,
-      role: Role.RECEPTIONIST,
+      role: "RECEPTIONIST",
     },
   });
 
-  console.log("👤 Created users");
+  console.log("Created users");
 
   // Create UserSalon records for all users
   const allUsers = [
-    { user: superAdmin, role: Role.OWNER },
-    { user: owner, role: Role.OWNER },
-    { user: admin, role: Role.ADMIN },
-    { user: staff1, role: Role.STAFF },
-    { user: staff2, role: Role.STAFF },
-    { user: lisa, role: Role.RECEPTIONIST },
+    { user: superAdmin, role: "OWNER" },
+    { user: owner, role: "OWNER" },
+    { user: admin, role: "ADMIN" },
+    { user: staff1, role: "STAFF" },
+    { user: staff2, role: "STAFF" },
+    { user: lisa, role: "RECEPTIONIST" },
   ];
 
   for (const { user: u, role: r } of allUsers) {
@@ -163,7 +188,7 @@ async function main() {
     });
   }
 
-  console.log("🔗 Created user-salon associations");
+  console.log("Created user-salon associations");
 
   // Create a demo branch salon
   const branchSalon = await prisma.salon.create({
@@ -191,17 +216,17 @@ async function main() {
 
   // Give Owner and SuperAdmin access to the branch
   await prisma.userSalon.create({
-    data: { userId: superAdmin.id, salonId: branchSalon.id, role: Role.OWNER },
+    data: { userId: superAdmin.id, salonId: branchSalon.id, role: "OWNER" },
   });
   await prisma.userSalon.create({
-    data: { userId: owner.id, salonId: branchSalon.id, role: Role.OWNER },
+    data: { userId: owner.id, salonId: branchSalon.id, role: "OWNER" },
   });
   // Assign one staff member to both branches
   await prisma.userSalon.create({
-    data: { userId: staff1.id, salonId: branchSalon.id, role: Role.STAFF },
+    data: { userId: staff1.id, salonId: branchSalon.id, role: "STAFF" },
   });
 
-  console.log("🏢 Created demo branch salon");
+  console.log("Created demo branch salon");
 
   // Create branch-specific services (demonstrates cross-branch service visibility)
   await Promise.all([
@@ -264,7 +289,7 @@ async function main() {
     },
   });
 
-  console.log("🏪 Created branch services, client, and product");
+  console.log("Created branch services, client, and product");
 
   // Create Services (salon-scoped)
   const services = await Promise.all([
@@ -380,7 +405,7 @@ async function main() {
     }),
   ]);
 
-  console.log("💇 Created services");
+  console.log("Created services");
 
   // Create Products (salon-scoped)
   await Promise.all([
@@ -470,7 +495,7 @@ async function main() {
     }),
   ]);
 
-  console.log("📦 Created products");
+  console.log("Created products");
 
   // Create Clients (salon-scoped)
   const clients = await Promise.all([
@@ -534,7 +559,7 @@ async function main() {
     }),
   ]);
 
-  console.log("👥 Created clients");
+  console.log("Created clients");
 
   // Create Loyalty Points for clients (salon-scoped)
   await Promise.all(
@@ -556,7 +581,7 @@ async function main() {
     )
   );
 
-  console.log("⭐ Created loyalty points");
+  console.log("Created loyalty points");
 
   // Create Staff Schedules (salon-scoped)
   const daysOfWeek = [1, 2, 3, 4, 5]; // Monday to Friday
@@ -576,7 +601,7 @@ async function main() {
     }
   }
 
-  console.log("📅 Created staff schedules");
+  console.log("Created staff schedules");
 
   // Create some sample appointments for today and upcoming days (salon-scoped)
   const today = new Date();
@@ -619,7 +644,7 @@ async function main() {
     },
   });
 
-  console.log("📆 Created appointments");
+  console.log("Created appointments");
 
   // ============================================
   // EXPENSE CATEGORIES & EXPENSES
@@ -698,7 +723,7 @@ async function main() {
     ],
   });
 
-  console.log("💰 Created expense categories and sample expenses");
+  console.log("Created expense categories and sample expenses");
 
   // ============================================
   // SALARY CONFIGS & PAYROLL
@@ -845,11 +870,49 @@ async function main() {
     },
   });
 
-  console.log("💸 Created salary configs and payroll runs");
+  console.log("Created salary configs and payroll runs");
 
-  console.log("✅ Seed completed successfully!");
+  // ============================================
+  // PERMISSIONS — Seed global registry + default role assignments
+  // ============================================
+
+  // Create all permission records (global registry)
+  const permissionRecords = await Promise.all(
+    PERMISSION_REGISTRY.map((p) =>
+      prisma.permission.create({
+        data: {
+          code: p.code,
+          module: p.module,
+          label: p.label,
+          description: p.description,
+          sortOrder: p.sortOrder,
+        },
+      })
+    )
+  );
+
+  // Build a code->id lookup map
+  const permissionIdMap = new Map(permissionRecords.map((p) => [p.code, p.id]));
+
+  // Seed default role-permission assignments for both salons
+  const allSalonIds = [salon.id, branchSalon.id];
+  for (const sId of allSalonIds) {
+    const rolePermData: Array<{ salonId: string; role: string; permissionId: string }> = [];
+    for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
+      const permId = permissionIdMap.get(code);
+      if (!permId) continue;
+      for (const role of roles) {
+        rolePermData.push({ salonId: sId, role, permissionId: permId });
+      }
+    }
+    await prisma.rolePermission.createMany({ data: rolePermData });
+  }
+
+  console.log("Created permissions and default role assignments");
+
+  console.log("Seed completed successfully!");
   console.log("");
-  console.log("📋 Test Accounts:");
+  console.log("Test Accounts:");
   console.log("   Super Admin: itsumarejaz@gmail.com / umar111");
   console.log("   Owner: owner@aesthetech.com / password123");
   console.log("   Admin: admin@aesthetech.com / password123");
@@ -860,7 +923,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error("❌ Seed failed:", e);
+    console.error("Seed failed:", e);
     process.exit(1);
   })
   .finally(async () => {

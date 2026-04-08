@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
-import { Role, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { getOrganizationSalonIds } from "./branch";
 
@@ -71,12 +71,12 @@ export async function getAuditLogs(
   if (!session?.user) return { success: false, error: "Unauthorized" };
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, "audit:view")) {
+  const role = session.user.salonRole;
+  const salonId = session.user.salonId;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, "audit:view", isSuperAdmin, salonId)) {
     return { success: false, error: "Unauthorized" };
   }
-
-  const salonId = session.user.salonId;
 
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 50;
@@ -142,12 +142,12 @@ export async function getAuditActions(branchFilter: "current" | "all" = "current
   if (!session?.user) return { success: false, error: "Unauthorized" };
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, "audit:view")) {
+  const role = session.user.salonRole;
+  const salonId = session.user.salonId;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, "audit:view", isSuperAdmin, salonId)) {
     return { success: false, error: "Unauthorized" };
   }
-
-  const salonId = session.user.salonId;
 
   try {
     let salonFilter: { salonId: string | { in: string[] } } | undefined;
@@ -179,12 +179,12 @@ export async function getAuditEntityTypes(branchFilter: "current" | "all" = "cur
   if (!session?.user) return { success: false, error: "Unauthorized" };
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, "audit:view")) {
+  const role = session.user.salonRole;
+  const salonId = session.user.salonId;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, "audit:view", isSuperAdmin, salonId)) {
     return { success: false, error: "Unauthorized" };
   }
-
-  const salonId = session.user.salonId;
 
   try {
     let salonFilter: { salonId: string | { in: string[] } } | undefined;

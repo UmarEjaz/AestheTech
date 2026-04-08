@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -26,7 +25,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const canUpdate = hasPermission(userRole, "appointments:update", isSuperAdmin);
 
@@ -93,7 +92,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   ]);
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

@@ -14,14 +14,14 @@ import {
   UpdateInvoiceStatusInput,
   CreateRefundInput,
 } from "@/lib/validations/invoice";
-import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
+import { Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier } from "@/lib/utils/loyalty";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: string; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
@@ -29,8 +29,9 @@ async function checkAuth(permission: Permission): Promise<{ userId: string; role
   if (!salonId) return null;
   if (!session.user.salonRole) return null;
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, permission)) {
+  const role = session.user.salonRole;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, permission, isSuperAdmin, salonId)) {
     return null;
   }
 

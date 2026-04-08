@@ -20,7 +20,7 @@ import {
   CloneSeriesFormData,
   CancelFromDateFormData,
 } from "@/lib/validations/appointment";
-import { Role, Prisma, RecurrencePattern, RecurrenceEndType } from "@prisma/client";
+import { Prisma, RecurrencePattern, RecurrenceEndType } from "@prisma/client";
 import { format, startOfDay, isBefore, addMonths } from "date-fns";
 import { formatInTz } from "@/lib/utils/timezone";
 import { getTimezone } from "@/lib/actions/settings";
@@ -31,7 +31,7 @@ import {
 import { ActionResult } from "@/lib/types";
 import { getOrganizationSalonIds } from "./branch";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: string; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
@@ -39,8 +39,9 @@ async function checkAuth(permission: Permission): Promise<{ userId: string; role
   if (!salonId) return null;
   if (!session.user.salonRole) return null;
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, permission)) {
+  const role = session.user.salonRole;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, permission, isSuperAdmin, salonId)) {
     return null;
   }
 

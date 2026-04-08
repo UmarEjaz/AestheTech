@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { SalesTable } from "@/components/sales/sales-table";
 import { getSales, getTodaysSalesSummary } from "@/lib/actions/sale";
@@ -17,9 +16,10 @@ export default async function SalesPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canCreate = hasPermission(userRole, "sales:create", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const canCreate = await hasPermission(userRole, "sales:create", isSuperAdmin, salonId, session.user.id);
 
   const [salesResult, settingsResult, todaySummaryResult] = await Promise.all([
     getSales({ page: 1, limit: 15 }),
@@ -29,7 +29,7 @@ export default async function SalesPage() {
 
   if (!salesResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{salesResult.error}</p>
         </div>
@@ -48,7 +48,7 @@ export default async function SalesPage() {
     : { count: 0, revenue: 0, averageTicket: 0 };
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div>

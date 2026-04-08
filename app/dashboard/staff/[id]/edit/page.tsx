@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
@@ -24,7 +23,7 @@ export default async function EditStaffPage({
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   if (!hasPermission(userRole, "staff:update", isSuperAdmin)) {
@@ -40,7 +39,7 @@ export default async function EditStaffPage({
   const user = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">

@@ -9,7 +9,7 @@ import {
   StyleSheet,
   pdf,
 } from "@react-pdf/renderer";
-import { ShiftType, Role } from "@prisma/client";
+import { ShiftType } from "@prisma/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { FileDown, Loader2 } from "lucide-react";
@@ -45,7 +45,7 @@ interface StaffWithSchedules {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
   schedules: Schedule[];
 }
 

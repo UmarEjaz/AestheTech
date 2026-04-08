@@ -14,13 +14,6 @@ datasource db {
 // ENUMS
 // ============================================
 
-enum Role {
-  OWNER
-  ADMIN
-  STAFF
-  RECEPTIONIST
-}
-
 enum AppointmentStatus {
   SCHEDULED
   CONFIRMED
@@ -102,6 +95,11 @@ enum PayrollEntryStatus {
   CANCELLED
 }
 
+enum OverrideType {
+  GRANT
+  REVOKE
+}
+
 // ============================================
 // MODELS
 // ============================================
@@ -145,6 +143,9 @@ model Salon {
   expenses                   Expense[]
   salaryConfigs              SalaryConfig[]
   payrollRuns                PayrollRun[]
+  rolePermissions            RolePermission[]
+  userPermissions            UserPermission[]
+  roleDefinitions            RoleDefinition[]
 
   @@index([parentSalonId])
   @@map("salons")
@@ -159,7 +160,7 @@ model User {
   lastName     String
   phone        String?
   salonId      String? // Current/active salon (denormalized from UserSalon)
-  role         Role // Current role at active salon (denormalized from UserSalon)
+  role         String // Current role at active salon (denormalized from UserSalon)
   isSuperAdmin Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -180,6 +181,7 @@ model User {
   payrollRunsCreated PayrollRun[]                 @relation("PayrollRunCreator")
   payrollRunsPaid    PayrollRun[]                 @relation("PayrollRunPayer")
   payrollEntries     PayrollEntry[]               @relation("PayrollEntries")
+  userPermissions    UserPermission[]
 
   @@index([salonId])
   @@map("users")
@@ -190,7 +192,7 @@ model UserSalon {
   id        String   @id @default(cuid())
   userId    String
   salonId   String
-  role      Role
+  role      String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -804,4 +806,81 @@ model Settings {
   salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
 
   @@map("settings")
+}
+
+// Permission registry — global list of all permission codes
+model Permission {
+  id          String   @id @default(cuid())
+  code        String   @unique // e.g., "clients:view", "sales:create"
+  module      String            // e.g., "clients", "sales" — used for UI grouping
+  label       String            // Human-readable label, e.g., "View Clients"
+  description String?           // Optional description
+  sortOrder   Int      @default(0) // Display ordering within a module
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+// Salon-scoped role-permission assignment: "Role X has permission Y in salon Z"
+model RolePermission {
+  id           String   @id @default(cuid())
+  salonId      String
+  role         String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  salon      Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, role, permissionId])
+  @@index([salonId])
+  @@index([salonId, role])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// User-level permission overrides: "User X has GRANT/REVOKE on permission Y in salon Z"
+model UserPermission {
+  id           String       @id @default(cuid())
+  salonId      String
+  userId       String
+  permissionId String
+  overrideType OverrideType
+  createdAt    DateTime     @default(now())
+
+  salon      Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, userId, permissionId])
+  @@index([salonId, userId])
+  @@index([permissionId])
+  @@map("user_permissions")
+}
+
+// Role definitions — system roles (global) + custom roles (salon-scoped)
+model RoleDefinition {
+  id             String   @id @default(cuid())
+  name           String              // e.g., "OWNER", "ADMIN", "Senior Stylist"
+  slug           String              // URL-safe version: "owner", "admin", "senior-stylist"
+  label          String              // Display name: "Owner", "Admin", "Senior Stylist"
+  description    String?             // e.g., "Full access to all features"
+  color          String   @default("#6B7280") // Hex color for badges
+  hierarchyLevel Int                 // OWNER=100, ADMIN=75, STAFF=50, RECEPTIONIST=25
+  isSystem       Boolean  @default(false) // true for the 4 built-in roles
+  salonId        String?             // null for system roles, set for custom roles
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  salon Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, slug])
+  @@index([salonId])
+  @@index([isSystem])
+  @@map("role_definitions")
 }

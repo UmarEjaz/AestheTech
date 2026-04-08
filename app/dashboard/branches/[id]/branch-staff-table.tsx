@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Role } from "@prisma/client";
+import { useRoles } from "@/lib/roles-context";
 import {
   assignStaffToBranch,
   removeStaffFromBranch,
@@ -53,7 +53,7 @@ type StaffMember = {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
   isActive: boolean;
 };
 
@@ -62,7 +62,7 @@ type AvailableStaff = {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
 };
 
 interface BranchStaffTableProps {
@@ -77,7 +77,8 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
   const [dialogOpen, setDialogOpen] = useState(false);
   const [availableStaff, setAvailableStaff] = useState<AvailableStaff[]>([]);
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedRole, setSelectedRole] = useState<Role>(Role.STAFF);
+  const allRoles = useRoles();
+  const [selectedRole, setSelectedRole] = useState<string>("STAFF");
   const [loadingAvailable, setLoadingAvailable] = useState(false);
 
   async function openAddDialog() {
@@ -166,14 +167,16 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Role at this branch</label>
-                    <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as Role)}>
+                    <Select value={selectedRole} onValueChange={setSelectedRole}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={Role.ADMIN}>Admin</SelectItem>
-                        <SelectItem value={Role.STAFF}>Staff</SelectItem>
-                        <SelectItem value={Role.RECEPTIONIST}>Receptionist</SelectItem>
+                        {allRoles
+                          .filter((r) => r.name !== "OWNER")
+                          .map((r) => (
+                            <SelectItem key={r.name} value={r.name}>{r.label}</SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>

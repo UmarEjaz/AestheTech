@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { hasPermission } from "@/lib/permissions";
 import { getAuditLogs, getAuditActions, getAuditEntityTypes } from "@/lib/actions/audit";
@@ -31,7 +30,7 @@ export default async function AuditLogPage({
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
@@ -67,7 +66,7 @@ export default async function AuditLogPage({
 
   if (!logsResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{logsResult.error}</p>
         </div>
@@ -76,7 +75,7 @@ export default async function AuditLogPage({
   }
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       {hasMultipleBranches && (
         <div className="flex justify-end mb-4">
           <BranchFilter

@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -34,16 +33,17 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!hasPermission(userRole, "expenses:view", isSuperAdmin)) {
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRole, "expenses:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canCreate = hasPermission(userRole, "expenses:create", isSuperAdmin);
-  const canManage = hasPermission(userRole, "expenses:update", isSuperAdmin);
-  const canDelete = hasPermission(userRole, "expenses:delete", isSuperAdmin);
-  const canManageCategories = hasPermission(userRole, "expense-categories:manage", isSuperAdmin);
+  const canCreate = await hasPermission(userRole, "expenses:create", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "expenses:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRole, "expenses:delete", isSuperAdmin, salonId, session.user.id);
+  const canManageCategories = await hasPermission(userRole, "expense-categories:manage", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";
@@ -75,7 +75,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
@@ -86,7 +86,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const { expenses, total, totalPages } = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { Plus, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -20,13 +19,14 @@ export default async function SalaryConfigPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!hasPermission(userRole, "salary-config:view", isSuperAdmin)) {
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRole, "salary-config:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = hasPermission(userRole, "salary-config:manage", isSuperAdmin);
+  const canManage = await hasPermission(userRole, "salary-config:manage", isSuperAdmin, salonId, session.user.id);
 
   const [result, settingsResult] = await Promise.all([
     getSalaryConfigs("current"),
@@ -37,7 +37,7 @@ export default async function SalaryConfigPage() {
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
@@ -46,7 +46,7 @@ export default async function SalaryConfigPage() {
   }
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">

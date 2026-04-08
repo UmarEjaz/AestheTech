@@ -3,12 +3,10 @@
 import { prisma } from "@/lib/prisma";
 import { checkAuthBasic } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
-import { Role } from "@prisma/client";
-
 export type UserSalonItem = {
   salonId: string;
   salonName: string;
-  role: Role;
+  role: string;
   isCurrent: boolean;
 };
 
@@ -49,7 +47,7 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
 
 export async function switchSalon(
   targetSalonId: string
-): Promise<ActionResult<{ salonId: string; role: Role }>> {
+): Promise<ActionResult<{ salonId: string; role: string }>> {
   const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };

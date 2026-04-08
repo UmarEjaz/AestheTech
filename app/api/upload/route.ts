@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/permissions";
-import { Role } from "@prisma/client";
 import { writeFile, mkdir, unlink } from "fs/promises";
 import path from "path";
 
@@ -31,8 +30,8 @@ export async function POST(request: NextRequest) {
   if (!session.user.salonRole && !isSuperAdmin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const role = (session.user.salonRole ?? "OWNER") as Role;
-  if (!hasPermission(role, "clients:update", isSuperAdmin)) {
+  const role = session.user.salonRole ?? "OWNER";
+  if (!(await hasPermission(role, "clients:update", isSuperAdmin, salonId, session.user.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -102,8 +101,8 @@ export async function DELETE(request: NextRequest) {
   if (!session.user.salonRole && !isSuperAdmin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const role = (session.user.salonRole ?? "OWNER") as Role;
-  if (!hasPermission(role, "clients:update", isSuperAdmin)) {
+  const role = session.user.salonRole ?? "OWNER";
+  if (!(await hasPermission(role, "clients:update", isSuperAdmin, salonId, session.user.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

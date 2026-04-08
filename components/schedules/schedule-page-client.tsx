@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ShiftType, Role } from "@prisma/client";
+import { ShiftType } from "@prisma/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CalendarDays, CalendarRange } from "lucide-react";
 import { ScheduleWeekView } from "./schedule-week-view";
@@ -22,7 +22,7 @@ interface StaffWithSchedules {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
   schedules: Schedule[];
 }
 

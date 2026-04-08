@@ -3,7 +3,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateAppointmentIcal } from "@/lib/utils/ical";
 import { hasPermission } from "@/lib/permissions";
-import { Role } from "@prisma/client";
 
 export async function GET(
   request: NextRequest,
@@ -19,14 +18,13 @@ export async function GET(
     if (!session.user.salonRole && !isSuperAdmin) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const role = (session.user.salonRole ?? "OWNER") as Role;
-    if (!hasPermission(role, "appointments:view", isSuperAdmin)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
+    const role = session.user.salonRole ?? "OWNER";
     const salonId = session.user.salonId;
     if (!salonId) {
       return NextResponse.json({ error: "No salon context" }, { status: 400 });
+    }
+    if (!(await hasPermission(role, "appointments:view", isSuperAdmin, salonId, session.user.id))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { id: appointmentId } = await params;

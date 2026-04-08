@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
 import { branchSchema, BranchFormData } from "@/lib/validations/branch";
-import { Role } from "@prisma/client";
+import { SYSTEM_ROLES } from "@/lib/roles";
 import { logAudit } from "./audit";
 
 /**
@@ -66,7 +66,7 @@ export type BranchDetail = BranchListItem & {
     firstName: string;
     lastName: string;
     email: string;
-    role: Role;
+    role: string;
     isActive: boolean;
   }[];
 };
@@ -195,12 +195,16 @@ export async function createBranch(
         data: {
           userId: authResult.userId,
           salonId: newBranch.id,
-          role: Role.OWNER,
+          role: SYSTEM_ROLES.OWNER,
         },
       });
 
       return newBranch;
     });
+
+    // Seed default permissions for the new branch
+    const { seedPermissionsForSalon } = await import("@/lib/actions/permission");
+    await seedPermissionsForSalon(branch.id);
 
     await logAudit({
       action: "BRANCH_CREATED",

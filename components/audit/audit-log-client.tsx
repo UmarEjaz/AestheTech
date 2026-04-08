@@ -21,7 +21,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Role } from "@prisma/client";
 
 interface AuditLogEntry {
   id: string;
@@ -45,7 +44,7 @@ interface AuditLogClientProps {
   pageSize: number;
   actions: string[];
   entityTypes: string[];
-  staff: { id: string; firstName: string; lastName: string; role: Role }[];
+  staff: { id: string; firstName: string; lastName: string; role: string }[];
   filters: {
     action?: string;
     entityType?: string;

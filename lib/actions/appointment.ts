@@ -12,14 +12,14 @@ import {
   AppointmentStatusFormData,
   RescheduleFormData,
 } from "@/lib/validations/appointment";
-import { Role, Prisma, AppointmentStatus } from "@prisma/client";
+import { Prisma, AppointmentStatus } from "@prisma/client";
 import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
 import { invalidateDashboardCache } from "@/lib/redis";
 import { getOrganizationSalonIds } from "./branch";
 
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
+async function checkAuth(permission: Permission): Promise<{ userId: string; role: string; salonId: string } | null> {
   const session = await auth();
   if (!session?.user) return null;
 
@@ -27,8 +27,9 @@ async function checkAuth(permission: Permission): Promise<{ userId: string; role
   if (!salonId) return null;
   if (!session.user.salonRole) return null;
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, permission)) {
+  const role = session.user.salonRole;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(role, permission, isSuperAdmin, salonId)) {
     return null;
   }
 
