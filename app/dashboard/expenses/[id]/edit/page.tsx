@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -24,9 +23,10 @@ export default async function EditExpensePage({ params }: PageProps) {
 
   const userRole = session.user.salonRole;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
   const canUpdate =
     isSuperAdmin ||
-    (userRole != null && hasPermission(userRole as Role, "expenses:update"));
+    (userRole != null && await hasPermission(userRole, "expenses:update", isSuperAdmin, salonId, session.user.id));
 
   if (!canUpdate) {
     redirect("/dashboard/access-denied");
@@ -51,7 +51,7 @@ export default async function EditExpensePage({ params }: PageProps) {
         ? undefined
         : settingsResult.error;
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{errorMsg || "Failed to load required data"}</p>
         </div>
@@ -65,7 +65,7 @@ export default async function EditExpensePage({ params }: PageProps) {
   const expense = expenseResult.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

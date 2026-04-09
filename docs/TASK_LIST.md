@@ -345,7 +345,46 @@
 
 ---
 
-## Phase 8: Polish & Testing
+## Phase 8: Dynamic Permissions System (Spatie-like)
+
+### Schema & Models
+- [x] Create `Permission` model (name, display name, group/module)
+- [x] Create `RolePermission` model (many-to-many: Role <-> Permission)
+- [x] Create `UserPermission` model for direct user-level overrides (GRANT/REVOKE per user)
+- [x] Seed all existing permissions from current hardcoded `lib/permissions.ts` into the database
+- [x] Assign default permissions to each role (matching current behavior)
+- [x] Create migration
+
+### Core Logic
+- [x] Replace hardcoded permission checks with database-driven lookups
+- [x] Update `checkAuth()` / `hasPermission()` to query role permissions from DB
+- [x] Add caching layer (Redis) for permission lookups to avoid per-request DB queries
+- [x] Invalidate permission cache when roles/permissions are updated
+- [x] Add `user_permissions` support for direct overrides (grant/revoke per user)
+- [x] Ensure backward compatibility — existing behavior unchanged after migration
+
+### Permission Management UI
+- [x] Create "Roles & Permissions" settings page (Owner only)
+- [x] Display permission matrix (roles as columns, permissions as rows grouped by module)
+- [x] Allow toggling permissions per role with checkboxes
+- [x] Add "Reset to defaults" button per role
+- [x] Add confirmation dialog for permission changes
+- [x] Prevent owners from locking themselves out (protect critical owner permissions)
+
+### Per-Salon Customization
+- [x] Scope role permissions per salon (each salon can customize independently)
+- [x] New salons get default permission set on creation
+- [x] Super Admin retains full access regardless of salon-level permissions
+
+### Testing & Validation
+- [x] Verify all existing permission checks work with new system
+- [x] Test permission changes take effect immediately (cache invalidation)
+- [x] Test edge cases: owner lockout protection, super admin override
+- [x] Test multi-branch permission scoping
+
+---
+
+## Phase 9: Polish & Testing
 
 ### UI/UX Refinements
 - [ ] Review all pages for consistent styling
@@ -417,7 +456,7 @@
 
 ---
 
-## Phase 9: Deployment & Launch
+## Phase 10: Deployment & Launch
 
 ### Deployment Setup
 - [ ] Set up Railway account and project
@@ -518,8 +557,9 @@
 - [x] Phase 5: International Currency Support (100%)
 - [x] Phase 6: Multi-Location Support (100%)
 - [x] Phase 7: Financial Management (100% — Expense Tracking + Staff Payroll + Profit Tracking complete)
-- [ ] Phase 8: Polish & Testing (0%)
-- [ ] Phase 9: Deployment & Launch (0%)
+- [x] Phase 8: Dynamic Permissions System (100%)
+- [ ] Phase 9: Polish & Testing (0%)
+- [ ] Phase 10: Deployment & Launch (0%)
 
 ---
 

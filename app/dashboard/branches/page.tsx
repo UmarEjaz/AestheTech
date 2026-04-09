@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getBranches } from "@/lib/actions/branch";
@@ -17,18 +16,20 @@ export default async function BranchesPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "branches:view", isSuperAdmin)) {
+  if (!await hasPermission(userRole, "branches:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
   const result = await getBranches();
   const branches = result.success ? result.data : [];
+  const canManage = await hasPermission(userRole, "branches:manage", isSuperAdmin, salonId, session.user.id);
 
   return (
-    <DashboardLayout userRole={userRole} isSuperAdmin={isSuperAdmin}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -37,7 +38,7 @@ export default async function BranchesPage() {
               Manage your salon locations
             </p>
           </div>
-          {hasPermission(userRole, "branches:manage", isSuperAdmin) && (
+          {canManage && (
             <Link href="/dashboard/branches/new">
               <Button>
                 <Plus className="mr-2 h-4 w-4" />

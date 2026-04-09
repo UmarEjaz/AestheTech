@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -13,7 +13,7 @@ declare module "next-auth" {
     lastName: string;
     isSuperAdmin: boolean;
     salonId: string | null;
-    salonRole: Role | null;
+    salonRole: string | null;
   }
 
   interface Session {
@@ -25,7 +25,7 @@ declare module "next-auth" {
       lastName: string;
       isSuperAdmin: boolean;
       salonId: string | null;
-      salonRole: Role | null;
+      salonRole: string | null;
     };
   }
 }
@@ -38,7 +38,7 @@ interface CustomJWT {
   lastName: string;
   isSuperAdmin: boolean;
   salonId: string | null;
-  salonRole: Role | null;
+  salonRole: string | null;
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({

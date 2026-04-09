@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -33,14 +32,15 @@ export default async function PayrollPage({ searchParams }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!hasPermission(userRole, "payroll:view", isSuperAdmin)) {
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRole, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = hasPermission(userRole, "payroll:manage", isSuperAdmin);
-  const canDelete = hasPermission(userRole, "payroll:delete", isSuperAdmin);
+  const canManage = await hasPermission(userRole, "payroll:manage", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRole, "payroll:delete", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const status = params.status as PayrollRunStatus | undefined;
@@ -68,7 +68,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
@@ -79,7 +79,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
   const { runs, total, totalPages } = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

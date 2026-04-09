@@ -5,7 +5,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
-import { Role } from "@prisma/client";
 
 // ============================================
 // Types
@@ -44,7 +43,7 @@ export type SalonDetail = {
     lastName: string;
     email: string;
     phone: string | null;
-    role: Role | null;
+    role: string | null;
     isActive: boolean;
     createdAt: Date;
   }[];
@@ -171,6 +170,14 @@ export async function createSalon(data: {
         },
       },
     });
+
+    // Seed default permissions for the new salon
+    try {
+      const { seedPermissionsForSalon } = await import("@/lib/actions/permission");
+      await seedPermissionsForSalon(salon.id);
+    } catch (seedError) {
+      console.error("Warning: Failed to seed permissions for new salon — defaults will apply:", seedError);
+    }
 
     await logAudit({
       action: "SALON_CREATED",

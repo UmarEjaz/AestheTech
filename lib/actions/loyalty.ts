@@ -3,7 +3,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
-import { Role } from "@prisma/client";
 import { calculateTier } from "@/lib/utils/loyalty";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
@@ -28,8 +27,8 @@ export async function processExpiredPoints(options?: { skipAuth?: boolean }): Pr
     if (!session?.user) return { success: false, error: "Unauthorized" };
     const isSuperAdmin = session.user.isSuperAdmin === true;
     if (!session.user.salonRole && !isSuperAdmin) return { success: false, error: "Unauthorized" };
-    const role = (session.user.salonRole ?? "OWNER") as Role;
-    if (!hasPermission(role, "settings:manage", isSuperAdmin)) {
+    const role = session.user.salonRole ?? "OWNER";
+    if (!await hasPermission(role, "settings:manage", isSuperAdmin, session.user.salonId)) {
       return { success: false, error: "Unauthorized" };
     }
     actorUserId = session.user.id;

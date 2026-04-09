@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getBranchDetail } from "@/lib/actions/branch";
@@ -23,10 +22,11 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "branches:view", isSuperAdmin)) {
+  if (!await hasPermission(userRole, "branches:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
@@ -34,7 +34,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole} isSuperAdmin={isSuperAdmin}>
+      <DashboardLayout isSuperAdmin={isSuperAdmin}>
         <div className="space-y-6">
           <p className="text-destructive">{result.error}</p>
           <Link href="/dashboard/branches">
@@ -46,10 +46,10 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   }
 
   const branch = result.data;
-  const canManage = hasPermission(userRole, "branches:manage", isSuperAdmin);
+  const canManage = await hasPermission(userRole, "branches:manage", isSuperAdmin, salonId, session.user.id);
 
   return (
-    <DashboardLayout userRole={userRole} isSuperAdmin={isSuperAdmin}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Link href="/dashboard/branches">

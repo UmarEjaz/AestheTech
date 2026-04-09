@@ -2,9 +2,8 @@
 
 import { addMonths } from "date-fns";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, Permission } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   createSaleSchema,
   completeSaleSchema,
@@ -13,7 +12,7 @@ import {
   CompleteSaleInput,
   SaleSearchParams,
 } from "@/lib/validations/sale";
-import { Role, Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
+import { Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
 import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
@@ -21,22 +20,6 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 import { getOrganizationSalonIds } from "./branch";
-
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-  if (!session.user.salonRole) return null;
-
-  const role = session.user.salonRole as Role;
-  const salonId = session.user.salonId;
-  if (!salonId) return null;
-
-  if (!hasPermission(role, permission)) {
-    return null;
-  }
-
-  return { userId: session.user.id, role, salonId };
-}
 
 // Include relations for sale list
 const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({

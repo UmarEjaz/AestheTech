@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { Role } from "@prisma/client";
 
 export const userSchema = z.object({
   firstName: z
@@ -29,9 +28,7 @@ export const userSchema = z.object({
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()
     .or(z.literal("")),
-  role: z.nativeEnum(Role, {
-    message: "Please select a valid role",
-  }),
+  role: z.string().min(1, "Please select a role"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -57,9 +54,7 @@ export const userUpdateSchema = z.object({
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()
     .or(z.literal("")),
-  role: z.nativeEnum(Role, {
-    message: "Please select a valid role",
-  }),
+  role: z.string().min(1, "Please select a role"),
   isActive: z.boolean().optional(),
 });
 
@@ -81,7 +76,7 @@ export const passwordChangeSchema = z.object({
 
 export const userSearchSchema = z.object({
   query: z.string().optional(),
-  role: z.nativeEnum(Role).optional(),
+  role: z.string().optional(),
   isActive: z.boolean().optional(),
   page: z.number().int().positive().optional(),
   limit: z.number().int().positive().max(100).optional(),

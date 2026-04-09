@@ -9,7 +9,7 @@ import {
   StyleSheet,
   pdf,
 } from "@react-pdf/renderer";
-import { ShiftType, Role } from "@prisma/client";
+import { ShiftType } from "@prisma/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { FileDown, Loader2 } from "lucide-react";
@@ -45,7 +45,8 @@ interface StaffWithSchedules {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
+  roleLabel?: string;
   schedules: Schedule[];
 }
 
@@ -191,7 +192,7 @@ function SchedulePDFDocument({ staffWithSchedules, salonName = "AestheTech Salon
                 {staff.firstName} {staff.lastName}
               </Text>
               <Text style={styles.staffRole}>
-                ({staff.role.toLowerCase().replace("_", " ")})
+                ({staff.roleLabel || staff.role.toLowerCase().replace("_", " ")})
               </Text>
             </View>
 

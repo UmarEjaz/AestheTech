@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -18,9 +17,10 @@ export default async function ExpenseCategoriesPage() {
 
   const userRole = session.user.salonRole;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
   const canManage =
     isSuperAdmin ||
-    (userRole != null && hasPermission(userRole as Role, "expense-categories:manage"));
+    (userRole != null && await hasPermission(userRole, "expense-categories:manage", isSuperAdmin, salonId, session.user.id));
 
   if (!canManage) {
     redirect("/dashboard/access-denied");
@@ -30,7 +30,7 @@ export default async function ExpenseCategoriesPage() {
   const categories = result.success ? result.data : [];
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

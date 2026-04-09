@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
-import { Role } from "@prisma/client";
 import { logAudit } from "./audit";
 
 /**
@@ -14,7 +13,7 @@ import { logAudit } from "./audit";
 export async function assignStaffToBranch(
   userId: string,
   targetSalonId: string,
-  role: Role
+  role: string
 ): Promise<ActionResult<{ id: string }>> {
   const authResult = await checkAuth("branches:manage");
   if (!authResult) {
@@ -252,7 +251,7 @@ export async function removeStaffFromBranch(
  */
 export async function getAvailableStaffForBranch(
   targetSalonId: string
-): Promise<ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: Role }[]>> {
+): Promise<ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string }[]>> {
   const authResult = await checkAuth("branches:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };

@@ -6,7 +6,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
-import { Role } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +20,8 @@ import {
 } from "@/components/ui/select";
 import { userSchema, UserFormData, UserFormInput, UserUpdateData } from "@/lib/validations/user";
 import { createUser, updateUser } from "@/lib/actions/user";
+import { useRoles } from "@/lib/roles-context";
+import { SYSTEM_ROLE_HIERARCHY } from "@/lib/roles";
 
 interface StaffFormProps {
   user?: {
@@ -29,44 +30,32 @@ interface StaffFormProps {
     lastName: string;
     email: string;
     phone: string | null;
-    role: Role;
+    role: string;
     isActive: boolean;
   };
   mode: "create" | "edit";
-  currentUserRole: Role | null;
+  currentUserRole: string | null;
   isSuperAdmin?: boolean;
 }
 
-const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
-  { value: "OWNER", label: "Owner", description: "Full access to all features" },
-  { value: "ADMIN", label: "Admin", description: "Manage staff, clients, and settings" },
-  { value: "STAFF", label: "Staff", description: "Provide services and view schedules" },
-  { value: "RECEPTIONIST", label: "Receptionist", description: "Handle appointments and check-ins" },
-];
-
 export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }: StaffFormProps) {
   const router = useRouter();
+  const roles = useRoles();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<Role>(user?.role || "STAFF");
+  const [selectedRole, setSelectedRole] = useState<string>(user?.role || "STAFF");
 
   // Filter available roles based on current user's role hierarchy
   const getAvailableRoles = () => {
     // Super admins can assign any role
-    if (isSuperAdmin) return ROLE_OPTIONS;
+    if (isSuperAdmin) return roles;
     if (!currentUserRole) return [];
 
-    const roleHierarchy: Record<Role, number> = {
-      OWNER: 4,
-      ADMIN: 3,
-      STAFF: 2,
-      RECEPTIONIST: 1,
-    };
+    const currentLevel = roles.find((r) => r.name === currentUserRole)?.hierarchyLevel
+      ?? SYSTEM_ROLE_HIERARCHY[currentUserRole] ?? 0;
 
-    return ROLE_OPTIONS.filter(
-      (option) => roleHierarchy[currentUserRole] > roleHierarchy[option.value]
-    );
+    return roles.filter((r) => currentLevel > r.hierarchyLevel);
   };
 
   const availableRoles = getAvailableRoles();
@@ -199,19 +188,16 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
             <Label htmlFor="role">Role *</Label>
             <Select
               value={selectedRole}
-              onValueChange={(value) => setSelectedRole(value as Role)}
+              onValueChange={(value) => setSelectedRole(value)}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                {availableRoles.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
+                {availableRoles.map((role) => (
+                  <SelectItem key={role.name} value={role.name}>
                     <div className="flex flex-col">
-                      <span>{option.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {option.description}
-                      </span>
+                      <span>{role.label}</span>
                     </div>
                   </SelectItem>
                 ))}

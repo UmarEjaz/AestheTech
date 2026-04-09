@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -21,9 +20,10 @@ export default async function AppointmentsPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canManage = hasPermission(userRole, "appointments:create", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const canManage = await hasPermission(userRole, "appointments:create", isSuperAdmin, salonId, session.user.id);
 
   // Get settings first to determine timezone, then compute week range
   const settingsResult = await getSettings();
@@ -41,7 +41,7 @@ export default async function AppointmentsPage() {
   const appointments = appointmentsResult.success ? appointmentsResult.data : [];
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

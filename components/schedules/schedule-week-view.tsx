@@ -13,7 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ShiftType, Role } from "@prisma/client";
+import { ShiftType } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -78,7 +78,8 @@ interface StaffWithSchedules {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
+  roleLabel?: string;
   schedules: Schedule[];
 }
 
@@ -293,7 +294,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                             {staff.firstName} {staff.lastName}
                           </p>
                           <p className="text-xs text-muted-foreground capitalize">
-                            {staff.role.toLowerCase().replace("_", " ")}
+                            {staff.roleLabel || staff.role.toLowerCase().replace("_", " ")}
                           </p>
                         </div>
                       </div>

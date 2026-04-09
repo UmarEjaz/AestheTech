@@ -15,7 +15,6 @@ import {
   Briefcase,
   Clock,
 } from "lucide-react";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,22 +29,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getUserById } from "@/lib/actions/user";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, canManageRole } from "@/lib/permissions";
 import { PasswordResetDialog } from "@/components/staff/password-reset-dialog";
-
-const ROLE_COLORS: Record<Role, string> = {
-  OWNER: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-  ADMIN: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  STAFF: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  RECEPTIONIST: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-};
-
-const ROLE_LABELS: Record<Role, string> = {
-  OWNER: "Owner",
-  ADMIN: "Admin",
-  STAFF: "Staff",
-  RECEPTIONIST: "Receptionist",
-};
+import { UserPermissionsEditor } from "@/components/staff/user-permissions-editor";
+import { getUserPermissionOverrides } from "@/lib/actions/permission";
+import { prisma } from "@/lib/prisma";
+import { SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -73,16 +62,24 @@ export default async function StaffDetailPage({
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "staff:view", isSuperAdmin)) {
+  if (!await hasPermission(userRole, "staff:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canEdit = hasPermission(userRole, "staff:update", isSuperAdmin);
+  const hasEditPermission = await hasPermission(userRole, "staff:update", isSuperAdmin, salonId, session.user.id);
+  const canManagePermissions = await hasPermission(userRole, "settings:manage", isSuperAdmin, salonId, session.user.id);
 
-  const [result, tz] = await Promise.all([getUserById(id), getTimezone()]);
+  const [result, tz, roleMaps] = await Promise.all([
+    getUserById(id),
+    getTimezone(),
+    getRoleMapsServer(salonId),
+  ]);
+  const roleLabel = roleMaps.labels;
+  const roleColor = roleMaps.colors;
 
   if (!result.success) {
     notFound();
@@ -90,12 +87,16 @@ export default async function StaffDetailPage({
 
   const user = result.data;
 
+  // Only show edit controls if the viewer outranks the viewed user
+  const canManageThisUser = await canManageRole(userRole, user.role, isSuperAdmin, salonId);
+  const canEdit = hasEditPermission && canManageThisUser;
+
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
   };
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -127,9 +128,16 @@ export default async function StaffDetailPage({
                   </Badge>
                 )}
               </div>
-              <Badge className={`mt-1 ${ROLE_COLORS[user.role]}`}>
+              <Badge
+                className="mt-1 border"
+                style={{
+                  backgroundColor: `${roleColor.get(user.role) ?? "#6B7280"}20`,
+                  color: roleColor.get(user.role) ?? "#6B7280",
+                  borderColor: `${roleColor.get(user.role) ?? "#6B7280"}40`,
+                }}
+              >
                 <Shield className="h-3 w-3 mr-1" />
-                {ROLE_LABELS[user.role]}
+                {roleLabel.get(user.role) ?? user.role}
               </Badge>
             </div>
           </div>
@@ -287,7 +295,39 @@ export default async function StaffDetailPage({
             </Table>
           </CardContent>
         </Card>
+        {/* Permission Overrides (Owner/settings:manage only) */}
+        {canManagePermissions && <UserPermissionsSection userId={user.id} />}
       </div>
     </DashboardLayout>
   );
+}
+
+async function UserPermissionsSection({ userId }: { userId: string }) {
+  const result = await getUserPermissionOverrides(userId);
+  if (!result.success) return null;
+  return <UserPermissionsEditor data={result.data} />;
+}
+
+async function getRoleMapsServer(salonId: string | null): Promise<{ labels: Map<string, string>; colors: Map<string, string> }> {
+  const labels = new Map<string, string>();
+  const colors = new Map<string, string>();
+  try {
+    const roles = salonId
+      ? await prisma.roleDefinition.findMany({
+          where: { OR: [{ salonId: null, isSystem: true }, { salonId }], isActive: true },
+          select: { name: true, label: true, color: true },
+        })
+      : [];
+    const source = roles.length > 0 ? roles : SYSTEM_ROLE_DEFINITIONS;
+    for (const r of source) {
+      labels.set(r.name, r.label);
+      colors.set(r.name, r.color);
+    }
+  } catch {
+    for (const r of SYSTEM_ROLE_DEFINITIONS) {
+      labels.set(r.name, r.label);
+      colors.set(r.name, r.color);
+    }
+  }
+  return { labels, colors };
 }

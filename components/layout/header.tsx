@@ -17,6 +17,7 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet";
 import { MobileSidebar } from "@/components/layout/sidebar";
 import { SalonSwitcher } from "@/components/layout/salon-switcher";
+import { useRoleLabel } from "@/lib/roles-context";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
@@ -34,6 +35,7 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
 
   const userRole = session?.user?.salonRole || null;
   const isSuperAdmin = session?.user?.isSuperAdmin || false;
+  const roleDisplayLabel = useRoleLabel(userRole ?? "");
 
   return (
     <header
@@ -62,7 +64,7 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
                 <span className="text-xl font-bold text-primary">AestheTech</span>
               </SheetTitle>
             </SheetHeader>
-            <MobileSidebar userRole={userRole} isSuperAdmin={isSuperAdmin} />
+            <MobileSidebar isSuperAdmin={isSuperAdmin} />
           </SheetContent>
         </Sheet>
 
@@ -104,7 +106,7 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
                   {session?.user?.name || "User"}
                 </span>
                 <span className="text-xs text-muted-foreground capitalize">
-                  {isSuperAdmin ? "super admin" : (userRole?.toLowerCase().replace("_", " ") || "staff")}
+                  {isSuperAdmin ? "super admin" : (roleDisplayLabel || "staff")}
                 </span>
               </div>
               <ChevronDown className="h-4 w-4 hidden md:block" />

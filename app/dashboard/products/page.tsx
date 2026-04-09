@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -31,14 +30,15 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "products:view", isSuperAdmin)) {
+  if (!await hasPermission(userRole, "products:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = hasPermission(userRole, "products:manage", isSuperAdmin);
+  const canManage = await hasPermission(userRole, "products:manage", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";
@@ -53,7 +53,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
@@ -64,7 +64,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const { products, total, totalPages, categories } = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

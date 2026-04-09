@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { CheckoutForm } from "@/components/sales/checkout-form";
 import { getClients } from "@/lib/actions/client";
@@ -20,10 +19,11 @@ export default async function NewSalePage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirect("/dashboard/access-denied");
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "sales:create", isSuperAdmin)) {
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRole, "sales:create", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 
@@ -38,7 +38,7 @@ export default async function NewSalePage() {
 
   if (!clientsResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{clientsResult.error}</p>
         </div>
@@ -48,7 +48,7 @@ export default async function NewSalePage() {
 
   if (!servicesResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{servicesResult.error}</p>
         </div>
@@ -58,7 +58,7 @@ export default async function NewSalePage() {
 
   if (!staffResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{staffResult.error}</p>
         </div>
@@ -98,7 +98,7 @@ export default async function NewSalePage() {
   const products = productsResult.success ? productsResult.data : [];
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">New Sale</h1>
