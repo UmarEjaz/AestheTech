@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, Permission } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   appointmentSchema,
   appointmentStatusSchema,
@@ -18,23 +17,6 @@ import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
 import { invalidateDashboardCache } from "@/lib/redis";
 import { getOrganizationSalonIds } from "./branch";
-
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: string; salonId: string } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const salonId = session.user.salonId;
-  if (!salonId) return null;
-  if (!session.user.salonRole) return null;
-
-  const role = session.user.salonRole;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!await hasPermission(role, permission, isSuperAdmin, salonId)) {
-    return null;
-  }
-
-  return { userId: session.user.id, role, salonId };
-}
 
 // Include relations for appointment list
 const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
@@ -743,7 +725,6 @@ export async function getStaffForAppointments(): Promise<ActionResult<{
       where: {
         salonId: authResult.salonId,
         isActive: true,
-        role: { in: ["STAFF", "ADMIN", "OWNER"] },
       },
       select: {
         id: true,

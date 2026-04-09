@@ -23,9 +23,10 @@ export default async function EditExpensePage({ params }: PageProps) {
 
   const userRole = session.user.salonRole;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
   const canUpdate =
     isSuperAdmin ||
-    (userRole != null && hasPermission(userRole, "expenses:update"));
+    (userRole != null && await hasPermission(userRole, "expenses:update", isSuperAdmin, salonId, session.user.id));
 
   if (!canUpdate) {
     redirect("/dashboard/access-denied");

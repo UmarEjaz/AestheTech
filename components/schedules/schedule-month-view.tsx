@@ -36,6 +36,7 @@ interface StaffWithSchedules {
   lastName: string;
   email: string;
   role: string;
+  roleLabel?: string;
   schedules: Schedule[];
 }
 

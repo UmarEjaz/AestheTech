@@ -29,7 +29,8 @@ export default async function ReportsPage({
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   // Check permission to view reports
-  if (!hasPermission(userRole, "reports:view", isSuperAdmin)) {
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRole, "reports:view", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 

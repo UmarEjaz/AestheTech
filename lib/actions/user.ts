@@ -602,19 +602,30 @@ export async function getActiveStaff(branchFilter: "current" | "all" = "current"
       salonFilter = { in: orgSalonIds };
     }
 
-    const staff = await prisma.user.findMany({
+    const memberships = await prisma.userSalon.findMany({
       where: {
         salonId: salonFilter,
-        isActive: true,
+        user: { isActive: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
         role: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
-      orderBy: { firstName: "asc" },
+      orderBy: { user: { firstName: "asc" } },
     });
+
+    const staff = memberships.map((m) => ({
+      id: m.user.id,
+      firstName: m.user.firstName,
+      lastName: m.user.lastName,
+      role: m.role,
+    }));
 
     return { success: true, data: staff };
   } catch (error) {

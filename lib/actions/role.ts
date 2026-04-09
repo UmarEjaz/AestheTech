@@ -131,8 +131,9 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
   }
 
   // Hierarchy level must be below the caller's own level
-  const { SYSTEM_ROLE_HIERARCHY } = await import("@/lib/roles");
-  const callerLevel = SYSTEM_ROLE_HIERARCHY[authResult.role] ?? 0;
+  const { getHierarchyLevels } = await import("@/lib/permissions");
+  const hierarchy = await getHierarchyLevels(authResult.salonId);
+  const callerLevel = hierarchy[authResult.role] ?? 0;
   if (!authResult.isSuperAdmin && hierarchyLevel >= callerLevel) {
     return { success: false, error: "Cannot create a role at or above your own hierarchy level" };
   }
@@ -247,8 +248,9 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
 
     // Validate hierarchy level if changing
     if (updateData.hierarchyLevel !== undefined) {
-      const { SYSTEM_ROLE_HIERARCHY } = await import("@/lib/roles");
-      const callerLevel = SYSTEM_ROLE_HIERARCHY[authResult.role] ?? 0;
+      const { getHierarchyLevels } = await import("@/lib/permissions");
+      const hierarchy = await getHierarchyLevels(authResult.salonId);
+      const callerLevel = hierarchy[authResult.role] ?? 0;
       if (!authResult.isSuperAdmin && updateData.hierarchyLevel >= callerLevel) {
         return { success: false, error: "Cannot set hierarchy level at or above your own" };
       }

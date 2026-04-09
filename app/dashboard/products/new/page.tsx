@@ -18,9 +18,10 @@ export default async function NewProductPage() {
 
   const userRole = session.user.salonRole;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
   const canManage =
     isSuperAdmin ||
-    (userRole != null && hasPermission(userRole, "products:manage"));
+    (userRole != null && await hasPermission(userRole, "products:manage", isSuperAdmin, salonId, session.user.id));
 
   if (!canManage) {
     redirect("/dashboard/access-denied");

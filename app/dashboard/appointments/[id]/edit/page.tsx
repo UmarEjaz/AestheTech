@@ -27,7 +27,8 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   }
   const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canUpdate = hasPermission(userRole, "appointments:update", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const canUpdate = await hasPermission(userRole, "appointments:update", isSuperAdmin, salonId, session.user.id);
 
   if (!canUpdate) {
     redirect("/dashboard/access-denied");
@@ -47,7 +48,6 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     redirect("/dashboard/appointments");
   }
 
-  const salonId = session.user.salonId;
   if (!salonId) {
     redirect("/dashboard");
   }
@@ -79,7 +79,6 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     prisma.user.findMany({
       where: {
         salonId,
-        role: { in: ["STAFF", "ADMIN", "OWNER"] },
         isActive: true,
       },
       select: {

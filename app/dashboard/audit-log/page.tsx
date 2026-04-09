@@ -34,7 +34,8 @@ export default async function AuditLogPage({
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
-  if (!hasPermission(userRole, "audit:view", isSuperAdmin)) {
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRole, "audit:view", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 

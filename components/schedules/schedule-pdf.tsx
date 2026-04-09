@@ -46,6 +46,7 @@ interface StaffWithSchedules {
   lastName: string;
   email: string;
   role: string;
+  roleLabel?: string;
   schedules: Schedule[];
 }
 
@@ -191,7 +192,7 @@ function SchedulePDFDocument({ staffWithSchedules, salonName = "AestheTech Salon
                 {staff.firstName} {staff.lastName}
               </Text>
               <Text style={styles.staffRole}>
-                ({staff.role.toLowerCase().replace("_", " ")})
+                ({staff.roleLabel || staff.role.toLowerCase().replace("_", " ")})
               </Text>
             </View>
 

@@ -29,7 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getUserById } from "@/lib/actions/user";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, canManageRole } from "@/lib/permissions";
 import { PasswordResetDialog } from "@/components/staff/password-reset-dialog";
 import { UserPermissionsEditor } from "@/components/staff/user-permissions-editor";
 import { getUserPermissionOverrides } from "@/lib/actions/permission";
@@ -70,7 +70,7 @@ export default async function StaffDetailPage({
     redirect("/dashboard/access-denied");
   }
 
-  const canEdit = await hasPermission(userRole, "staff:update", isSuperAdmin, salonId, session.user.id);
+  const hasEditPermission = await hasPermission(userRole, "staff:update", isSuperAdmin, salonId, session.user.id);
   const canManagePermissions = await hasPermission(userRole, "settings:manage", isSuperAdmin, salonId, session.user.id);
 
   const [result, tz, roleMaps] = await Promise.all([
@@ -86,6 +86,10 @@ export default async function StaffDetailPage({
   }
 
   const user = result.data;
+
+  // Only show edit controls if the viewer outranks the viewed user
+  const canManageThisUser = await canManageRole(userRole, user.role, isSuperAdmin, salonId);
+  const canEdit = hasEditPermission && canManageThisUser;
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();

@@ -19,7 +19,8 @@ export default async function NewClientPage() {
   }
   const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canCreate = hasPermission(userRole, "clients:create", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const canCreate = await hasPermission(userRole, "clients:create", isSuperAdmin, salonId, session.user.id);
 
   if (!canCreate) {
     redirect("/dashboard/access-denied");

@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, Permission } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   scheduleSchema,
   weekScheduleSchema,
@@ -11,26 +10,8 @@ import {
   WeekScheduleFormData,
 } from "@/lib/validations/schedule";
 import { Prisma, ShiftType } from "@prisma/client";
-import { SYSTEM_ROLES } from "@/lib/roles";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
-
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: string; salonId: string } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-  if (!session.user.salonRole) return null;
-
-  const role = session.user.salonRole;
-  const salonId = session.user.salonId;
-  if (!salonId) return null;
-
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!await hasPermission(role, permission, isSuperAdmin, salonId)) {
-    return null;
-  }
-
-  return { userId: session.user.id, role, salonId };
-}
 
 // Include relations for schedule list
 const scheduleListInclude = Prisma.validator<Prisma.ScheduleInclude>()({
@@ -479,6 +460,7 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
   lastName: string;
   email: string;
   role: string;
+  roleLabel?: string;
   schedules: {
     id: string;
     dayOfWeek: number;
@@ -498,7 +480,6 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
       where: {
         salonId: authResult.salonId,
         isActive: true,
-        role: { in: [SYSTEM_ROLES.STAFF, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.OWNER] },
       },
       select: {
         id: true,
@@ -522,12 +503,23 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
       orderBy: { firstName: "asc" },
     });
 
+    // Load role labels for display
+    const roleDefs = await prisma.roleDefinition.findMany({
+      where: {
+        OR: [{ salonId: null, isSystem: true }, { salonId: authResult.salonId }],
+        isActive: true,
+      },
+      select: { name: true, label: true },
+    });
+    const roleLabelMap = new Map(roleDefs.map((r) => [r.name, r.label]));
+
     const staff = users.map((u) => ({
       id: u.id,
       firstName: u.firstName,
       lastName: u.lastName,
       email: u.email,
       role: u.role,
+      roleLabel: roleLabelMap.get(u.role) ?? undefined,
       schedules: u.schedules,
     }));
 

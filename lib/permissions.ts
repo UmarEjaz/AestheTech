@@ -161,7 +161,7 @@ async function loadHierarchyLevels(salonId?: string | null): Promise<Record<stri
   }
 }
 
-function getHierarchyLevels(salonId?: string | null): Promise<Record<string, number>> {
+export function getHierarchyLevels(salonId?: string | null): Promise<Record<string, number>> {
   const key = salonId || "system";
   if (!hierarchyCache.has(key)) {
     const promise = loadHierarchyLevels(salonId);

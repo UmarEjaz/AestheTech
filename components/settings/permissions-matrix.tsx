@@ -174,7 +174,7 @@ export function PermissionsMatrix({ data }: PermissionsMatrixProps) {
                             <Checkbox
                               checked={checkState[key]}
                               onCheckedChange={() => handleToggle(perm.code, role.name)}
-                              disabled={locked || isSaving}
+                              disabled={locked || isSaving || isResetting}
                               aria-label={`${perm.label} for ${roleLabelMap.get(role.name) || role.name}`}
                               className={locked ? "opacity-50 cursor-not-allowed" : ""}
                             />

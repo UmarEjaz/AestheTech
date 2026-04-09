@@ -18,9 +18,10 @@ export default async function NewExpensePage() {
 
   const userRole = session.user.salonRole;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
   const canCreate =
     isSuperAdmin ||
-    (userRole != null && hasPermission(userRole, "expenses:create"));
+    (userRole != null && await hasPermission(userRole, "expenses:create", isSuperAdmin, salonId, session.user.id));
 
   if (!canCreate) {
     redirect("/dashboard/access-denied");

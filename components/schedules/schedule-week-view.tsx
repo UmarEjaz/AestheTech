@@ -79,6 +79,7 @@ interface StaffWithSchedules {
   lastName: string;
   email: string;
   role: string;
+  roleLabel?: string;
   schedules: Schedule[];
 }
 
@@ -293,7 +294,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                             {staff.firstName} {staff.lastName}
                           </p>
                           <p className="text-xs text-muted-foreground capitalize">
-                            {staff.role.toLowerCase().replace("_", " ")}
+                            {staff.roleLabel || staff.role.toLowerCase().replace("_", " ")}
                           </p>
                         </div>
                       </div>

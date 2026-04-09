@@ -262,6 +262,13 @@ export async function resetPermissionsToDefaults(): Promise<ActionResult<null>> 
  * Called from salon/branch creation actions.
  */
 export async function seedPermissionsForSalon(salonId: string): Promise<void> {
+  // Guard: must be called by an authenticated user (typically super admin or owner)
+  const { auth } = await import("@/lib/auth");
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error("Unauthorized");
+  }
+
   const allPermissions = await prisma.permission.findMany({
     select: { id: true, code: true },
   });
