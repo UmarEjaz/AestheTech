@@ -39,7 +39,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = await hasPermission(userRole, "payroll:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "payroll:create", isSuperAdmin, salonId, session.user.id);
   const canDelete = await hasPermission(userRole, "payroll:delete", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);

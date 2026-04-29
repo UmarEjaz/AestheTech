@@ -135,7 +135,7 @@ export async function getProduct(id: string): Promise<ActionResult<ProductListIt
 }
 
 export async function createProduct(data: ProductFormData): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("products:manage");
+  const authResult = await checkAuth("products:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -185,7 +185,7 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
 export async function updateProduct(
   data: { id: string } & Partial<ProductFormData>
 ): Promise<ActionResult> {
-  const authResult = await checkAuth("products:manage");
+  const authResult = await checkAuth("products:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -248,7 +248,7 @@ export async function updateProduct(
 }
 
 export async function deleteProduct(id: string): Promise<ActionResult> {
-  const authResult = await checkAuth("products:manage");
+  const authResult = await checkAuth("products:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -286,7 +286,7 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
 }
 
 export async function restoreProduct(id: string): Promise<ActionResult> {
-  const authResult = await checkAuth("products:manage");
+  const authResult = await checkAuth("products:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

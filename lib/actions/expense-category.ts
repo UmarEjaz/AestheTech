@@ -122,7 +122,7 @@ export async function getActiveExpenseCategories(): Promise<
 export async function createExpenseCategory(
   data: ExpenseCategoryInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("expense-categories:manage");
+  const authResult = await checkAuth("expense-categories:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -176,7 +176,7 @@ export async function updateExpenseCategory(
   id: string,
   data: ExpenseCategoryInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("expense-categories:manage");
+  const authResult = await checkAuth("expense-categories:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -238,7 +238,7 @@ export async function updateExpenseCategory(
 export async function toggleExpenseCategory(
   id: string
 ): Promise<ActionResult<{ isActive: boolean }>> {
-  const authResult = await checkAuth("expense-categories:manage");
+  const authResult = await checkAuth("expense-categories:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

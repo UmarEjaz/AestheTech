@@ -20,7 +20,7 @@ export default async function ExpenseCategoriesPage() {
   const salonId = session.user.salonId;
   const canManage =
     isSuperAdmin ||
-    (userRole != null && await hasPermission(userRole, "expense-categories:manage", isSuperAdmin, salonId, session.user.id));
+    (userRole != null && await hasPermission(userRole, "expense-categories:create", isSuperAdmin, salonId, session.user.id));
 
   if (!canManage) {
     redirect("/dashboard/access-denied");
@@ -30,7 +30,7 @@ export default async function ExpenseCategoriesPage() {
   const categories = result.success ? result.data : [];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

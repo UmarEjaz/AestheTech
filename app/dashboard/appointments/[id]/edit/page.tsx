@@ -91,7 +91,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   ]);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

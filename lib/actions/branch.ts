@@ -131,7 +131,7 @@ export async function getBranches(): Promise<ActionResult<BranchListItem[]>> {
 export async function createBranch(
   data: BranchFormData
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("branches:manage");
+  const authResult = await checkAuth("branches:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -203,7 +203,7 @@ export async function createBranch(
     });
 
     // Seed default permissions for the new branch
-    const { seedPermissionsForSalon } = await import("@/lib/actions/permission");
+    const { seedPermissionsForSalon } = await import("@/lib/seed-permissions");
     await seedPermissionsForSalon(branch.id);
 
     await logAudit({

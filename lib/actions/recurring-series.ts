@@ -590,7 +590,7 @@ function parseTimeOfDay(timeOfDay: string): { hours: number; minutes: number } {
  * Cancel a recurring series and all future appointments
  */
 export async function cancelRecurringSeries(seriesId: string): Promise<ActionResult<{ cancelledCount: number }>> {
-  const authResult = await checkAuth("appointments:update");
+  const authResult = await checkAuth("appointments:cancel");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -1179,7 +1179,7 @@ export async function detachOccurrence(appointmentId: string): Promise<ActionRes
 export async function cancelFromDate(
   data: CancelFromDateFormData
 ): Promise<ActionResult<{ cancelledCount: number }>> {
-  const authResult = await checkAuth("appointments:update");
+  const authResult = await checkAuth("appointments:cancel");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

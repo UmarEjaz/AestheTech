@@ -28,14 +28,15 @@ export interface PermissionMatrixData {
     sortOrder: number;
   }>;
   assignments: Record<string, string[]>; // permCode -> role names
-  roles: Array<{ name: string; label: string; color: string; isSystem: boolean }>;
+  roles: Array<{ name: string; label: string; color: string; isSystem: boolean; hierarchyLevel: number }>;
+  callerHierarchyLevel: number;
 }
 
 /**
  * Get the full permission matrix for the current salon.
  */
 export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatrixData>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("permissions:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -74,13 +75,18 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
         isActive: true,
       },
       orderBy: { hierarchyLevel: "desc" },
-      select: { name: true, label: true, color: true, isSystem: true },
+      select: { name: true, label: true, color: true, isSystem: true, hierarchyLevel: true },
     });
 
     // Fallback if no role definitions exist yet
     const roles = roleDefs.length > 0
-      ? roleDefs.map((r) => ({ name: r.name, label: r.label, color: r.color, isSystem: r.isSystem }))
-      : SYSTEM_ROLE_DEFINITIONS.map((r) => ({ name: r.name, label: r.label, color: r.color, isSystem: r.isSystem }));
+      ? roleDefs.map((r) => ({ name: r.name, label: r.label, color: r.color, isSystem: r.isSystem, hierarchyLevel: r.hierarchyLevel }))
+      : SYSTEM_ROLE_DEFINITIONS.map((r) => ({ name: r.name, label: r.label, color: r.color, isSystem: r.isSystem, hierarchyLevel: r.hierarchyLevel }));
+
+    // Determine caller's hierarchy level
+    const { getHierarchyLevels } = await import("@/lib/permissions");
+    const hierarchy = await getHierarchyLevels(authResult.salonId);
+    const callerHierarchyLevel = authResult.isSuperAdmin ? Infinity : (hierarchy[authResult.role] ?? 0);
 
     return {
       success: true,
@@ -94,6 +100,7 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
         })),
         assignments,
         roles,
+        callerHierarchyLevel: authResult.isSuperAdmin ? 999 : callerHierarchyLevel,
       },
     };
   } catch (error) {
@@ -108,7 +115,7 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
 export async function updatePermissions(
   input: PermissionUpdateInput
 ): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("permissions:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -130,6 +137,24 @@ export async function updatePermissions(
       success: false,
       error: `Cannot remove critical permissions from Owner: ${ownerRevocations.map((a) => a.permissionCode).join(", ")}`,
     };
+  }
+
+  // Enforce hierarchy: caller can only modify permissions for roles below their level
+  if (!authResult.isSuperAdmin) {
+    const { getHierarchyLevels } = await import("@/lib/permissions");
+    const hierarchy = await getHierarchyLevels(authResult.salonId);
+    const callerLevel = hierarchy[authResult.role] ?? 0;
+
+    const targetRoles = new Set(assignments.map((a) => a.role));
+    for (const roleName of targetRoles) {
+      const targetLevel = hierarchy[roleName] ?? 0;
+      if (targetLevel >= callerLevel) {
+        return {
+          success: false,
+          error: `You cannot modify permissions for the "${roleName}" role`,
+        };
+      }
+    }
   }
 
   try {
@@ -208,7 +233,7 @@ export async function updatePermissions(
  * Reset all permissions for the current salon to defaults.
  */
 export async function resetPermissionsToDefaults(): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("permissions:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -258,33 +283,185 @@ export async function resetPermissionsToDefaults(): Promise<ActionResult<null>> 
 }
 
 /**
- * Seed default permissions for a newly created salon.
- * Called from salon/branch creation actions.
+ * Update permissions for a single role (grant/revoke specific permissions).
  */
-export async function seedPermissionsForSalon(salonId: string): Promise<void> {
-  // Guard: must be called by an authenticated user (typically super admin or owner)
-  const { auth } = await import("@/lib/auth");
-  const session = await auth();
-  if (!session?.user) {
-    throw new Error("Unauthorized");
+export async function updateRolePermissions(input: {
+  roleName: string;
+  grants: string[];
+  revokes: string[];
+}): Promise<ActionResult<null>> {
+  const authResult = await checkAuth("permissions:manage");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
   }
 
-  const allPermissions = await prisma.permission.findMany({
-    select: { id: true, code: true },
-  });
-  const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
+  const { roleName, grants, revokes } = input;
 
-  const data: Array<{ salonId: string; role: string; permissionId: string }> = [];
-  for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
-    const permId = permIdMap.get(code);
-    if (!permId) continue;
-    for (const role of roles) {
-      data.push({ salonId, role, permissionId: permId });
+  // Enforce owner lockout protection
+  if (roleName === OWNER_ROLE_NAME) {
+    const lockedRevokes = revokes.filter((code) => OWNER_LOCKED_PERMISSIONS.includes(code));
+    if (lockedRevokes.length > 0) {
+      return {
+        success: false,
+        error: `Cannot remove critical permissions from Owner: ${lockedRevokes.join(", ")}`,
+      };
     }
   }
 
-  await prisma.rolePermission.createMany({ data, skipDuplicates: true });
+  // Enforce hierarchy: caller can only modify permissions for roles below their level
+  if (!authResult.isSuperAdmin) {
+    const { getHierarchyLevels } = await import("@/lib/permissions");
+    const hierarchy = await getHierarchyLevels(authResult.salonId);
+    const callerLevel = hierarchy[authResult.role] ?? 0;
+    const targetLevel = hierarchy[roleName] ?? 0;
+    if (targetLevel >= callerLevel) {
+      return {
+        success: false,
+        error: `You cannot modify permissions for the "${roleName}" role`,
+      };
+    }
+  }
+
+  try {
+    // Get permission ID lookup
+    const allPermissions = await prisma.permission.findMany({
+      select: { id: true, code: true },
+    });
+    const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
+
+    await prisma.$transaction(async (tx) => {
+      // Process revocations
+      for (const code of revokes) {
+        const permId = permIdMap.get(code);
+        if (!permId) continue;
+        await tx.rolePermission.deleteMany({
+          where: {
+            salonId: authResult.salonId,
+            role: roleName,
+            permissionId: permId,
+          },
+        });
+      }
+
+      // Process grants (upsert to avoid duplicates)
+      for (const code of grants) {
+        const permId = permIdMap.get(code);
+        if (!permId) continue;
+        await tx.rolePermission.upsert({
+          where: {
+            salonId_role_permissionId: {
+              salonId: authResult.salonId,
+              role: roleName,
+              permissionId: permId,
+            },
+          },
+          update: {},
+          create: {
+            salonId: authResult.salonId,
+            role: roleName,
+            permissionId: permId,
+          },
+        });
+      }
+    });
+
+    // Invalidate cache
+    await invalidatePermissionCache(authResult.salonId);
+
+    // Audit log
+    await logAudit({
+      action: "PERMISSIONS_UPDATED",
+      entityType: "Permission",
+      entityId: authResult.salonId,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      salonId: authResult.salonId,
+      details: {
+        targetRole: roleName,
+        grants: grants.length,
+        revocations: revokes.length,
+      },
+    });
+
+    return { success: true, data: null };
+  } catch (error) {
+    console.error("Error updating role permissions:", error);
+    return { success: false, error: "Failed to update permissions" };
+  }
 }
+
+/**
+ * Reset permissions to defaults for a single role at the current salon.
+ */
+export async function resetRolePermissionsToDefaults(roleName: string): Promise<ActionResult<null>> {
+  const authResult = await checkAuth("permissions:manage");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  // Hierarchy check
+  if (!authResult.isSuperAdmin) {
+    const { getHierarchyLevels } = await import("@/lib/permissions");
+    const hierarchy = await getHierarchyLevels(authResult.salonId);
+    const callerLevel = hierarchy[authResult.role] ?? 0;
+    const targetLevel = hierarchy[roleName] ?? 0;
+    if (targetLevel >= callerLevel) {
+      return {
+        success: false,
+        error: `You cannot modify permissions for the "${roleName}" role`,
+      };
+    }
+  }
+
+  try {
+    const allPermissions = await prisma.permission.findMany({
+      select: { id: true, code: true },
+    });
+    const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
+
+    await prisma.$transaction(async (tx) => {
+      // Delete all current assignments for this role at this salon
+      await tx.rolePermission.deleteMany({
+        where: { salonId: authResult.salonId, role: roleName },
+      });
+
+      // Re-create defaults for this role
+      const data: Array<{ salonId: string; role: string; permissionId: string }> = [];
+      for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
+        if (!roles.includes(roleName)) continue;
+        const permId = permIdMap.get(code);
+        if (!permId) continue;
+        data.push({ salonId: authResult.salonId, role: roleName, permissionId: permId });
+      }
+      if (data.length > 0) {
+        await tx.rolePermission.createMany({ data });
+      }
+    });
+
+    await invalidatePermissionCache(authResult.salonId);
+
+    await logAudit({
+      action: "PERMISSIONS_RESET",
+      entityType: "Permission",
+      entityId: authResult.salonId,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      salonId: authResult.salonId,
+      details: { targetRole: roleName },
+    });
+
+    return { success: true, data: null };
+  } catch (error) {
+    console.error("Error resetting role permissions:", error);
+    return { success: false, error: "Failed to reset permissions" };
+  }
+}
+
+/**
+ * Seed default permissions for a newly created salon.
+ * Internal only — NOT exported, so it cannot be called from the browser.
+ * Use `seedPermissionsForSalonInternal` from other server action files via direct import.
+ */
 
 // ============================================
 // User-Level Permission Overrides
@@ -314,7 +491,7 @@ export interface UserPermissionOverrideData {
 export async function getUserPermissionOverrides(
   targetUserId: string
 ): Promise<ActionResult<UserPermissionOverrideData>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("permissions:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -395,7 +572,7 @@ export async function getUserPermissionOverrides(
 export async function updateUserPermissions(
   input: UserPermissionUpdateInput
 ): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("permissions:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -502,7 +679,7 @@ export async function updateUserPermissions(
 export async function clearUserPermissionOverrides(
   targetUserId: string
 ): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("permissions:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

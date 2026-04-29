@@ -242,9 +242,9 @@ export async function createAppointment(
       return { success: false, error: "Client not found or inactive" };
     }
 
-    // Verify staff exists and is active
-    const staff = await prisma.user.findUnique({
-      where: { id: staffId },
+    // Verify staff exists, is active, and belongs to this salon
+    const staff = await prisma.user.findFirst({
+      where: { id: staffId, salonId: authResult.salonId },
       select: { isActive: true },
     });
 
@@ -382,7 +382,9 @@ export async function updateAppointmentStatus(
   id: string,
   data: AppointmentStatusFormData
 ): Promise<ActionResult<AppointmentListItem>> {
-  const authResult = await checkAuth("appointments:update");
+  // Cancellation requires the dedicated cancel permission
+  const requiredPermission = data.status === "CANCELLED" ? "appointments:cancel" : "appointments:update";
+  const authResult = await checkAuth(requiredPermission);
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -517,7 +519,7 @@ export async function rescheduleAppointment(
 
 // Cancel appointment
 export async function cancelAppointment(id: string): Promise<ActionResult<AppointmentListItem>> {
-  const authResult = await checkAuth("appointments:update");
+  const authResult = await checkAuth("appointments:cancel");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

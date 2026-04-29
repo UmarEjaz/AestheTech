@@ -27,7 +27,7 @@ export default async function EditServicePage({ params }: PageProps) {
   const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "services:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "services:update", isSuperAdmin, salonId, session.user.id);
 
   if (!canManage) {
     redirect("/dashboard/access-denied");
@@ -48,7 +48,7 @@ export default async function EditServicePage({ params }: PageProps) {
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

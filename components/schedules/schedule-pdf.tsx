@@ -192,7 +192,7 @@ function SchedulePDFDocument({ staffWithSchedules, salonName = "AestheTech Salon
                 {staff.firstName} {staff.lastName}
               </Text>
               <Text style={styles.staffRole}>
-                ({staff.roleLabel || staff.role.toLowerCase().replace("_", " ")})
+                ({staff.roleLabel || staff.role.toLowerCase().replaceAll("_", " ")})
               </Text>
             </View>
 

@@ -38,7 +38,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = await hasPermission(userRole, "products:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "products:create", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";

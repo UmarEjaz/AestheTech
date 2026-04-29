@@ -26,7 +26,7 @@ export default async function BranchesPage() {
 
   const result = await getBranches();
   const branches = result.success ? result.data : [];
-  const canManage = await hasPermission(userRole, "branches:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "branches:create", isSuperAdmin, salonId, session.user.id);
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

@@ -30,7 +30,14 @@ export default async function DashboardPage({
   const userRole = user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = user.salonId;
-  const canViewReports = await hasPermission(userRole, "reports:view", isSuperAdmin, salonId, user.id);
+  const [canViewReports, canCreateAppointments, canCreateSales, canCreateClients, canManageServices, canViewSchedules] = await Promise.all([
+    hasPermission(userRole, "reports:view", isSuperAdmin, salonId, user.id),
+    hasPermission(userRole, "appointments:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRole, "sales:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRole, "clients:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRole, "services:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRole, "schedules:view", isSuperAdmin, salonId, user.id),
+  ]);
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   const params = await searchParams;
@@ -65,18 +72,22 @@ export default async function DashboardPage({
                 currentSalonName={currentSalonName}
               />
             )}
+            {canCreateAppointments && (
             <Button asChild>
               <Link href="/dashboard/appointments/new">
                 <Calendar className="h-4 w-4 mr-2" />
                 New Appointment
               </Link>
             </Button>
+            )}
+            {canCreateSales && (
             <Button variant="outline" asChild>
               <Link href="/dashboard/sales/new">
                 <DollarSign className="h-4 w-4 mr-2" />
                 New Sale
               </Link>
             </Button>
+            )}
           </div>
         </div>
 
@@ -95,6 +106,7 @@ export default async function DashboardPage({
         <div>
           <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {canCreateClients && (
             <Link href="/dashboard/clients/new">
               <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
                 <CardHeader className="pb-2">
@@ -110,7 +122,9 @@ export default async function DashboardPage({
                 </CardContent>
               </Card>
             </Link>
+            )}
 
+            {canManageServices && (
             <Link href="/dashboard/services/new">
               <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
                 <CardHeader className="pb-2">
@@ -126,7 +140,9 @@ export default async function DashboardPage({
                 </CardContent>
               </Card>
             </Link>
+            )}
 
+            {canViewSchedules && (
             <Link href="/dashboard/schedules">
               <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
                 <CardHeader className="pb-2">
@@ -142,6 +158,7 @@ export default async function DashboardPage({
                 </CardContent>
               </Card>
             </Link>
+            )}
 
             {canViewReports && (
               <Link href="/dashboard/reports">

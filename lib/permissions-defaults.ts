@@ -18,6 +18,7 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
   "appointments:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST],
   "appointments:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.RECEPTIONIST],
   "appointments:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.RECEPTIONIST],
+  "appointments:cancel": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.RECEPTIONIST],
   "appointments:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Sales
@@ -41,7 +42,9 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
 
   // Schedules
   "schedules:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST],
-  "schedules:manage": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "schedules:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "schedules:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "schedules:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Reports
   "reports:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
@@ -50,22 +53,32 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
   // Settings
   "settings:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "settings:manage": [SYSTEM_ROLES.OWNER],
+  "roles:manage": [SYSTEM_ROLES.OWNER],
+  "permissions:manage": [SYSTEM_ROLES.OWNER],
 
   // Services
   "services:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST],
-  "services:manage": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "services:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "services:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "services:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Products
   "products:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST],
-  "products:manage": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "products:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "products:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "products:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Loyalty
   "loyalty:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.RECEPTIONIST],
-  "loyalty:manage": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "loyalty:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "loyalty:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "loyalty:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Branches
   "branches:view": [SYSTEM_ROLES.OWNER],
-  "branches:manage": [SYSTEM_ROLES.OWNER],
+  "branches:create": [SYSTEM_ROLES.OWNER],
+  "branches:update": [SYSTEM_ROLES.OWNER],
+  "branches:delete": [SYSTEM_ROLES.OWNER],
 
   // Expenses
   "expenses:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
@@ -75,15 +88,20 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
 
   // Expense Categories
   "expense-categories:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
-  "expense-categories:manage": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "expense-categories:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "expense-categories:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "expense-categories:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Payroll
   "payroll:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
-  "payroll:manage": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "payroll:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "payroll:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "payroll:pay": [SYSTEM_ROLES.OWNER],
   "payroll:delete": [SYSTEM_ROLES.OWNER],
   "salary-config:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
-  "salary-config:manage": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "salary-config:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "salary-config:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "salary-config:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Profit & Cost Analytics
   "profit:view": [SYSTEM_ROLES.OWNER],
@@ -113,7 +131,8 @@ export const PERMISSION_REGISTRY: Array<{
   { code: "appointments:view", module: "appointments", label: "View Appointments", sortOrder: 0 },
   { code: "appointments:create", module: "appointments", label: "Create Appointments", sortOrder: 1 },
   { code: "appointments:update", module: "appointments", label: "Update Appointments", sortOrder: 2 },
-  { code: "appointments:delete", module: "appointments", label: "Delete Appointments", sortOrder: 3 },
+  { code: "appointments:cancel", module: "appointments", label: "Cancel Appointments", description: "Cancel scheduled appointments", sortOrder: 3 },
+  { code: "appointments:delete", module: "appointments", label: "Delete Appointments", sortOrder: 4 },
 
   // Sales
   { code: "sales:view", module: "sales", label: "View Sales", sortOrder: 0 },
@@ -136,7 +155,9 @@ export const PERMISSION_REGISTRY: Array<{
 
   // Schedules
   { code: "schedules:view", module: "schedules", label: "View Schedules", sortOrder: 0 },
-  { code: "schedules:manage", module: "schedules", label: "Manage Schedules", sortOrder: 1 },
+  { code: "schedules:create", module: "schedules", label: "Create Schedules", sortOrder: 1 },
+  { code: "schedules:update", module: "schedules", label: "Update Schedules", sortOrder: 2 },
+  { code: "schedules:delete", module: "schedules", label: "Delete Schedules", sortOrder: 3 },
 
   // Reports
   { code: "reports:view", module: "reports", label: "View Reports", sortOrder: 0 },
@@ -145,22 +166,32 @@ export const PERMISSION_REGISTRY: Array<{
   // Settings
   { code: "settings:view", module: "settings", label: "View Settings", sortOrder: 0 },
   { code: "settings:manage", module: "settings", label: "Manage Settings", sortOrder: 1 },
+  { code: "roles:manage", module: "settings", label: "Manage Roles", description: "Create, edit, and delete custom roles", sortOrder: 2 },
+  { code: "permissions:manage", module: "settings", label: "Manage Permissions", description: "Edit role permissions and user-level overrides", sortOrder: 3 },
 
   // Services
   { code: "services:view", module: "services", label: "View Services", sortOrder: 0 },
-  { code: "services:manage", module: "services", label: "Manage Services", sortOrder: 1 },
+  { code: "services:create", module: "services", label: "Create Services", sortOrder: 1 },
+  { code: "services:update", module: "services", label: "Update Services", sortOrder: 2 },
+  { code: "services:delete", module: "services", label: "Delete Services", sortOrder: 3 },
 
   // Products
   { code: "products:view", module: "products", label: "View Products", sortOrder: 0 },
-  { code: "products:manage", module: "products", label: "Manage Products", sortOrder: 1 },
+  { code: "products:create", module: "products", label: "Create Products", sortOrder: 1 },
+  { code: "products:update", module: "products", label: "Update Products", sortOrder: 2 },
+  { code: "products:delete", module: "products", label: "Delete Products", sortOrder: 3 },
 
   // Loyalty
   { code: "loyalty:view", module: "loyalty", label: "View Loyalty", sortOrder: 0 },
-  { code: "loyalty:manage", module: "loyalty", label: "Manage Loyalty", sortOrder: 1 },
+  { code: "loyalty:create", module: "loyalty", label: "Create Loyalty Rules", sortOrder: 1 },
+  { code: "loyalty:update", module: "loyalty", label: "Update Loyalty Rules", sortOrder: 2 },
+  { code: "loyalty:delete", module: "loyalty", label: "Delete Loyalty Rules", sortOrder: 3 },
 
   // Branches
   { code: "branches:view", module: "branches", label: "View Branches", sortOrder: 0 },
-  { code: "branches:manage", module: "branches", label: "Manage Branches", sortOrder: 1 },
+  { code: "branches:create", module: "branches", label: "Create Branches", sortOrder: 1 },
+  { code: "branches:update", module: "branches", label: "Update Branches", sortOrder: 2 },
+  { code: "branches:delete", module: "branches", label: "Delete Branches", sortOrder: 3 },
 
   // Expenses
   { code: "expenses:view", module: "expenses", label: "View Expenses", sortOrder: 0 },
@@ -170,15 +201,20 @@ export const PERMISSION_REGISTRY: Array<{
 
   // Expense Categories
   { code: "expense-categories:view", module: "expense-categories", label: "View Expense Categories", sortOrder: 0 },
-  { code: "expense-categories:manage", module: "expense-categories", label: "Manage Expense Categories", sortOrder: 1 },
+  { code: "expense-categories:create", module: "expense-categories", label: "Create Expense Categories", sortOrder: 1 },
+  { code: "expense-categories:update", module: "expense-categories", label: "Update Expense Categories", sortOrder: 2 },
+  { code: "expense-categories:delete", module: "expense-categories", label: "Delete Expense Categories", sortOrder: 3 },
 
   // Payroll
   { code: "payroll:view", module: "payroll", label: "View Payroll", sortOrder: 0 },
-  { code: "payroll:manage", module: "payroll", label: "Manage Payroll", sortOrder: 1 },
-  { code: "payroll:pay", module: "payroll", label: "Process Payroll Payment", sortOrder: 2 },
-  { code: "payroll:delete", module: "payroll", label: "Delete Payroll", sortOrder: 3 },
-  { code: "salary-config:view", module: "payroll", label: "View Salary Config", sortOrder: 4 },
-  { code: "salary-config:manage", module: "payroll", label: "Manage Salary Config", sortOrder: 5 },
+  { code: "payroll:create", module: "payroll", label: "Create Payroll", sortOrder: 1 },
+  { code: "payroll:update", module: "payroll", label: "Update Payroll", sortOrder: 2 },
+  { code: "payroll:pay", module: "payroll", label: "Process Payroll Payment", sortOrder: 3 },
+  { code: "payroll:delete", module: "payroll", label: "Delete Payroll", sortOrder: 4 },
+  { code: "salary-config:view", module: "payroll", label: "View Salary Config", sortOrder: 5 },
+  { code: "salary-config:create", module: "payroll", label: "Create Salary Config", sortOrder: 6 },
+  { code: "salary-config:update", module: "payroll", label: "Update Salary Config", sortOrder: 7 },
+  { code: "salary-config:delete", module: "payroll", label: "Delete Salary Config", sortOrder: 8 },
 
   // Profit & Cost Analytics
   { code: "profit:view", module: "profit", label: "View Profit Analytics", sortOrder: 0 },
@@ -197,12 +233,16 @@ export const OWNER_ROLE_NAME = SYSTEM_ROLES.OWNER;
 export const OWNER_LOCKED_PERMISSIONS = [
   "settings:manage",
   "settings:view",
+  "roles:manage",
+  "permissions:manage",
   "staff:view",
   "staff:create",
   "staff:update",
   "staff:delete",
   "branches:view",
-  "branches:manage",
+  "branches:create",
+  "branches:update",
+  "branches:delete",
 ];
 
 /**

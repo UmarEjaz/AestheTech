@@ -19,7 +19,7 @@ export default async function SchedulesPage() {
   const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "schedules:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "schedules:create", isSuperAdmin, salonId, session.user.id);
 
   const staffResult = await getStaffWithSchedules();
 

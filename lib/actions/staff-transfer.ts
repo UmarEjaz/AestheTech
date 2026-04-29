@@ -15,7 +15,7 @@ export async function assignStaffToBranch(
   targetSalonId: string,
   role: string
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("branches:manage");
+  const authResult = await checkAuth("branches:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -137,7 +137,7 @@ export async function removeStaffFromBranch(
   userId: string,
   salonId: string
 ): Promise<ActionResult> {
-  const authResult = await checkAuth("branches:manage");
+  const authResult = await checkAuth("branches:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -252,7 +252,7 @@ export async function removeStaffFromBranch(
 export async function getAvailableStaffForBranch(
   targetSalonId: string
 ): Promise<ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string }[]>> {
-  const authResult = await checkAuth("branches:manage");
+  const authResult = await checkAuth("branches:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

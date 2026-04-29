@@ -27,7 +27,7 @@ export default async function EditProductPage({ params }: PageProps) {
   const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "products:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "products:update", isSuperAdmin, salonId, session.user.id);
 
   if (!canManage) {
     redirect("/dashboard/access-denied");

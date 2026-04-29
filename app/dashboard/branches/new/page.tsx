@@ -15,7 +15,7 @@ export default async function NewBranchPage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   const salonId = session.user.salonId;
-  if (!(await hasPermission(userRole, "branches:manage", isSuperAdmin, salonId, session.user.id))) {
+  if (!(await hasPermission(userRole, "branches:create", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 

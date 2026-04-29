@@ -22,7 +22,7 @@ export default async function NewServicePage() {
   const userRole = session.user.salonRole ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "services:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "services:create", isSuperAdmin, salonId, session.user.id);
 
   if (!canManage) {
     redirect("/dashboard/access-denied");

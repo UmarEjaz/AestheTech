@@ -46,7 +46,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   }
 
   const branch = result.data;
-  const canManage = await hasPermission(userRole, "branches:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "branches:update", isSuperAdmin, salonId, session.user.id);
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

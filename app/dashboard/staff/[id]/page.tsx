@@ -71,7 +71,7 @@ export default async function StaffDetailPage({
   }
 
   const hasEditPermission = await hasPermission(userRole, "staff:update", isSuperAdmin, salonId, session.user.id);
-  const canManagePermissions = await hasPermission(userRole, "settings:manage", isSuperAdmin, salonId, session.user.id);
+  const canManagePermissions = await hasPermission(userRole, "permissions:manage", isSuperAdmin, salonId, session.user.id);
 
   const [result, tz, roleMaps] = await Promise.all([
     getUserById(id),

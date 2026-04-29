@@ -605,6 +605,7 @@ export async function getActiveStaff(branchFilter: "current" | "all" = "current"
     const memberships = await prisma.userSalon.findMany({
       where: {
         salonId: salonFilter,
+        isActive: true,
         user: { isActive: true },
       },
       select: {

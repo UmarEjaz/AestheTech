@@ -5,7 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { SettingsForm } from "@/components/settings/settings-form";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
-import { Shield, Users } from "lucide-react";
+import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default async function SettingsPage() {
@@ -23,6 +23,8 @@ export default async function SettingsPage() {
   const salonId = session.user.salonId;
   const canView = await hasPermission(userRole, "settings:view", isSuperAdmin, salonId, session.user.id);
   const canManage = await hasPermission(userRole, "settings:manage", isSuperAdmin, salonId, session.user.id);
+  const canManageRoles = await hasPermission(userRole, "roles:manage", isSuperAdmin, salonId, session.user.id);
+  const canManagePermissions = await hasPermission(userRole, "permissions:manage", isSuperAdmin, salonId, session.user.id);
 
   if (!canView) {
     redirect("/dashboard/access-denied");
@@ -50,21 +52,13 @@ export default async function SettingsPage() {
               Manage your salon settings and preferences
             </p>
           </div>
-          {canManage && (
-            <div className="flex gap-2">
-              <Link href="/dashboard/settings/roles">
-                <Button variant="outline">
-                  <Users className="h-4 w-4 mr-2" />
-                  Manage Roles
-                </Button>
-              </Link>
-              <Link href="/dashboard/settings/permissions">
-                <Button variant="outline">
-                  <Shield className="h-4 w-4 mr-2" />
-                  Permissions
-                </Button>
-              </Link>
-            </div>
+          {(canManageRoles || canManagePermissions) && (
+            <Link href="/dashboard/settings/roles">
+              <Button variant="outline">
+                <Shield className="h-4 w-4 mr-2" />
+                Roles & Permissions
+              </Button>
+            </Link>
           )}
         </div>
 

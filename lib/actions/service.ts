@@ -117,7 +117,7 @@ export async function getService(id: string): Promise<ActionResult<ServiceListIt
 }
 
 export async function createService(data: ServiceFormData): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -155,7 +155,7 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
 export async function updateService(
   data: { id: string } & Partial<ServiceFormData>
 ): Promise<ActionResult> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -206,7 +206,7 @@ export async function updateService(
 }
 
 export async function deleteService(id: string): Promise<ActionResult> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -247,7 +247,7 @@ export async function deleteService(id: string): Promise<ActionResult> {
 }
 
 export async function restoreService(id: string): Promise<ActionResult> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

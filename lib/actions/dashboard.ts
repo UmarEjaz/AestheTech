@@ -20,35 +20,35 @@ import { getOrganizationSalonIds, getOrgRootSalonId } from "./branch";
 
 // Dashboard stats
 export interface DashboardStats {
-  todaysAppointments: {
+  todaysAppointments?: {
     total: number;
     completed: number;
     remaining: number;
     cancelled: number;
   };
-  todaysRevenue: {
+  todaysRevenue?: {
     amount: number;
     salesCount: number;
     comparison: number; // percentage change from yesterday
   };
-  clients: {
+  clients?: {
     total: number;
     newThisWeek: number;
     newThisMonth: number;
   };
-  topServices: {
+  topServices?: {
     name: string;
     count: number;
     revenue: number;
   }[];
-  recentSales: {
+  recentSales?: {
     id: string;
     clientName: string;
     amount: number;
     createdAt: Date;
     invoiceNumber: string | null;
   }[];
-  upcomingAppointments: {
+  upcomingAppointments?: {
     id: string;
     clientName: string;
     serviceName: string;
@@ -56,7 +56,7 @@ export interface DashboardStats {
     startTime: Date;
     status: AppointmentStatus;
   }[];
-  staffPerformance: {
+  staffPerformance?: {
     staffId: string;
     staffName: string;
     appointmentsCount: number;
@@ -90,9 +90,15 @@ export async function getDashboardStats(params?: {
 
   try {
     const branchFilter = params?.branchFilter || "current";
-    const canViewExpenses = await hasPermission(authResult.role, "expenses:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-    const canViewPayroll = await hasPermission(authResult.role, "payroll:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-    const canViewProfit = await hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const [canViewAppointments, canViewSales, canViewClients, canViewStaff, canViewExpenses, canViewPayroll, canViewProfit] = await Promise.all([
+      hasPermission(authResult.role, "appointments:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.role, "sales:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.role, "clients:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.role, "staff:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.role, "expenses:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.role, "payroll:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+    ]);
     const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
     // Determine which salon IDs to query (only owners can view all branches)
@@ -113,9 +119,9 @@ export async function getDashboardStats(params?: {
     let cacheKey: string;
     if (branchFilter === "all" && isOwnerOrSuperAdmin) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
+      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:apt=${canViewAppointments}:sal=${canViewSales}:cli=${canViewClients}:stf=${canViewStaff}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
+      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:apt=${canViewAppointments}:sal=${canViewSales}:cli=${canViewClients}:stf=${canViewStaff}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
     }
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
@@ -150,109 +156,129 @@ export async function getDashboardStats(params?: {
       monthlyPayrollData,
       todaysSaleItemsData,
     ] = await Promise.all([
-      // Today's appointments
-      prisma.appointment.groupBy({
-        by: ["status"],
-        where: {
-          salonId: salonFilter,
-          startTime: { gte: todayStart, lt: todayEnd },
-        },
-        _count: { id: true },
-      }),
+      // Today's appointments (only if permitted)
+      canViewAppointments
+        ? prisma.appointment.groupBy({
+            by: ["status"],
+            where: {
+              salonId: salonFilter,
+              startTime: { gte: todayStart, lt: todayEnd },
+            },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
 
-      // Today's sales (completed)
-      prisma.sale.findMany({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: todayStart, lt: todayEnd },
-          invoice: { isNot: null },
-        },
-        select: { finalAmount: true },
-      }),
+      // Today's sales (only if permitted)
+      canViewSales
+        ? prisma.sale.findMany({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: todayStart, lt: todayEnd },
+              invoice: { isNot: null },
+            },
+            select: { finalAmount: true },
+          })
+        : Promise.resolve([]),
 
-      // Yesterday's sales for comparison
-      prisma.sale.findMany({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: yesterdayStart, lt: yesterdayEnd },
-          invoice: { isNot: null },
-        },
-        select: { finalAmount: true },
-      }),
+      // Yesterday's sales for comparison (only if permitted)
+      canViewSales
+        ? prisma.sale.findMany({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: yesterdayStart, lt: yesterdayEnd },
+              invoice: { isNot: null },
+            },
+            select: { finalAmount: true },
+          })
+        : Promise.resolve([]),
 
-      // Total active clients
-      prisma.client.count({ where: { salonId: salonFilter, isActive: true } }),
+      // Total active clients (only if permitted)
+      canViewClients
+        ? prisma.client.count({ where: { salonId: salonFilter, isActive: true } })
+        : Promise.resolve(0),
 
-      // New clients this week
-      prisma.client.count({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: weekStart },
-          isActive: true,
-        },
-      }),
+      // New clients this week (only if permitted)
+      canViewClients
+        ? prisma.client.count({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: weekStart },
+              isActive: true,
+            },
+          })
+        : Promise.resolve(0),
 
-      // New clients this month
-      prisma.client.count({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: monthStart },
-          isActive: true,
-        },
-      }),
+      // New clients this month (only if permitted)
+      canViewClients
+        ? prisma.client.count({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: monthStart },
+              isActive: true,
+            },
+          })
+        : Promise.resolve(0),
 
-      // Top services this month (only service-based items)
-      prisma.saleItem.groupBy({
-        by: ["serviceId"],
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: monthStart },
-          serviceId: { not: null },
-        },
-        _count: { id: true },
-        _sum: { price: true },
-        orderBy: { _count: { id: "desc" } },
-        take: 5,
-      }),
+      // Top services this month (only if sales permitted)
+      canViewSales
+        ? prisma.saleItem.groupBy({
+            by: ["serviceId"],
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: monthStart },
+              serviceId: { not: null },
+            },
+            _count: { id: true },
+            _sum: { price: true },
+            orderBy: { _count: { id: "desc" } },
+            take: 5,
+          })
+        : Promise.resolve([]),
 
-      // Recent sales
-      prisma.sale.findMany({
-        where: { salonId: salonFilter, invoice: { isNot: null } },
-        include: {
-          client: { select: { firstName: true, lastName: true } },
-          invoice: { select: { invoiceNumber: true } },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      }),
+      // Recent sales (only if permitted)
+      canViewSales
+        ? prisma.sale.findMany({
+            where: { salonId: salonFilter, invoice: { isNot: null } },
+            include: {
+              client: { select: { firstName: true, lastName: true } },
+              invoice: { select: { invoiceNumber: true } },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          })
+        : Promise.resolve([]),
 
-      // Upcoming appointments (today and tomorrow)
-      prisma.appointment.findMany({
-        where: {
-          salonId: salonFilter,
-          startTime: { gte: new Date() },
-          status: { in: ["SCHEDULED", "CONFIRMED"] },
-        },
-        include: {
-          client: { select: { firstName: true, lastName: true } },
-          service: { select: { name: true } },
-          staff: { select: { firstName: true, lastName: true } },
-        },
-        orderBy: { startTime: "asc" },
-        take: 5,
-      }),
+      // Upcoming appointments (only if permitted)
+      canViewAppointments
+        ? prisma.appointment.findMany({
+            where: {
+              salonId: salonFilter,
+              startTime: { gte: new Date() },
+              status: { in: ["SCHEDULED", "CONFIRMED"] },
+            },
+            include: {
+              client: { select: { firstName: true, lastName: true } },
+              service: { select: { name: true } },
+              staff: { select: { firstName: true, lastName: true } },
+            },
+            orderBy: { startTime: "asc" },
+            take: 5,
+          })
+        : Promise.resolve([]),
 
-      // Staff performance this month (only items with staff)
-      prisma.saleItem.groupBy({
-        by: ["staffId"],
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: monthStart },
-          staffId: { not: null },
-        },
-        _count: { id: true },
-        _sum: { price: true },
-      }),
+      // Staff performance this month (only if permitted)
+      canViewStaff
+        ? prisma.saleItem.groupBy({
+            by: ["staffId"],
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: monthStart },
+              staffId: { not: null },
+            },
+            _count: { id: true },
+            _sum: { price: true },
+          })
+        : Promise.resolve([]),
 
       // Today's expenses (only if user has permission)
       canViewExpenses
@@ -369,26 +395,32 @@ export async function getDashboardStats(params?: {
       .slice(0, 5);
 
     const data: DashboardStats = {
-      todaysAppointments: {
-        total: totalAppointments,
-        completed: completedAppointments,
-        remaining: remainingAppointments,
-        cancelled: cancelledAppointments,
-      },
-      todaysRevenue: {
-        amount: todaysRevenue,
-        salesCount: todaysSales.length,
-        comparison: Math.round(revenueComparison * 10) / 10,
-      },
-      clients: {
-        total: totalClients,
-        newThisWeek: newClientsThisWeek,
-        newThisMonth: newClientsThisMonth,
-      },
-      topServices,
-      recentSales,
-      upcomingAppointments,
-      staffPerformance,
+      ...(canViewAppointments && {
+        todaysAppointments: {
+          total: totalAppointments,
+          completed: completedAppointments,
+          remaining: remainingAppointments,
+          cancelled: cancelledAppointments,
+        },
+      }),
+      ...(canViewSales && {
+        todaysRevenue: {
+          amount: todaysRevenue,
+          salesCount: todaysSales.length,
+          comparison: Math.round(revenueComparison * 10) / 10,
+        },
+      }),
+      ...(canViewClients && {
+        clients: {
+          total: totalClients,
+          newThisWeek: newClientsThisWeek,
+          newThisMonth: newClientsThisMonth,
+        },
+      }),
+      ...(canViewSales && { topServices }),
+      ...(canViewSales && { recentSales }),
+      ...(canViewAppointments && { upcomingAppointments }),
+      ...(canViewStaff && { staffPerformance }),
       ...(canViewExpenses && {
         todaysExpenses: {
           amount: todaysExpensesData.reduce((sum, e) => sum + Number(e.amount), 0),

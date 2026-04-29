@@ -294,7 +294,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                             {staff.firstName} {staff.lastName}
                           </p>
                           <p className="text-xs text-muted-foreground capitalize">
-                            {staff.roleLabel || staff.role.toLowerCase().replace("_", " ")}
+                            {staff.roleLabel || staff.role.toLowerCase().replaceAll("_", " ")}
                           </p>
                         </div>
                       </div>

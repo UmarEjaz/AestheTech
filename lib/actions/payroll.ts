@@ -254,7 +254,7 @@ export type PayrollPreview = {
 export async function previewPayrollRun(
   data: CreatePayrollRunInput
 ): Promise<ActionResult<PayrollPreview>> {
-  const authResult = await checkAuth("payroll:manage");
+  const authResult = await checkAuth("payroll:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -338,7 +338,7 @@ export async function previewPayrollRun(
 export async function createPayrollRun(
   data: CreatePayrollRunInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("payroll:manage");
+  const authResult = await checkAuth("payroll:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -472,7 +472,7 @@ export async function createPayrollRun(
 export async function updatePayrollEntry(
   data: UpdatePayrollEntryInput
 ): Promise<ActionResult<void>> {
-  const authResult = await checkAuth("payroll:manage");
+  const authResult = await checkAuth("payroll:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -572,7 +572,7 @@ export async function updatePayrollEntry(
  * Finalize a payroll run (DRAFT → FINALIZED). Locks entries.
  */
 export async function finalizePayrollRun(id: string): Promise<ActionResult<void>> {
-  const authResult = await checkAuth("payroll:manage");
+  const authResult = await checkAuth("payroll:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -756,7 +756,7 @@ export async function markPayrollRunPaid(
  * Cancel a payroll run (DRAFT/FINALIZED → CANCELLED).
  */
 export async function cancelPayrollRun(id: string): Promise<ActionResult<void>> {
-  const authResult = await checkAuth("payroll:manage");
+  const authResult = await checkAuth("payroll:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

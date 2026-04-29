@@ -36,7 +36,7 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
   }
 
   const { id } = await params;
-  const canManage = await hasPermission(userRole, "payroll:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "payroll:update", isSuperAdmin, salonId, session.user.id);
   const canPay = await hasPermission(userRole, "payroll:pay", isSuperAdmin, salonId, session.user.id);
 
   const [result, settingsResult] = await Promise.all([

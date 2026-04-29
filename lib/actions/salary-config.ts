@@ -157,7 +157,7 @@ export async function getStaffCurrentConfig(
 export async function createSalaryConfig(
   data: SalaryConfigInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("salary-config:manage");
+  const authResult = await checkAuth("salary-config:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -221,7 +221,7 @@ export async function updateSalaryConfig(
   id: string,
   data: SalaryConfigInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("salary-config:manage");
+  const authResult = await checkAuth("salary-config:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -301,7 +301,7 @@ export async function updateSalaryConfig(
  * Soft-delete a salary config (set isActive=false).
  */
 export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>> {
-  const authResult = await checkAuth("salary-config:manage");
+  const authResult = await checkAuth("salary-config:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

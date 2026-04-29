@@ -32,13 +32,23 @@ async function loadPermissionsFromDB(salonId: string, role: string): Promise<Set
 
   const permCodes = rolePerms.map((rp) => rp.permission.code);
 
-  // If no DB records exist for this salon+role, fall back to hardcoded defaults
-  // This handles salons that haven't been provisioned with permissions yet
+  // If this role has no permissions, check if the salon has been provisioned at all
   if (permCodes.length === 0) {
-    const defaults = Object.entries(DEFAULT_PERMISSION_ROLES)
-      .filter(([, roles]) => roles.includes(role))
-      .map(([code]) => code);
-    return new Set(defaults);
+    // Check if ANY role has permissions for this salon
+    const salonHasAnyPerms = await prisma.rolePermission.count({
+      where: { salonId },
+    });
+
+    if (salonHasAnyPerms === 0) {
+      // Salon hasn't been provisioned yet — use hardcoded defaults
+      const defaults = Object.entries(DEFAULT_PERMISSION_ROLES)
+        .filter(([, roles]) => roles.includes(role))
+        .map(([code]) => code);
+      return new Set(defaults);
+    }
+
+    // Salon IS provisioned but this role has zero permissions — intentional, keep empty
+    return new Set();
   }
 
   // Cache in Redis

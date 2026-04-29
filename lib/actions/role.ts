@@ -6,6 +6,7 @@ import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
 import { invalidateRoleCache, invalidatePermissionCache } from "@/lib/redis";
 import { logAudit } from "@/lib/actions/audit";
 import { isSystemRole, SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
+import { getOrganizationSalonIds } from "@/lib/actions/branch";
 import {
   createRoleSchema,
   updateRoleSchema,
@@ -25,7 +26,8 @@ export type RoleInfo = {
   hierarchyLevel: number;
   isSystem: boolean;
   salonId: string | null;
-  userCount?: number;
+  userCount?: number;       // business-wide (all branches)
+  branchUserCount?: number; // current branch only
 };
 
 function slugify(name: string): string {
@@ -73,13 +75,24 @@ export async function getRoleDefinitions(): Promise<ActionResult<RoleInfo[]>> {
       };
     }
 
-    // Count users per role for this salon
-    const userCounts = await prisma.user.groupBy({
-      by: ["role"],
-      where: { salonId: authResult.salonId, isActive: true },
-      _count: true,
-    });
-    const countMap = new Map(userCounts.map((uc) => [uc.role, uc._count]));
+    // Count users per role — business-wide (all branches) + current branch
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+
+    const [orgCounts, branchCounts] = await Promise.all([
+      prisma.userSalon.groupBy({
+        by: ["role"],
+        where: { salonId: { in: orgSalonIds }, isActive: true },
+        _count: true,
+      }),
+      prisma.userSalon.groupBy({
+        by: ["role"],
+        where: { salonId: authResult.salonId, isActive: true },
+        _count: true,
+      }),
+    ]);
+
+    const orgCountMap = new Map(orgCounts.map((uc) => [uc.role, uc._count]));
+    const branchCountMap = new Map(branchCounts.map((uc) => [uc.role, uc._count]));
 
     return {
       success: true,
@@ -93,7 +106,8 @@ export async function getRoleDefinitions(): Promise<ActionResult<RoleInfo[]>> {
         hierarchyLevel: r.hierarchyLevel,
         isSystem: r.isSystem,
         salonId: r.salonId,
-        userCount: countMap.get(r.name) ?? 0,
+        userCount: orgCountMap.get(r.name) ?? 0,
+        branchUserCount: branchCountMap.get(r.name) ?? 0,
       })),
     };
   } catch (error) {
@@ -113,7 +127,7 @@ export async function getAvailableRoles(): Promise<ActionResult<RoleInfo[]>> {
  * Create a custom role for the current salon.
  */
 export async function createRole(input: CreateRoleInput): Promise<ActionResult<RoleInfo>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("roles:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -220,7 +234,7 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
  * Update a custom role (not system roles).
  */
 export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("roles:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -246,9 +260,14 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
       return { success: false, error: "Role not found in this salon" };
     }
 
+    // Verify caller can manage this role (hierarchy check)
+    const { canManageRole, getHierarchyLevels } = await import("@/lib/permissions");
+    if (!authResult.isSuperAdmin && !(await canManageRole(authResult.role, existing.name, authResult.isSuperAdmin, authResult.salonId))) {
+      return { success: false, error: "Not authorized to manage this role" };
+    }
+
     // Validate hierarchy level if changing
     if (updateData.hierarchyLevel !== undefined) {
-      const { getHierarchyLevels } = await import("@/lib/permissions");
       const hierarchy = await getHierarchyLevels(authResult.salonId);
       const callerLevel = hierarchy[authResult.role] ?? 0;
       if (!authResult.isSuperAdmin && updateData.hierarchyLevel >= callerLevel) {
@@ -292,7 +311,7 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
  * Delete a custom role. Prevents deletion if users are assigned to it.
  */
 export async function deleteRole(id: string): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("settings:manage");
+  const authResult = await checkAuth("roles:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -311,14 +330,15 @@ export async function deleteRole(id: string): Promise<ActionResult<null>> {
       return { success: false, error: "Role not found in this salon" };
     }
 
-    // Check if any users are assigned this role
-    const usersWithRole = await prisma.user.count({
-      where: { salonId: authResult.salonId, role: existing.name },
+    // Check if any users are assigned this role (business-wide)
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    const usersWithRole = await prisma.userSalon.count({
+      where: { salonId: { in: orgSalonIds }, role: existing.name, isActive: true },
     });
     if (usersWithRole > 0) {
       return {
         success: false,
-        error: `Cannot delete: ${usersWithRole} user(s) are assigned to this role. Reassign them first.`,
+        error: `Cannot delete: ${usersWithRole} user(s) across your branches are assigned to this role. Reassign them first.`,
       };
     }
 
@@ -349,6 +369,157 @@ export async function deleteRole(id: string): Promise<ActionResult<null>> {
   } catch (error) {
     console.error("Error deleting role:", error);
     return { success: false, error: "Failed to delete role" };
+  }
+}
+
+/**
+ * Get a single role by slug, along with all permissions and which are granted.
+ */
+export async function getRoleBySlug(slug: string): Promise<
+  ActionResult<{
+    role: RoleInfo;
+    permissions: Array<{
+      code: string;
+      module: string;
+      label: string;
+      description: string | null;
+      sortOrder: number;
+    }>;
+    grantedPermissions: string[];
+    callerHierarchyLevel: number;
+  }>
+> {
+  const authResult = await checkAuth("permissions:manage");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    // Look up role: system roles have salonId=null, custom roles have salonId=current
+    const roleDef = await prisma.roleDefinition.findFirst({
+      where: {
+        slug,
+        OR: [{ salonId: null, isSystem: true }, { salonId: authResult.salonId }],
+        isActive: true,
+      },
+    });
+
+    // Fallback to system defaults if no DB record
+    if (!roleDef) {
+      const systemDef = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === slug);
+      if (!systemDef) {
+        return { success: false, error: "Role not found" };
+      }
+
+      // Get all permissions
+      const permissions = await prisma.permission.findMany({
+        orderBy: [{ module: "asc" }, { sortOrder: "asc" }],
+      });
+
+      // Use default permission mapping
+      const { DEFAULT_PERMISSION_ROLES } = await import("@/lib/permissions-defaults");
+      const grantedPermissions = Object.entries(DEFAULT_PERMISSION_ROLES)
+        .filter(([, roles]) => roles.includes(systemDef.name))
+        .map(([code]) => code);
+
+      const { getHierarchyLevels } = await import("@/lib/permissions");
+      const hierarchy = await getHierarchyLevels(authResult.salonId);
+      const callerHierarchyLevel = authResult.isSuperAdmin
+        ? 999
+        : (hierarchy[authResult.role] ?? 0);
+
+      return {
+        success: true,
+        data: {
+          role: {
+            id: systemDef.slug,
+            name: systemDef.name,
+            slug: systemDef.slug,
+            label: systemDef.label,
+            description: systemDef.description,
+            color: systemDef.color,
+            hierarchyLevel: systemDef.hierarchyLevel,
+            isSystem: systemDef.isSystem,
+            salonId: null,
+          },
+          permissions: permissions.map((p) => ({
+            code: p.code,
+            module: p.module,
+            label: p.label,
+            description: p.description,
+            sortOrder: p.sortOrder,
+          })),
+          grantedPermissions,
+          callerHierarchyLevel,
+        },
+      };
+    }
+
+    // Get all permissions
+    const permissions = await prisma.permission.findMany({
+      orderBy: [{ module: "asc" }, { sortOrder: "asc" }],
+    });
+
+    // Get granted permissions for this role at this salon
+    const rolePermissions = await prisma.rolePermission.findMany({
+      where: { salonId: authResult.salonId, role: roleDef.name },
+      include: { permission: { select: { code: true } } },
+    });
+
+    let grantedPermissions: string[];
+    if (rolePermissions.length === 0) {
+      // Check if salon is provisioned at all
+      const salonHasAnyPerms = await prisma.rolePermission.count({
+        where: { salonId: authResult.salonId },
+      });
+      if (salonHasAnyPerms === 0) {
+        // Fall back to defaults
+        const { DEFAULT_PERMISSION_ROLES } = await import("@/lib/permissions-defaults");
+        grantedPermissions = Object.entries(DEFAULT_PERMISSION_ROLES)
+          .filter(([, roles]) => roles.includes(roleDef.name))
+          .map(([code]) => code);
+      } else {
+        grantedPermissions = [];
+      }
+    } else {
+      grantedPermissions = rolePermissions.map((rp) => rp.permission.code);
+    }
+
+    // Caller hierarchy level
+    const { getHierarchyLevels } = await import("@/lib/permissions");
+    const hierarchy = await getHierarchyLevels(authResult.salonId);
+    const callerHierarchyLevel = authResult.isSuperAdmin
+      ? 999
+      : (hierarchy[authResult.role] ?? 0);
+
+    return {
+      success: true,
+      data: {
+        role: {
+          id: roleDef.id,
+          name: roleDef.name,
+          slug: roleDef.slug,
+          label: roleDef.label,
+          description: roleDef.description,
+          color: roleDef.color,
+          hierarchyLevel: roleDef.hierarchyLevel,
+          isSystem: roleDef.isSystem,
+          salonId: roleDef.salonId,
+        },
+        permissions: permissions.map((p) => ({
+          code: p.code,
+          module: p.module,
+          label: p.label,
+          description: p.description,
+          sortOrder: p.sortOrder,
+        })),
+        grantedPermissions,
+        callerHierarchyLevel,
+      },
+    };
+  } catch (error) {
+    console.error("Error fetching role by slug:", error);
+    return { success: false, error: "Failed to load role" };
   }
 }
 

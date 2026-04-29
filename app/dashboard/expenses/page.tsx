@@ -43,7 +43,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const canCreate = await hasPermission(userRole, "expenses:create", isSuperAdmin, salonId, session.user.id);
   const canManage = await hasPermission(userRole, "expenses:update", isSuperAdmin, salonId, session.user.id);
   const canDelete = await hasPermission(userRole, "expenses:delete", isSuperAdmin, salonId, session.user.id);
-  const canManageCategories = await hasPermission(userRole, "expense-categories:manage", isSuperAdmin, salonId, session.user.id);
+  const canManageCategories = await hasPermission(userRole, "expense-categories:create", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";

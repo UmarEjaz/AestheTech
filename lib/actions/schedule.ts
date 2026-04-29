@@ -172,7 +172,7 @@ function timeToMinutes(time: string): number {
 
 // Create a single schedule entry
 export async function createSchedule(data: ScheduleFormData): Promise<ActionResult<ScheduleListItem>> {
-  const authResult = await checkAuth("schedules:manage");
+  const authResult = await checkAuth("schedules:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -239,7 +239,7 @@ export async function updateSchedule(
   id: string,
   data: ScheduleFormData
 ): Promise<ActionResult<ScheduleListItem>> {
-  const authResult = await checkAuth("schedules:manage");
+  const authResult = await checkAuth("schedules:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -299,7 +299,7 @@ export async function updateSchedule(
 
 // Delete a schedule entry
 export async function deleteSchedule(id: string): Promise<ActionResult<void>> {
-  const authResult = await checkAuth("schedules:manage");
+  const authResult = await checkAuth("schedules:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -329,7 +329,7 @@ export async function deleteSchedule(id: string): Promise<ActionResult<void>> {
 
 // Set week schedule for a staff member (bulk create/update)
 export async function setWeekSchedule(data: WeekScheduleFormData): Promise<ActionResult<ScheduleListItem[]>> {
-  const authResult = await checkAuth("schedules:manage");
+  const authResult = await checkAuth("schedules:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -415,7 +415,7 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
 
 // Toggle availability for a schedule
 export async function toggleScheduleAvailability(id: string): Promise<ActionResult<ScheduleListItem>> {
-  const authResult = await checkAuth("schedules:manage");
+  const authResult = await checkAuth("schedules:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -535,7 +535,7 @@ export async function copySchedule(
   fromStaffId: string,
   toStaffId: string
 ): Promise<ActionResult<ScheduleListItem[]>> {
-  const authResult = await checkAuth("schedules:manage");
+  const authResult = await checkAuth("schedules:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -596,7 +596,7 @@ export async function reassignSchedule(
   id: string,
   newDayOfWeek: number
 ): Promise<ActionResult<ScheduleListItem>> {
-  const authResult = await checkAuth("schedules:manage");
+  const authResult = await checkAuth("schedules:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }

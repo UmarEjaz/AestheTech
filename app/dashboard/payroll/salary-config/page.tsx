@@ -26,7 +26,7 @@ export default async function SalaryConfigPage() {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = await hasPermission(userRole, "salary-config:manage", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRole, "salary-config:create", isSuperAdmin, salonId, session.user.id);
 
   const [result, settingsResult] = await Promise.all([
     getSalaryConfigs("current"),

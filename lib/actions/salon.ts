@@ -173,7 +173,7 @@ export async function createSalon(data: {
 
     // Seed default permissions for the new salon
     try {
-      const { seedPermissionsForSalon } = await import("@/lib/actions/permission");
+      const { seedPermissionsForSalon } = await import("@/lib/seed-permissions");
       await seedPermissionsForSalon(salon.id);
     } catch (seedError) {
       console.error("Warning: Failed to seed permissions for new salon — defaults will apply:", seedError);

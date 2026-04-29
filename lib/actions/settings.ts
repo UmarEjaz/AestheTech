@@ -1,10 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ActionResult } from "@/lib/types";
-import { checkAuth } from "@/lib/auth-helpers";
+import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 
@@ -38,13 +37,13 @@ export interface SettingsData {
 
 /** Fetches salon settings, creating defaults if none exist. */
 export async function getSettings(): Promise<ActionResult<SettingsData>> {
-  try {
-    const session = await auth();
-    const salonId = session?.user?.salonId;
+  const authResult = await checkAuthBasic();
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
 
-    if (!salonId) {
-      return { success: false, error: "No salon context available" };
-    }
+  try {
+    const salonId = authResult.salonId;
 
     const settings = await prisma.settings.findUnique({ where: { salonId } });
 
