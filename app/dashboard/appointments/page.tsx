@@ -21,9 +21,10 @@ export default async function AppointmentsPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "appointments:create", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id);
 
   // Get settings first to determine timezone, then compute week range
   const settingsResult = await getSettings();

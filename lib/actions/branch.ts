@@ -164,6 +164,15 @@ export async function createBranch(
 
     const parentId = currentSalon.parentSalonId || currentSalon.id;
 
+    // Look up the OWNER RoleDefinition ID
+    const ownerRoleDef = await prisma.roleDefinition.findFirst({
+      where: { name: SYSTEM_ROLES.OWNER, isSystem: true },
+      select: { id: true },
+    });
+    if (!ownerRoleDef) {
+      return { success: false, error: "System role OWNER not found" };
+    }
+
     // Create branch salon with settings in a transaction
     const branch = await prisma.$transaction(async (tx) => {
       const newBranch = await tx.salon.create({
@@ -195,7 +204,7 @@ export async function createBranch(
         data: {
           userId: authResult.userId,
           salonId: newBranch.id,
-          role: SYSTEM_ROLES.OWNER,
+          roleDefinitionId: ownerRoleDef.id,
         },
       });
 
@@ -290,6 +299,9 @@ export async function getBranchDetail(
             isActive: true,
           },
         },
+        roleDefinition: {
+          select: { name: true },
+        },
       },
       orderBy: { user: { firstName: "asc" } },
     });
@@ -299,7 +311,7 @@ export async function getBranchDetail(
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.role,
+      role: us.roleDefinition.name,
       isActive: us.user.isActive,
     }));
 

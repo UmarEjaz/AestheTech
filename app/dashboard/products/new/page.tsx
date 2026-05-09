@@ -17,14 +17,19 @@ export default async function NewProductPage() {
   }
 
   const userRole = session.user.salonRole;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage =
-    isSuperAdmin ||
-    (userRole != null && await hasPermission(userRole, "products:create", isSuperAdmin, salonId, session.user.id));
+  if (!isSuperAdmin) {
+    const [canView, canCreate, canViewCategories] = await Promise.all([
+      hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "products:create", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id),
+    ]);
 
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+    if (!canView || !canCreate || !canViewCategories) {
+      redirect("/dashboard/access-denied");
+    }
   }
 
   const [categoriesResult, settingsResult] = await Promise.all([

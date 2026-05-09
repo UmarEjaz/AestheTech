@@ -139,6 +139,8 @@ model Salon {
   loyaltyTransactions        LoyaltyTransaction[]
   recurringAppointmentSeries RecurringAppointmentSeries[]
   auditLogs                  AuditLog[]
+  serviceCategories          ServiceCategory[]
+  productCategories          ProductCategory[]
   expenseCategories          ExpenseCategory[]
   expenses                   Expense[]
   salaryConfigs              SalaryConfig[]
@@ -159,15 +161,17 @@ model User {
   firstName    String
   lastName     String
   phone        String?
-  salonId      String? // Current/active salon (denormalized from UserSalon)
-  role         String // Current role at active salon (denormalized from UserSalon)
-  isSuperAdmin Boolean  @default(false)
-  isActive     Boolean  @default(true)
+  salonId          String?  // Current/active salon (denormalized from UserSalon)
+  roleDefinitionId String?  // Current role at active salon (denormalized from UserSalon)
+  isSuperAdmin     Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  isServiceProvider Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
   salon           Salon?                       @relation(fields: [salonId], references: [id], onDelete: SetNull)
+  roleDefinition  RoleDefinition?              @relation(fields: [roleDefinitionId], references: [id])
   userSalons      UserSalon[]
   appointments    Appointment[]                @relation("StaffAppointments")
   schedules       Schedule[]
@@ -189,20 +193,22 @@ model User {
 
 // Junction table: User ↔ Salon (many-to-many with per-salon role)
 model UserSalon {
-  id        String   @id @default(cuid())
-  userId    String
-  salonId   String
-  role      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(cuid())
+  userId           String
+  salonId          String
+  roleDefinitionId String
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id])
 
   @@unique([userId, salonId])
   @@index([userId])
   @@index([salonId])
+  @@index([roleDefinitionId])
   @@map("user_salons")
 }
 
@@ -251,18 +257,20 @@ model Service {
   price       Decimal  @db.Decimal(10, 2)
   cost        Decimal? @db.Decimal(10, 2) // cost to deliver this service (for profit tracking)
   points      Int      @default(0) // loyalty points earned
-  category    String?
+  categoryId  String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relations
   salon           Salon                        @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  category        ServiceCategory?             @relation(fields: [categoryId], references: [id])
   appointments    Appointment[]
   saleItems       SaleItem[]
   recurringSeries RecurringAppointmentSeries[]
 
   @@index([salonId])
+  @@index([categoryId])
   @@map("services")
 }
 
@@ -278,20 +286,63 @@ model Product {
   stock             Int      @default(0)
   lowStockThreshold Int      @default(5)
   points            Int      @default(0) // loyalty points earned
-  category          String?
+  categoryId        String?
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   // Relations
-  salon     Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  salon     Salon            @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  category  ProductCategory? @relation(fields: [categoryId], references: [id])
   saleItems SaleItem[]
 
   @@unique([salonId, sku])
   @@index([salonId])
-  @@index([category])
+  @@index([categoryId])
   @@index([isActive])
   @@map("products")
+}
+
+// ServiceCategory model — org-wide (stored with org root salonId)
+model ServiceCategory {
+  id        String   @id @default(cuid())
+  salonId   String // org root salon ID — shared across all branches
+  name      String
+  icon      String? // Lucide icon name
+  color     String? // Hex color for UI display
+  isDefault Boolean  @default(false) // True for system-seeded defaults
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  services Service[]
+
+  @@unique([salonId, name])
+  @@index([salonId])
+  @@map("service_categories")
+}
+
+// ProductCategory model — org-wide (stored with org root salonId)
+model ProductCategory {
+  id        String   @id @default(cuid())
+  salonId   String // org root salon ID — shared across all branches
+  name      String
+  icon      String? // Lucide icon name
+  color     String? // Hex color for UI display
+  isDefault Boolean  @default(false) // True for system-seeded defaults
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([salonId, name])
+  @@index([salonId])
+  @@map("product_categories")
 }
 
 // Appointment model
@@ -827,18 +878,19 @@ model Permission {
 
 // Salon-scoped role-permission assignment: "Role X has permission Y in salon Z"
 model RolePermission {
-  id           String   @id @default(cuid())
-  salonId      String
-  role         String
-  permissionId String
-  createdAt    DateTime @default(now())
+  id               String   @id @default(cuid())
+  salonId          String
+  roleDefinitionId String
+  permissionId     String
+  createdAt        DateTime @default(now())
 
-  salon      Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id])
+  permission     Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
-  @@unique([salonId, role, permissionId])
+  @@unique([salonId, roleDefinitionId, permissionId])
   @@index([salonId])
-  @@index([salonId, role])
+  @@index([salonId, roleDefinitionId])
   @@index([permissionId])
   @@map("role_permissions")
 }
@@ -878,6 +930,11 @@ model RoleDefinition {
   updatedAt      DateTime @updatedAt
 
   salon Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  // Reverse relations
+  userSalons      UserSalon[]
+  rolePermissions RolePermission[]
+  users           User[]
 
   @@unique([salonId, slug])
   @@index([salonId])

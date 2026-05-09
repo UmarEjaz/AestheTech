@@ -9,13 +9,14 @@ import {
   PermissionUpdateInput,
   userPermissionUpdateSchema,
   UserPermissionUpdateInput,
+  rolePermissionUpdateSchema,
 } from "@/lib/validations/permission";
 import {
   DEFAULT_PERMISSION_ROLES,
   OWNER_LOCKED_PERMISSIONS,
   OWNER_ROLE_NAME,
 } from "@/lib/permissions-defaults";
-import { SYSTEM_ROLES, SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
+import { SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
 
 type ActionResult<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -50,15 +51,18 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
     // Get current role-permission assignments for this salon
     const rolePermissions = await prisma.rolePermission.findMany({
       where: { salonId: authResult.salonId },
-      include: { permission: { select: { code: true } } },
+      include: {
+        permission: { select: { code: true } },
+        roleDefinition: { select: { name: true } },
+      },
     });
 
-    // Build assignments map: permCode -> [roles]
+    // Build assignments map: permCode -> [role names]
     const assignments: Record<string, string[]> = {};
     for (const rp of rolePermissions) {
       const code = rp.permission.code;
       if (!assignments[code]) assignments[code] = [];
-      assignments[code].push(rp.role);
+      assignments[code].push(rp.roleDefinition.name);
     }
 
     // If no assignments exist (salon not provisioned), use defaults
@@ -86,7 +90,7 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
     // Determine caller's hierarchy level
     const { getHierarchyLevels } = await import("@/lib/permissions");
     const hierarchy = await getHierarchyLevels(authResult.salonId);
-    const callerHierarchyLevel = authResult.isSuperAdmin ? Infinity : (hierarchy[authResult.role] ?? 0);
+    const callerHierarchyLevel = authResult.isSuperAdmin ? Infinity : (hierarchy[authResult.roleId] ?? 0);
 
     return {
       success: true,
@@ -140,14 +144,26 @@ export async function updatePermissions(
   }
 
   // Enforce hierarchy: caller can only modify permissions for roles below their level
+  // Look up roleDefinitionIds for the role names in the assignments
+  const targetRoleNames = [...new Set(assignments.map((a) => a.role))];
+  const targetRoleDefs = await prisma.roleDefinition.findMany({
+    where: {
+      name: { in: targetRoleNames },
+      OR: [{ isSystem: true }, { salonId: authResult.salonId }],
+    },
+    select: { id: true, name: true },
+  });
+  const roleNameToId = new Map(targetRoleDefs.map((rd) => [rd.name, rd.id]));
+
   if (!authResult.isSuperAdmin) {
     const { getHierarchyLevels } = await import("@/lib/permissions");
     const hierarchy = await getHierarchyLevels(authResult.salonId);
-    const callerLevel = hierarchy[authResult.role] ?? 0;
+    const callerLevel = hierarchy[authResult.roleId] ?? 0;
 
-    const targetRoles = new Set(assignments.map((a) => a.role));
-    for (const roleName of targetRoles) {
-      const targetLevel = hierarchy[roleName] ?? 0;
+    for (const roleName of targetRoleNames) {
+      const roleDefId = roleNameToId.get(roleName);
+      if (!roleDefId) continue;
+      const targetLevel = hierarchy[roleDefId] ?? 0;
       if (targetLevel >= callerLevel) {
         return {
           success: false,
@@ -172,11 +188,12 @@ export async function updatePermissions(
       // Process revocations
       for (const revoke of toRevoke) {
         const permId = permIdMap.get(revoke.permissionCode);
-        if (!permId) continue;
+        const roleDefId = roleNameToId.get(revoke.role);
+        if (!permId || !roleDefId) continue;
         await tx.rolePermission.deleteMany({
           where: {
             salonId: authResult.salonId,
-            role: revoke.role,
+            roleDefinitionId: roleDefId,
             permissionId: permId,
           },
         });
@@ -185,19 +202,20 @@ export async function updatePermissions(
       // Process grants (upsert to avoid duplicates)
       for (const grant of toGrant) {
         const permId = permIdMap.get(grant.permissionCode);
-        if (!permId) continue;
+        const roleDefId = roleNameToId.get(grant.role);
+        if (!permId || !roleDefId) continue;
         await tx.rolePermission.upsert({
           where: {
-            salonId_role_permissionId: {
+            salonId_roleDefinitionId_permissionId: {
               salonId: authResult.salonId,
-              role: grant.role,
+              roleDefinitionId: roleDefId,
               permissionId: permId,
             },
           },
           update: {},
           create: {
             salonId: authResult.salonId,
-            role: grant.role,
+            roleDefinitionId: roleDefId,
             permissionId: permId,
           },
         });
@@ -244,6 +262,17 @@ export async function resetPermissionsToDefaults(): Promise<ActionResult<null>> 
     });
     const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
 
+    // Resolve role names to roleDefinitionIds
+    const allRoleNames = [...new Set(Object.values(DEFAULT_PERMISSION_ROLES).flat())];
+    const roleDefs = await prisma.roleDefinition.findMany({
+      where: {
+        name: { in: allRoleNames },
+        OR: [{ isSystem: true }, { salonId: authResult.salonId }],
+      },
+      select: { id: true, name: true },
+    });
+    const roleNameToIdMap = new Map(roleDefs.map((rd) => [rd.name, rd.id]));
+
     await prisma.$transaction(async (tx) => {
       // Delete all current assignments for this salon
       await tx.rolePermission.deleteMany({
@@ -251,12 +280,14 @@ export async function resetPermissionsToDefaults(): Promise<ActionResult<null>> 
       });
 
       // Re-create defaults
-      const data: Array<{ salonId: string; role: string; permissionId: string }> = [];
+      const data: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
       for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
         const permId = permIdMap.get(code);
         if (!permId) continue;
-        for (const role of roles) {
-          data.push({ salonId: authResult.salonId, role, permissionId: permId });
+        for (const roleName of roles) {
+          const roleDefId = roleNameToIdMap.get(roleName);
+          if (!roleDefId) continue;
+          data.push({ salonId: authResult.salonId, roleDefinitionId: roleDefId, permissionId: permId });
         }
       }
       await tx.rolePermission.createMany({ data });
@@ -295,7 +326,13 @@ export async function updateRolePermissions(input: {
     return { success: false, error: "Unauthorized" };
   }
 
-  const { roleName, grants, revokes } = input;
+  // Validate input shape
+  const parsed = rolePermissionUpdateSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message || "Invalid input" };
+  }
+
+  const { roleName, grants, revokes } = parsed.data;
 
   // Enforce owner lockout protection
   if (roleName === OWNER_ROLE_NAME) {
@@ -308,26 +345,44 @@ export async function updateRolePermissions(input: {
     }
   }
 
-  // Enforce hierarchy: caller can only modify permissions for roles below their level
-  if (!authResult.isSuperAdmin) {
-    const { getHierarchyLevels } = await import("@/lib/permissions");
-    const hierarchy = await getHierarchyLevels(authResult.salonId);
-    const callerLevel = hierarchy[authResult.role] ?? 0;
-    const targetLevel = hierarchy[roleName] ?? 0;
-    if (targetLevel >= callerLevel) {
-      return {
-        success: false,
-        error: `You cannot modify permissions for the "${roleName}" role`,
-      };
-    }
-  }
-
   try {
+    // Validate role exists and get its ID
+    const roleDef = await prisma.roleDefinition.findFirst({
+      where: {
+        name: roleName,
+        OR: [{ isSystem: true }, { salonId: authResult.salonId }],
+      },
+      select: { id: true, name: true },
+    });
+    if (!roleDef) {
+      return { success: false, error: `Role "${roleName}" not found` };
+    }
+
+    // Enforce hierarchy: caller can only modify permissions for roles below their level
+    if (!authResult.isSuperAdmin) {
+      const { getHierarchyLevels } = await import("@/lib/permissions");
+      const hierarchy = await getHierarchyLevels(authResult.salonId);
+      const callerLevel = hierarchy[authResult.roleId] ?? 0;
+      const targetLevel = hierarchy[roleDef.id] ?? 0;
+      if (targetLevel >= callerLevel) {
+        return {
+          success: false,
+          error: `You cannot modify permissions for the "${roleName}" role`,
+        };
+      }
+    }
+
     // Get permission ID lookup
     const allPermissions = await prisma.permission.findMany({
       select: { id: true, code: true },
     });
     const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
+
+    // Validate all permission codes exist
+    const invalidCodes = [...grants, ...revokes].filter((code) => !permIdMap.has(code));
+    if (invalidCodes.length > 0) {
+      return { success: false, error: `Unknown permission codes: ${invalidCodes.join(", ")}` };
+    }
 
     await prisma.$transaction(async (tx) => {
       // Process revocations
@@ -337,7 +392,7 @@ export async function updateRolePermissions(input: {
         await tx.rolePermission.deleteMany({
           where: {
             salonId: authResult.salonId,
-            role: roleName,
+            roleDefinitionId: roleDef.id,
             permissionId: permId,
           },
         });
@@ -349,16 +404,16 @@ export async function updateRolePermissions(input: {
         if (!permId) continue;
         await tx.rolePermission.upsert({
           where: {
-            salonId_role_permissionId: {
+            salonId_roleDefinitionId_permissionId: {
               salonId: authResult.salonId,
-              role: roleName,
+              roleDefinitionId: roleDef.id,
               permissionId: permId,
             },
           },
           update: {},
           create: {
             salonId: authResult.salonId,
-            role: roleName,
+            roleDefinitionId: roleDef.id,
             permissionId: permId,
           },
         });
@@ -399,21 +454,33 @@ export async function resetRolePermissionsToDefaults(roleName: string): Promise<
     return { success: false, error: "Unauthorized" };
   }
 
-  // Hierarchy check
-  if (!authResult.isSuperAdmin) {
-    const { getHierarchyLevels } = await import("@/lib/permissions");
-    const hierarchy = await getHierarchyLevels(authResult.salonId);
-    const callerLevel = hierarchy[authResult.role] ?? 0;
-    const targetLevel = hierarchy[roleName] ?? 0;
-    if (targetLevel >= callerLevel) {
-      return {
-        success: false,
-        error: `You cannot modify permissions for the "${roleName}" role`,
-      };
-    }
-  }
-
   try {
+    // Resolve role name to roleDefinitionId
+    const roleDef = await prisma.roleDefinition.findFirst({
+      where: {
+        name: roleName,
+        OR: [{ isSystem: true }, { salonId: authResult.salonId }],
+      },
+      select: { id: true },
+    });
+    if (!roleDef) {
+      return { success: false, error: `Role "${roleName}" not found` };
+    }
+
+    // Hierarchy check
+    if (!authResult.isSuperAdmin) {
+      const { getHierarchyLevels } = await import("@/lib/permissions");
+      const hierarchy = await getHierarchyLevels(authResult.salonId);
+      const callerLevel = hierarchy[authResult.roleId] ?? 0;
+      const targetLevel = hierarchy[roleDef.id] ?? 0;
+      if (targetLevel >= callerLevel) {
+        return {
+          success: false,
+          error: `You cannot modify permissions for the "${roleName}" role`,
+        };
+      }
+    }
+
     const allPermissions = await prisma.permission.findMany({
       select: { id: true, code: true },
     });
@@ -422,16 +489,16 @@ export async function resetRolePermissionsToDefaults(roleName: string): Promise<
     await prisma.$transaction(async (tx) => {
       // Delete all current assignments for this role at this salon
       await tx.rolePermission.deleteMany({
-        where: { salonId: authResult.salonId, role: roleName },
+        where: { salonId: authResult.salonId, roleDefinitionId: roleDef.id },
       });
 
       // Re-create defaults for this role
-      const data: Array<{ salonId: string; role: string; permissionId: string }> = [];
+      const data: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
       for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
         if (!roles.includes(roleName)) continue;
         const permId = permIdMap.get(code);
         if (!permId) continue;
-        data.push({ salonId: authResult.salonId, role: roleName, permissionId: permId });
+        data.push({ salonId: authResult.salonId, roleDefinitionId: roleDef.id, permissionId: permId });
       }
       if (data.length > 0) {
         await tx.rolePermission.createMany({ data });
@@ -497,15 +564,22 @@ export async function getUserPermissionOverrides(
   }
 
   try {
-    // Verify the target user belongs to this salon
-    const targetUser = await prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: { id: true, firstName: true, lastName: true, role: true, salonId: true },
+    // Verify the target user belongs to this salon via UserSalon
+    const membership = await prisma.userSalon.findUnique({
+      where: { userId_salonId: { userId: targetUserId, salonId: authResult.salonId } },
+      select: {
+        roleDefinitionId: true,
+        isActive: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
+        roleDefinition: { select: { name: true, id: true } },
+      },
     });
 
-    if (!targetUser || targetUser.salonId !== authResult.salonId) {
+    if (!membership || !membership.isActive) {
       return { success: false, error: "User not found in this salon" };
     }
+
+    const targetUser = { ...membership.user, role: membership.roleDefinition.name };
 
     // Get all permissions
     const permissions = await prisma.permission.findMany({
@@ -514,7 +588,7 @@ export async function getUserPermissionOverrides(
 
     // Get role-level permissions for this user's role
     const rolePerms = await prisma.rolePermission.findMany({
-      where: { salonId: authResult.salonId, role: targetUser.role },
+      where: { salonId: authResult.salonId, roleDefinitionId: membership.roleDefinitionId },
       include: { permission: { select: { code: true } } },
     });
 
@@ -586,24 +660,28 @@ export async function updateUserPermissions(
   const { userId: targetUserId, overrides } = parsed.data;
 
   try {
-    // Verify target user belongs to this salon
-    const targetUser = await prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: { id: true, role: true, salonId: true },
+    // Verify target user belongs to this salon via UserSalon
+    const membership = await prisma.userSalon.findUnique({
+      where: { userId_salonId: { userId: targetUserId, salonId: authResult.salonId } },
+      select: {
+        roleDefinitionId: true,
+        isActive: true,
+        roleDefinition: { select: { name: true } },
+      },
     });
 
-    if (!targetUser || targetUser.salonId !== authResult.salonId) {
+    if (!membership || !membership.isActive) {
       return { success: false, error: "User not found in this salon" };
     }
 
     // Enforce role hierarchy: you can only set overrides on users you can manage
     const { canManageRole } = await import("@/lib/permissions");
-    if (!(await canManageRole(authResult.role, targetUser.role, authResult.isSuperAdmin, authResult.salonId))) {
+    if (!(await canManageRole(authResult.roleId, membership.roleDefinitionId, authResult.isSuperAdmin, authResult.salonId))) {
       return { success: false, error: "You cannot modify permissions for this user" };
     }
 
     // Enforce owner lockout: cannot REVOKE critical permissions from OWNER users
-    if (targetUser.role === OWNER_ROLE_NAME) {
+    if (membership.roleDefinition.name === OWNER_ROLE_NAME) {
       const ownerRevocations = overrides.filter(
         (o) => o.overrideType === "REVOKE" && OWNER_LOCKED_PERMISSIONS.includes(o.permissionCode)
       );
@@ -685,18 +763,18 @@ export async function clearUserPermissionOverrides(
   }
 
   try {
-    // Verify target user belongs to this salon
-    const targetUser = await prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: { id: true, role: true, salonId: true },
+    // Verify target user belongs to this salon via UserSalon
+    const membership = await prisma.userSalon.findUnique({
+      where: { userId_salonId: { userId: targetUserId, salonId: authResult.salonId } },
+      select: { roleDefinitionId: true, isActive: true },
     });
 
-    if (!targetUser || targetUser.salonId !== authResult.salonId) {
+    if (!membership || !membership.isActive) {
       return { success: false, error: "User not found in this salon" };
     }
 
     const { canManageRole } = await import("@/lib/permissions");
-    if (!(await canManageRole(authResult.role, targetUser.role, authResult.isSuperAdmin, authResult.salonId))) {
+    if (!(await canManageRole(authResult.roleId, membership.roleDefinitionId, authResult.isSuperAdmin, authResult.salonId))) {
       return { success: false, error: "You cannot modify permissions for this user" };
     }
 

@@ -26,9 +26,10 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canUpdate = await hasPermission(userRole, "appointments:update", isSuperAdmin, salonId, session.user.id);
+  const canUpdate = await hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id);
 
   if (!canUpdate) {
     redirect("/dashboard/access-denied");
@@ -72,7 +73,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
         name: true,
         duration: true,
         price: true,
-        category: true,
+        category: { select: { name: true } },
       },
       orderBy: { name: "asc" },
     }),
@@ -80,6 +81,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       where: {
         salonId,
         isActive: true,
+        isServiceProvider: true,
       },
       select: {
         id: true,
@@ -112,8 +114,11 @@ export default async function EditAppointmentPage({ params }: PageProps) {
           appointment={appointment}
           clients={clients}
           services={services.map((s) => ({
-            ...s,
+            id: s.id,
+            name: s.name,
+            duration: s.duration,
             price: Number(s.price),
+            category: s.category?.name ?? null,
           }))}
           staff={staff}
         />

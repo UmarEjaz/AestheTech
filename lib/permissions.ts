@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { DEFAULT_PERMISSION_ROLES } from "./permissions-defaults";
-import { SYSTEM_ROLE_HIERARCHY } from "./roles";
 
 export type Permission = string;
 
@@ -17,16 +16,16 @@ const PERMISSION_CACHE_TTL = 300; // 5 minutes
  */
 const requestCache = new Map<string, Promise<Set<string>>>();
 
-async function loadPermissionsFromDB(salonId: string, role: string): Promise<Set<string>> {
-  const cacheKey = `salon:${salonId}:perms:${role}`;
+async function loadPermissionsFromDB(salonId: string, roleDefinitionId: string): Promise<Set<string>> {
+  const cacheKey = `salon:${salonId}:perms:${roleDefinitionId}`;
 
   // Check Redis first
   const cached = await cacheGet<string[]>(cacheKey);
   if (cached) return new Set(cached);
 
-  // Query DB
+  // Query DB using roleDefinitionId FK
   const rolePerms = await prisma.rolePermission.findMany({
-    where: { salonId, role },
+    where: { salonId, roleDefinitionId },
     include: { permission: { select: { code: true } } },
   });
 
@@ -41,8 +40,15 @@ async function loadPermissionsFromDB(salonId: string, role: string): Promise<Set
 
     if (salonHasAnyPerms === 0) {
       // Salon hasn't been provisioned yet — use hardcoded defaults
+      // Resolve roleDefinitionId → role name for fallback lookup
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleDefinitionId },
+        select: { name: true },
+      });
+      if (!roleDef) return new Set();
+
       const defaults = Object.entries(DEFAULT_PERMISSION_ROLES)
-        .filter(([, roles]) => roles.includes(role))
+        .filter(([, roles]) => roles.includes(roleDef.name))
         .map(([code]) => code);
       return new Set(defaults);
     }
@@ -60,10 +66,10 @@ async function loadPermissionsFromDB(salonId: string, role: string): Promise<Set
 /**
  * Dedup wrapper — ensures only one DB/Redis call per salon+role per request.
  */
-function getPermissionSet(salonId: string, role: string): Promise<Set<string>> {
-  const key = `${salonId}:${role}`;
+function getPermissionSet(salonId: string, roleDefinitionId: string): Promise<Set<string>> {
+  const key = `${salonId}:${roleDefinitionId}`;
   if (!requestCache.has(key)) {
-    const promise = loadPermissionsFromDB(salonId, role);
+    const promise = loadPermissionsFromDB(salonId, roleDefinitionId);
     requestCache.set(key, promise);
     // Clean up after promise resolves to prevent memory leak across requests in dev
     promise.finally(() => {
@@ -131,7 +137,7 @@ const hierarchyCache = new Map<string, Promise<Record<string, number>>>();
 
 /**
  * Load role hierarchy levels from DB, with fallback to system defaults.
- * Combines system role definitions + salon-specific custom roles.
+ * Returns a map of roleDefinitionId → hierarchyLevel.
  */
 async function loadHierarchyLevels(salonId?: string | null): Promise<Record<string, number>> {
   const cacheKey = salonId ? `roles:hierarchy:${salonId}` : "roles:hierarchy:system";
@@ -148,17 +154,16 @@ async function loadHierarchyLevels(salonId?: string | null): Promise<Record<stri
 
     const roleDefs = await prisma.roleDefinition.findMany({
       where,
-      select: { name: true, hierarchyLevel: true },
+      select: { id: true, hierarchyLevel: true },
     });
 
     if (roleDefs.length === 0) {
-      // No role definitions in DB yet — use hardcoded defaults
-      return { ...SYSTEM_ROLE_HIERARCHY };
+      return {};
     }
 
     const levels: Record<string, number> = {};
     for (const rd of roleDefs) {
-      levels[rd.name] = rd.hierarchyLevel;
+      levels[rd.id] = rd.hierarchyLevel;
     }
 
     // Cache in Redis
@@ -166,8 +171,7 @@ async function loadHierarchyLevels(salonId?: string | null): Promise<Record<stri
 
     return levels;
   } catch {
-    // Fallback to hardcoded system levels
-    return { ...SYSTEM_ROLE_HIERARCHY };
+    return {};
   }
 }
 
@@ -190,16 +194,18 @@ export function getHierarchyLevels(salonId?: string | null): Promise<Record<stri
 /**
  * Check if a role has a specific permission at a given salon.
  * Resolution order: SUPER_ADMIN bypass -> user overrides -> role permissions -> hardcoded defaults.
+ *
+ * @param roleId - The roleDefinitionId (not the role name)
  */
 export async function hasPermission(
-  role: string | null,
+  roleId: string | null,
   permission: Permission,
   isSuperAdmin = false,
   salonId?: string | null,
   userId?: string | null
 ): Promise<boolean> {
   if (isSuperAdmin) return true;
-  if (!role) return false;
+  if (!roleId) return false;
 
   // Check user-level overrides first (short-circuit layer)
   if (salonId && userId) {
@@ -210,13 +216,22 @@ export async function hasPermission(
     // No override — fall through to role permissions
   }
 
-  // When no salonId, fall back to hardcoded defaults
+  // When no salonId, fall back to hardcoded defaults by resolving ID → name
   if (!salonId) {
-    const defaults = DEFAULT_PERMISSION_ROLES[permission];
-    return defaults ? defaults.includes(role) : false;
+    try {
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleId },
+        select: { name: true },
+      });
+      if (!roleDef) return false;
+      const defaults = DEFAULT_PERMISSION_ROLES[permission];
+      return defaults ? defaults.includes(roleDef.name) : false;
+    } catch {
+      return false;
+    }
   }
 
-  const permSet = await getPermissionSet(salonId, role);
+  const permSet = await getPermissionSet(salonId, roleId);
   return permSet.has(permission);
 }
 
@@ -224,14 +239,14 @@ export async function hasPermission(
  * Check if a role has any of the specified permissions.
  */
 export async function hasAnyPermission(
-  role: string | null,
+  roleId: string | null,
   perms: Permission[],
   isSuperAdmin = false,
   salonId?: string | null,
   userId?: string | null
 ): Promise<boolean> {
   if (isSuperAdmin) return true;
-  if (!role) return false;
+  if (!roleId) return false;
 
   // Check user overrides first
   if (salonId && userId) {
@@ -241,17 +256,8 @@ export async function hasAnyPermission(
       if (override === "GRANT") return true;
     }
     // If any were explicitly revoked, we need to check the rest against role perms
-    // So we fall through to role-level check but skip revoked ones
     if (overrides.size > 0) {
-      if (!salonId) {
-        return perms.some((p) => {
-          const ov = overrides.get(p);
-          if (ov === "REVOKE") return false;
-          const defaults = DEFAULT_PERMISSION_ROLES[p];
-          return defaults ? defaults.includes(role) : false;
-        });
-      }
-      const permSet = await getPermissionSet(salonId, role);
+      const permSet = await getPermissionSet(salonId, roleId);
       return perms.some((p) => {
         const ov = overrides.get(p);
         if (ov === "GRANT") return true;
@@ -263,13 +269,22 @@ export async function hasAnyPermission(
 
   // Load once, check all
   if (!salonId) {
-    return perms.some((p) => {
-      const defaults = DEFAULT_PERMISSION_ROLES[p];
-      return defaults ? defaults.includes(role) : false;
-    });
+    try {
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleId },
+        select: { name: true },
+      });
+      if (!roleDef) return false;
+      return perms.some((p) => {
+        const defaults = DEFAULT_PERMISSION_ROLES[p];
+        return defaults ? defaults.includes(roleDef.name) : false;
+      });
+    } catch {
+      return false;
+    }
   }
 
-  const permSet = await getPermissionSet(salonId, role);
+  const permSet = await getPermissionSet(salonId, roleId);
   return perms.some((p) => permSet.has(p));
 }
 
@@ -277,29 +292,20 @@ export async function hasAnyPermission(
  * Check if a role has all of the specified permissions.
  */
 export async function hasAllPermissions(
-  role: string | null,
+  roleId: string | null,
   perms: Permission[],
   isSuperAdmin = false,
   salonId?: string | null,
   userId?: string | null
 ): Promise<boolean> {
   if (isSuperAdmin) return true;
-  if (!role) return false;
+  if (!roleId) return false;
 
   // Check with user overrides
   if (salonId && userId) {
     const overrides = await getUserOverrides(salonId, userId);
     if (overrides.size > 0) {
-      if (!salonId) {
-        return perms.every((p) => {
-          const ov = overrides.get(p);
-          if (ov === "GRANT") return true;
-          if (ov === "REVOKE") return false;
-          const defaults = DEFAULT_PERMISSION_ROLES[p];
-          return defaults ? defaults.includes(role) : false;
-        });
-      }
-      const permSet = await getPermissionSet(salonId, role);
+      const permSet = await getPermissionSet(salonId, roleId);
       return perms.every((p) => {
         const ov = overrides.get(p);
         if (ov === "GRANT") return true;
@@ -310,13 +316,22 @@ export async function hasAllPermissions(
   }
 
   if (!salonId) {
-    return perms.every((p) => {
-      const defaults = DEFAULT_PERMISSION_ROLES[p];
-      return defaults ? defaults.includes(role) : false;
-    });
+    try {
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleId },
+        select: { name: true },
+      });
+      if (!roleDef) return false;
+      return perms.every((p) => {
+        const defaults = DEFAULT_PERMISSION_ROLES[p];
+        return defaults ? defaults.includes(roleDef.name) : false;
+      });
+    } catch {
+      return false;
+    }
   }
 
-  const permSet = await getPermissionSet(salonId, role);
+  const permSet = await getPermissionSet(salonId, roleId);
   return perms.every((p) => permSet.has(p));
 }
 
@@ -324,7 +339,7 @@ export async function hasAllPermissions(
  * Get all permissions for a role at a given salon, with user overrides merged.
  */
 export async function getPermissionsForRole(
-  role: string | null,
+  roleId: string | null,
   isSuperAdmin = false,
   salonId?: string | null,
   userId?: string | null
@@ -332,17 +347,26 @@ export async function getPermissionsForRole(
   if (isSuperAdmin) {
     return Object.keys(DEFAULT_PERMISSION_ROLES);
   }
-  if (!role) return [];
+  if (!roleId) return [];
 
   let permSet: Set<string>;
   if (!salonId) {
-    permSet = new Set(
-      Object.entries(DEFAULT_PERMISSION_ROLES)
-        .filter(([, roles]) => roles.includes(role))
-        .map(([code]) => code)
-    );
+    try {
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleId },
+        select: { name: true },
+      });
+      if (!roleDef) return [];
+      permSet = new Set(
+        Object.entries(DEFAULT_PERMISSION_ROLES)
+          .filter(([, roles]) => roles.includes(roleDef.name))
+          .map(([code]) => code)
+      );
+    } catch {
+      return [];
+    }
   } else {
-    permSet = new Set(await getPermissionSet(salonId, role));
+    permSet = new Set(await getPermissionSet(salonId, roleId));
   }
 
   // Apply user overrides
@@ -359,22 +383,25 @@ export async function getPermissionsForRole(
 
 /**
  * Check if a role can manage other roles (role hierarchy).
- * Now async — reads hierarchy levels from DB/cache.
+ * Now uses roleDefinitionIds instead of role names.
  * SUPER_ADMIN can manage all roles.
  */
 export async function canManageRole(
-  managerRole: string | null,
-  targetRole: string,
+  managerRoleId: string | null,
+  targetRoleId: string,
   isSuperAdmin = false,
   salonId?: string | null
 ): Promise<boolean> {
   if (isSuperAdmin) return true;
-  if (!managerRole) return false;
+  if (!managerRoleId) return false;
 
   const levels = await getHierarchyLevels(salonId);
 
-  const managerLevel = levels[managerRole] ?? 0;
-  const targetLevel = levels[targetRole] ?? 0;
+  const managerLevel = levels[managerRoleId];
+  const targetLevel = levels[targetRoleId];
+  if (managerLevel === undefined || targetLevel === undefined) {
+    return false;
+  }
 
   return managerLevel > targetLevel;
 }

@@ -24,10 +24,11 @@ export const createRoleSchema = z.object({
 
 export const updateRoleSchema = z.object({
   id: z.string().min(1, "Role ID is required"),
-  label: z
+  name: z
     .string()
-    .min(1, "Display label is required")
-    .max(50, "Display label must be less than 50 characters")
+    .min(1, "Role name is required")
+    .max(50, "Role name must be less than 50 characters")
+    .regex(/^[a-zA-Z0-9_ ]+$/, "Role name can only contain letters, numbers, spaces, and underscores")
     .optional(),
   description: z.string().max(200, "Description must be less than 200 characters").optional().or(z.literal("")),
   color: z

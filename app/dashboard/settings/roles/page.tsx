@@ -17,10 +17,16 @@ export default async function RolesPage() {
   }
 
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  if (!(await hasPermission(userRole, "roles:manage", isSuperAdmin, salonId, session.user.id))) {
+  const [canManageRoles, canManagePermissions] = await Promise.all([
+    hasPermission(userRoleId, "roles:manage", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id),
+  ]);
+
+  if (!canManageRoles) {
     redirect("/dashboard/access-denied");
   }
 
@@ -36,10 +42,10 @@ export default async function RolesPage() {
     );
   }
 
-  // Pre-fetch permission data for the first role
+  // Only prefetch permission data if user can manage permissions
   const firstRole = rolesResult.data[0];
   let initialPermData = null;
-  if (firstRole) {
+  if (canManagePermissions && firstRole) {
     const permResult = await getRoleBySlug(firstRole.slug);
     if (permResult.success) {
       initialPermData = permResult.data;
@@ -48,7 +54,7 @@ export default async function RolesPage() {
 
   return (
     <DashboardLayout>
-      <RolesPageClient roles={rolesResult.data} initialPermData={initialPermData} />
+      <RolesPageClient roles={rolesResult.data} initialPermData={initialPermData} canManagePermissions={canManagePermissions} />
     </DashboardLayout>
   );
 }

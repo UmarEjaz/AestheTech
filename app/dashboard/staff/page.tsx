@@ -17,17 +17,18 @@ export default async function StaffPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
   // Check if user can view staff
-  if (!await hasPermission(userRole, "staff:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canCreate = await hasPermission(userRole, "staff:create", isSuperAdmin, salonId, session.user.id);
-  const canEdit = await hasPermission(userRole, "staff:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRole, "staff:delete", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id);
+  const canEdit = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "staff:delete", isSuperAdmin, salonId, session.user.id);
 
   const [usersResult, tz] = await Promise.all([
     getUsers({ page: 1, limit: 15 }),

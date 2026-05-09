@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Loader2, Trash2, Edit, Lock, RotateCcw } from "lucide-react";
+import { ArrowLeft, Plus, Loader2, Trash2, Edit, Lock, RotateCcw, Info } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,12 +55,13 @@ type PermissionData = {
 interface RolesPageClientProps {
   roles: RoleInfo[];
   initialPermData: PermissionData | null;
+  canManagePermissions: boolean;
 }
 
-export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps) {
+export function RolesPageClient({ roles, initialPermData, canManagePermissions }: RolesPageClientProps) {
   // Role selection
   const [selectedSlug, setSelectedSlug] = useState(
-    initialPermData?.role.slug ?? roles[0]?.slug ?? ""
+    initialPermData?.role.slug ?? ""
   );
   const [permData, setPermData] = useState<PermissionData | null>(initialPermData);
   const [isLoadingPerms, setIsLoadingPerms] = useState(false);
@@ -82,9 +83,9 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
   const [isDeleting, setIsDeleting] = useState(false);
 
   const selectedRole = permData?.role;
-  const isReadOnly = selectedRole
+  const isReadOnly = !canManagePermissions || (selectedRole
     ? selectedRole.hierarchyLevel >= (permData?.callerHierarchyLevel ?? 0)
-    : true;
+    : true);
   const isOwnerRole = selectedRole?.name === OWNER_ROLE_NAME;
 
   // Group permissions by module
@@ -123,7 +124,7 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
   // ---------- Role selection ----------
 
   const handleSelectRole = async (slug: string) => {
-    if (slug === selectedSlug) return;
+    if (slug === selectedSlug && permData?.role.slug === slug) return;
 
     if (changes.count > 0) {
       const confirmed = window.confirm(
@@ -132,12 +133,12 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
       if (!confirmed) return;
     }
 
-    setSelectedSlug(slug);
     setIsLoadingPerms(true);
 
     try {
       const result = await getRoleBySlug(slug);
       if (result.success) {
+        setSelectedSlug(slug);
         setPermData(result.data);
         setGranted(new Set(result.data.grantedPermissions));
         setInitialGranted(new Set(result.data.grantedPermissions));
@@ -150,6 +151,46 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
       setIsLoadingPerms(false);
     }
   };
+
+  // Validate that :view is granted when any :create/:update/:delete is granted
+  const validateViewDependencies = useCallback((): string[] => {
+    if (!permData) return [];
+
+    const allCodes = permData.permissions.map((p) => p.code);
+
+    // Find all prefixes that have a :view permission (e.g., "clients", "payroll", "salary-config")
+    const viewPrefixes = new Set<string>();
+    for (const code of allCodes) {
+      if (code.endsWith(":view")) {
+        viewPrefixes.add(code.slice(0, code.lastIndexOf(":view")));
+      }
+    }
+
+    const violations: string[] = [];
+    for (const prefix of viewPrefixes) {
+      const viewCode = `${prefix}:view`;
+      if (granted.has(viewCode)) continue;
+
+      // Check if any non-view permission with this prefix is granted
+      const hasNonView = allCodes.some(
+        (code) =>
+          code.startsWith(`${prefix}:`) &&
+          code !== viewCode &&
+          granted.has(code)
+      );
+
+      if (hasNonView) {
+        // Use the module label for a user-friendly name
+        const perm = permData.permissions.find((p) => p.code === viewCode);
+        const moduleLabel = perm
+          ? MODULE_LABELS[perm.module] || perm.module
+          : prefix;
+        violations.push(moduleLabel);
+      }
+    }
+
+    return [...new Set(violations)];
+  }, [permData, granted]);
 
   // ---------- Permission editing ----------
 
@@ -165,6 +206,15 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
 
   const handleSave = async () => {
     if (!selectedRole || changes.count === 0) return;
+
+    const violations = validateViewDependencies();
+    if (violations.length > 0) {
+      toast.error(
+        `Cannot save: View permission is required for ${violations.join(", ")}`
+      );
+      return;
+    }
+
     setIsSaving(true);
     try {
       const result = await updateRolePermissions({
@@ -304,11 +354,19 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
         <div className="hidden lg:block w-60 shrink-0">
           <div className="sticky top-24 bg-background border rounded-xl overflow-hidden">
             {roles.map((role) => (
-              <button
+              <div
                 key={role.slug}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleSelectRole(role.slug)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleSelectRole(role.slug);
+                  }
+                }}
                 className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3.5 border-b last:border-b-0 text-left transition-colors group",
+                  "w-full flex items-center gap-3 px-4 py-3.5 border-b last:border-b-0 text-left transition-colors group cursor-pointer",
                   selectedSlug === role.slug
                     ? "bg-primary/5 border-l-[3px] border-l-primary"
                     : "hover:bg-muted/50"
@@ -368,7 +426,7 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
                     {role.userCount ?? 0}
                   </span>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -434,6 +492,12 @@ export function RolesPageClient({ roles, initialPermData }: RolesPageClientProps
             </div>
           ) : permData ? (
             <div className="bg-background border rounded-xl p-6">
+              {!isReadOnly && (
+                <div className="flex items-center gap-2 mb-4 pb-4 border-b text-sm text-muted-foreground">
+                  <Info className="h-4 w-4 shrink-0" />
+                  <p>View permission is required when granting Create, Update, or Delete for any module.</p>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-6">
                 {Array.from(modules.entries()).map(([module, perms]) => {
                   const grantedCount = perms.filter((p) =>

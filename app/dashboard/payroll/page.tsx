@@ -33,14 +33,15 @@ export default async function PayrollPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  if (!await hasPermission(userRole, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = await hasPermission(userRole, "payroll:create", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRole, "payroll:delete", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "payroll:delete", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const status = params.status as PayrollRunStatus | undefined;

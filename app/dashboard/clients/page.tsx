@@ -17,11 +17,12 @@ export default async function ClientsPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canCreate = await hasPermission(userRole, "clients:create", isSuperAdmin, salonId, session.user.id);
-  const canEdit = await hasPermission(userRole, "clients:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRole, "clients:delete", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, session.user.id);
+  const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "clients:delete", isSuperAdmin, salonId, session.user.id);
 
   const [clientsResult, settingsResult] = await Promise.all([
     getClients({ page: 1, limit: 15 }),

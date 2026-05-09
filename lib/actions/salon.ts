@@ -108,7 +108,8 @@ export async function getSalonById(
             lastName: true,
             email: true,
             phone: true,
-            role: true,
+            roleDefinitionId: true,
+            roleDefinition: { select: { name: true } },
             isActive: true,
             createdAt: true,
           },
@@ -120,7 +121,22 @@ export async function getSalonById(
       return { success: false, error: "Salon not found" };
     }
 
-    return { success: true, data: salon };
+    // Map users to include role name from roleDefinition relation
+    const mappedSalon: SalonDetail = {
+      ...salon,
+      users: salon.users.map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        phone: u.phone,
+        role: u.roleDefinition?.name ?? null,
+        isActive: u.isActive,
+        createdAt: u.createdAt,
+      })),
+    };
+
+    return { success: true, data: mappedSalon };
   } catch {
     return { success: false, error: "Failed to fetch salon" };
   }

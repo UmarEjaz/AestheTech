@@ -27,6 +27,9 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
         salon: {
           select: { id: true, name: true },
         },
+        roleDefinition: {
+          select: { name: true },
+        },
       },
       orderBy: { salon: { name: "asc" } },
     });
@@ -34,7 +37,7 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
     const items: UserSalonItem[] = userSalons.map((us) => ({
       salonId: us.salon.id,
       salonName: us.salon.name,
-      role: us.role,
+      role: us.roleDefinition.name,
       isCurrent: us.salonId === authResult.salonId,
     }));
 
@@ -64,6 +67,7 @@ export async function switchSalon(
       },
       include: {
         salon: { select: { isActive: true } },
+        roleDefinition: { select: { name: true } },
       },
     });
 
@@ -75,18 +79,18 @@ export async function switchSalon(
       return { success: false, error: "This salon is not active" };
     }
 
-    // Update user's current salon and role
+    // Update user's current salon and roleDefinitionId
     await prisma.user.update({
       where: { id: authResult.userId },
       data: {
         salonId: targetSalonId,
-        role: userSalon.role,
+        roleDefinitionId: userSalon.roleDefinitionId,
       },
     });
 
     return {
       success: true,
-      data: { salonId: targetSalonId, role: userSalon.role },
+      data: { salonId: targetSalonId, role: userSalon.roleDefinition.name },
     };
   } catch (error) {
     console.error("Error switching salon:", error);

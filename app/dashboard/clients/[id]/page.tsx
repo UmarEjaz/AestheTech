@@ -51,9 +51,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canEdit = await hasPermission(userRole, "clients:update", isSuperAdmin, salonId, session.user.id);
+  const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
 
   const [result, settingsResult] = await Promise.all([
     getClient(id),

@@ -25,9 +25,10 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canCreate = await hasPermission(userRole, "appointments:create", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id);
 
   if (!canCreate) {
     redirect("/dashboard/access-denied");
@@ -57,7 +58,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
         name: true,
         duration: true,
         price: true,
-        category: true,
+        category: { select: { name: true } },
       },
       orderBy: { name: "asc" },
     }),
@@ -65,6 +66,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       where: {
         salonId,
         isActive: true,
+        isServiceProvider: true,
       },
       select: {
         id: true,
@@ -99,8 +101,11 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
           mode="create"
           clients={clients}
           services={services.map((s) => ({
-            ...s,
+            id: s.id,
+            name: s.name,
+            duration: s.duration,
             price: Number(s.price),
+            category: s.category?.name ?? null,
           }))}
           staff={staff}
           initialDate={initialDate}

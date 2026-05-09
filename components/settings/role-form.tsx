@@ -24,7 +24,6 @@ const PRESET_COLORS = [
 export function RoleForm({ role, onClose }: RoleFormProps) {
   const isEdit = !!role;
   const [name, setName] = useState(role?.label ?? "");
-  const [label, setLabel] = useState(role?.label ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
   const [color, setColor] = useState(role?.color ?? "#6B7280");
   const [hierarchyLevel, setHierarchyLevel] = useState(role?.hierarchyLevel ?? 30);
@@ -38,7 +37,7 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
       if (isEdit) {
         const result = await updateRole({
           id: role.id,
-          label,
+          name,
           description: description || undefined,
           color,
           hierarchyLevel,
@@ -52,7 +51,7 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
       } else {
         const result = await createRole({
           name,
-          label,
+          label: name,
           description: description || undefined,
           color,
           hierarchyLevel,
@@ -80,31 +79,12 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {!isEdit && (
-        <div className="space-y-2">
-          <Label htmlFor="name">Role Name *</Label>
-          <Input
-            id="name"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              if (!isEdit && !label) setLabel(e.target.value);
-            }}
-            placeholder="e.g., Senior Stylist"
-            required
-          />
-          <p className="text-xs text-muted-foreground">
-            Internal name (letters, numbers, spaces, underscores)
-          </p>
-        </div>
-      )}
-
       <div className="space-y-2">
-        <Label htmlFor="label">Display Label *</Label>
+        <Label htmlFor="name">Role Name *</Label>
         <Input
-          id="label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          id="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
           placeholder="e.g., Senior Stylist"
           required
         />

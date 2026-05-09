@@ -20,9 +20,10 @@ export default async function NewSalaryConfigPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  if (!(await hasPermission(userRole, "salary-config:create", isSuperAdmin, salonId, session.user.id))) {
+  if (!(await hasPermission(userRoleId, "salary-config:create", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 

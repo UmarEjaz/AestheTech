@@ -7,6 +7,7 @@ import { SYSTEM_ROLES } from "@/lib/roles";
 export interface AuthResult {
   userId: string;
   role: string;
+  roleId: string;
   salonId: string;
   isSuperAdmin: boolean;
 }
@@ -20,20 +21,23 @@ export async function checkAuth(permission: Permission): Promise<AuthResult | nu
   const session = await auth();
   if (!session?.user) return null;
 
-  const { id: userId, salonId, salonRole, isSuperAdmin } = session.user;
+  const { id: userId, salonId, salonRole, salonRoleId, isSuperAdmin } = session.user;
 
   // Must have a salon selected (except SUPER_ADMIN platform-level actions handled separately)
   if (!salonId) return null;
 
   const role = salonRole ?? (isSuperAdmin ? SYSTEM_ROLES.OWNER : null);
+  const roleId = salonRoleId ?? null;
   if (!role) return null;
 
   // SUPER_ADMIN bypasses permission checks; user overrides applied via userId
-  if (!(await hasPermission(role, permission, isSuperAdmin, salonId, userId))) {
+  if (!(await hasPermission(roleId, permission, isSuperAdmin, salonId, userId))) {
     return null;
   }
 
-  return { userId, role, salonId, isSuperAdmin };
+  // For super admins without a roleId, we still need to return something
+  // They bypass permission checks anyway
+  return { userId, role, roleId: roleId ?? "", salonId, isSuperAdmin };
 }
 
 /**
@@ -44,12 +48,13 @@ export async function checkAuthBasic(): Promise<AuthResult | null> {
   const session = await auth();
   if (!session?.user) return null;
 
-  const { id: userId, salonId, salonRole, isSuperAdmin } = session.user;
+  const { id: userId, salonId, salonRole, salonRoleId, isSuperAdmin } = session.user;
 
   if (!salonId) return null;
 
   const role = salonRole ?? (isSuperAdmin ? SYSTEM_ROLES.OWNER : null);
+  const roleId = salonRoleId ?? null;
   if (!role) return null;
 
-  return { userId, role, salonId, isSuperAdmin };
+  return { userId, role, roleId: roleId ?? "", salonId, isSuperAdmin };
 }

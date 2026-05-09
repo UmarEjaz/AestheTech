@@ -20,12 +20,19 @@ export default async function NewServicePage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "services:create", isSuperAdmin, salonId, session.user.id);
+  if (!isSuperAdmin) {
+    const [canView, canCreate, canViewCategories] = await Promise.all([
+      hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id),
+    ]);
 
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+    if (!canView || !canCreate || !canViewCategories) {
+      redirect("/dashboard/access-denied");
+    }
   }
 
   const [categoriesResult, settingsResult] = await Promise.all([
@@ -36,7 +43,7 @@ export default async function NewServicePage() {
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

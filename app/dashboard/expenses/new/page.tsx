@@ -17,14 +17,19 @@ export default async function NewExpensePage() {
   }
 
   const userRole = session.user.salonRole;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canCreate =
-    isSuperAdmin ||
-    (userRole != null && await hasPermission(userRole, "expenses:create", isSuperAdmin, salonId, session.user.id));
+  if (!isSuperAdmin) {
+    const [canView, canCreate, canViewCategories] = await Promise.all([
+      hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id),
+    ]);
 
-  if (!canCreate) {
-    redirect("/dashboard/access-denied");
+    if (!canView || !canCreate || !canViewCategories) {
+      redirect("/dashboard/access-denied");
+    }
   }
 
   const [categoriesResult, settingsResult] = await Promise.all([

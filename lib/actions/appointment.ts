@@ -36,7 +36,7 @@ const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
       name: true,
       duration: true,
       price: true,
-      category: true,
+      category: { select: { id: true, name: true } },
     },
   },
   staff: {

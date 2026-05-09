@@ -23,10 +23,11 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  if (!await hasPermission(userRole, "branches:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
@@ -46,7 +47,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   }
 
   const branch = result.data;
-  const canManage = await hasPermission(userRole, "branches:update", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRoleId, "branches:update", isSuperAdmin, salonId, session.user.id);
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

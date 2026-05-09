@@ -18,12 +18,12 @@ export async function GET(
     if (!session.user.salonRole && !isSuperAdmin) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const role = session.user.salonRole ?? "OWNER";
+    const roleId = session.user.salonRoleId ?? null;
     const salonId = session.user.salonId;
     if (!salonId) {
       return NextResponse.json({ error: "No salon context" }, { status: 400 });
     }
-    if (!(await hasPermission(role, "appointments:view", isSuperAdmin, salonId, session.user.id))) {
+    if (!(await hasPermission(roleId, "appointments:view", isSuperAdmin, salonId, session.user.id))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

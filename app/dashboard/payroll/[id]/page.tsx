@@ -29,15 +29,16 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  if (!await hasPermission(userRole, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
   const { id } = await params;
-  const canManage = await hasPermission(userRole, "payroll:update", isSuperAdmin, salonId, session.user.id);
-  const canPay = await hasPermission(userRole, "payroll:pay", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRoleId, "payroll:update", isSuperAdmin, salonId, session.user.id);
+  const canPay = await hasPermission(userRoleId, "payroll:pay", isSuperAdmin, salonId, session.user.id);
 
   const [result, settingsResult] = await Promise.all([
     getPayrollRun(id),

@@ -62,11 +62,23 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
   "services:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "services:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
+  // Service Categories
+  "service-categories:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "service-categories:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "service-categories:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "service-categories:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+
   // Products
   "products:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST],
   "products:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "products:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "products:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+
+  // Product Categories
+  "product-categories:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "product-categories:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "product-categories:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "product-categories:delete": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Loyalty
   "loyalty:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.RECEPTIONIST],
@@ -175,11 +187,23 @@ export const PERMISSION_REGISTRY: Array<{
   { code: "services:update", module: "services", label: "Update Services", sortOrder: 2 },
   { code: "services:delete", module: "services", label: "Delete Services", sortOrder: 3 },
 
+  // Service Categories
+  { code: "service-categories:view", module: "service-categories", label: "View Service Categories", sortOrder: 0 },
+  { code: "service-categories:create", module: "service-categories", label: "Create Service Categories", sortOrder: 1 },
+  { code: "service-categories:update", module: "service-categories", label: "Update Service Categories", sortOrder: 2 },
+  { code: "service-categories:delete", module: "service-categories", label: "Delete Service Categories", sortOrder: 3 },
+
   // Products
   { code: "products:view", module: "products", label: "View Products", sortOrder: 0 },
   { code: "products:create", module: "products", label: "Create Products", sortOrder: 1 },
   { code: "products:update", module: "products", label: "Update Products", sortOrder: 2 },
   { code: "products:delete", module: "products", label: "Delete Products", sortOrder: 3 },
+
+  // Product Categories
+  { code: "product-categories:view", module: "product-categories", label: "View Product Categories", sortOrder: 0 },
+  { code: "product-categories:create", module: "product-categories", label: "Create Product Categories", sortOrder: 1 },
+  { code: "product-categories:update", module: "product-categories", label: "Update Product Categories", sortOrder: 2 },
+  { code: "product-categories:delete", module: "product-categories", label: "Delete Product Categories", sortOrder: 3 },
 
   // Loyalty
   { code: "loyalty:view", module: "loyalty", label: "View Loyalty", sortOrder: 0 },
@@ -258,7 +282,9 @@ export const MODULE_LABELS: Record<string, string> = {
   reports: "Reports",
   settings: "Settings",
   services: "Services",
+  "service-categories": "Service Categories",
   products: "Products",
+  "product-categories": "Product Categories",
   loyalty: "Loyalty Program",
   branches: "Branches",
   expenses: "Expenses",

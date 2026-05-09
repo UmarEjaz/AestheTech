@@ -25,12 +25,19 @@ export default async function EditProductPage({ params }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "products:update", isSuperAdmin, salonId, session.user.id);
+  if (!isSuperAdmin) {
+    const [canView, canUpdate, canViewCategories] = await Promise.all([
+      hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id),
+    ]);
 
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+    if (!canView || !canUpdate || !canViewCategories) {
+      redirect("/dashboard/access-denied");
+    }
   }
 
   const [productResult, categoriesResult, settingsResult] = await Promise.all([
@@ -48,7 +55,7 @@ export default async function EditProductPage({ params }: PageProps) {
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -76,7 +83,7 @@ export default async function EditProductPage({ params }: PageProps) {
             stock: product.stock,
             lowStockThreshold: product.lowStockThreshold,
             points: product.points,
-            category: product.category,
+            categoryId: product.categoryId,
             isActive: product.isActive,
           }}
           categories={categories}

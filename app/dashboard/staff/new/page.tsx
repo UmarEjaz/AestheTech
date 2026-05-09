@@ -19,9 +19,10 @@ export default async function NewStaffPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
 
   const salonId = session.user.salonId;
-  if (!(await hasPermission(userRole, "staff:create", isSuperAdmin, salonId, session.user.id))) {
+  if (!(await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 

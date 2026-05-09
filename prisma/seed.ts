@@ -12,7 +12,6 @@ async function main() {
   await prisma.userPermission.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.permission.deleteMany();
-  await prisma.roleDefinition.deleteMany();
   await prisma.payrollEntry.deleteMany();
   await prisma.payrollRun.deleteMany();
   await prisma.salaryConfig.deleteMany();
@@ -33,10 +32,13 @@ async function main() {
   await prisma.schedule.deleteMany();
   await prisma.product.deleteMany();
   await prisma.service.deleteMany();
+  await prisma.productCategory.deleteMany();
+  await prisma.serviceCategory.deleteMany();
   await prisma.client.deleteMany();
   await prisma.settings.deleteMany();
   await prisma.userSalon.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.roleDefinition.deleteMany();
   await prisma.salon.deleteMany();
 
   console.log("Cleared existing data");
@@ -44,8 +46,9 @@ async function main() {
   // ============================================
   // ROLE DEFINITIONS — Seed 4 system roles
   // ============================================
+  const roleDefMap = new Map<string, string>(); // name → id
   for (const def of SYSTEM_ROLE_DEFINITIONS) {
-    await prisma.roleDefinition.create({
+    const rd = await prisma.roleDefinition.create({
       data: {
         name: def.name,
         slug: def.slug,
@@ -57,6 +60,7 @@ async function main() {
         salonId: null,
       },
     });
+    roleDefMap.set(def.name, rd.id);
   }
   console.log("Created system role definitions");
 
@@ -106,7 +110,7 @@ async function main() {
       phone: "+923001234567",
       isSuperAdmin: true,
       salonId: salon.id,
-      role: "OWNER",
+      roleDefinitionId: roleDefMap.get("OWNER")!,
     },
   });
 
@@ -118,7 +122,7 @@ async function main() {
       lastName: "Johnson",
       phone: "+1234567890",
       salonId: salon.id,
-      role: "OWNER",
+      roleDefinitionId: roleDefMap.get("OWNER")!,
     },
   });
 
@@ -130,7 +134,7 @@ async function main() {
       lastName: "Chen",
       phone: "+1234567891",
       salonId: salon.id,
-      role: "ADMIN",
+      roleDefinitionId: roleDefMap.get("ADMIN")!,
     },
   });
 
@@ -142,7 +146,7 @@ async function main() {
       lastName: "Wilson",
       phone: "+1234567892",
       salonId: salon.id,
-      role: "STAFF",
+      roleDefinitionId: roleDefMap.get("STAFF")!,
     },
   });
 
@@ -154,7 +158,7 @@ async function main() {
       lastName: "Brown",
       phone: "+1234567893",
       salonId: salon.id,
-      role: "STAFF",
+      roleDefinitionId: roleDefMap.get("STAFF")!,
     },
   });
 
@@ -166,7 +170,7 @@ async function main() {
       lastName: "Martinez",
       phone: "+1234567894",
       salonId: salon.id,
-      role: "RECEPTIONIST",
+      roleDefinitionId: roleDefMap.get("RECEPTIONIST")!,
     },
   });
 
@@ -174,17 +178,17 @@ async function main() {
 
   // Create UserSalon records for all users
   const allUsers = [
-    { user: superAdmin, role: "OWNER" },
-    { user: owner, role: "OWNER" },
-    { user: admin, role: "ADMIN" },
-    { user: staff1, role: "STAFF" },
-    { user: staff2, role: "STAFF" },
-    { user: lisa, role: "RECEPTIONIST" },
+    { user: superAdmin, roleName: "OWNER" },
+    { user: owner, roleName: "OWNER" },
+    { user: admin, roleName: "ADMIN" },
+    { user: staff1, roleName: "STAFF" },
+    { user: staff2, roleName: "STAFF" },
+    { user: lisa, roleName: "RECEPTIONIST" },
   ];
 
-  for (const { user: u, role: r } of allUsers) {
+  for (const { user: u, roleName } of allUsers) {
     await prisma.userSalon.create({
-      data: { userId: u.id, salonId: salon.id, role: r },
+      data: { userId: u.id, salonId: salon.id, roleDefinitionId: roleDefMap.get(roleName)! },
     });
   }
 
@@ -216,17 +220,74 @@ async function main() {
 
   // Give Owner and SuperAdmin access to the branch
   await prisma.userSalon.create({
-    data: { userId: superAdmin.id, salonId: branchSalon.id, role: "OWNER" },
+    data: { userId: superAdmin.id, salonId: branchSalon.id, roleDefinitionId: roleDefMap.get("OWNER")! },
   });
   await prisma.userSalon.create({
-    data: { userId: owner.id, salonId: branchSalon.id, role: "OWNER" },
+    data: { userId: owner.id, salonId: branchSalon.id, roleDefinitionId: roleDefMap.get("OWNER")! },
   });
   // Assign one staff member to both branches
   await prisma.userSalon.create({
-    data: { userId: staff1.id, salonId: branchSalon.id, role: "STAFF" },
+    data: { userId: staff1.id, salonId: branchSalon.id, roleDefinitionId: roleDefMap.get("STAFF")! },
   });
 
   console.log("Created demo branch salon");
+
+  // ============================================
+  // SERVICE CATEGORIES & PRODUCT CATEGORIES
+  // ============================================
+  const serviceCategories = await Promise.all([
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Hair", icon: "Scissors", color: "#9333EA", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Nails", icon: "Paintbrush", color: "#EC4899", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Skin", icon: "Sparkles", color: "#F59E0B", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Makeup", icon: "Palette", color: "#EF4444", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Massage", icon: "Hand", color: "#22C55E", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Waxing", icon: "Flame", color: "#F97316", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Other", icon: "MoreHorizontal", color: "#6B7280", isDefault: true },
+    }),
+  ]);
+
+  const svcCatMap = new Map(serviceCategories.map((c) => [c.name, c.id]));
+
+  const productCategories = await Promise.all([
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Hair Care", icon: "Sparkles", color: "#9333EA", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Skin Care", icon: "Droplet", color: "#3B82F6", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Nail Care", icon: "Paintbrush", color: "#EC4899", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Styling Tools", icon: "Wrench", color: "#F59E0B", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Accessories", icon: "Gem", color: "#8B5CF6", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Grooming", icon: "Scissors", color: "#14B8A6", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Other", icon: "MoreHorizontal", color: "#6B7280", isDefault: true },
+    }),
+  ]);
+
+  const prodCatMap = new Map(productCategories.map((c) => [c.name, c.id]));
+
+  console.log("Created service and product categories");
 
   // Create branch-specific services (demonstrates cross-branch service visibility)
   await Promise.all([
@@ -238,7 +299,7 @@ async function main() {
         duration: 30,
         price: 45.0,
         points: 45,
-        category: "Skin",
+        categoryId: svcCatMap.get("Skin")!,
       },
     }),
     prisma.service.create({
@@ -249,7 +310,7 @@ async function main() {
         duration: 20,
         price: 20.0,
         points: 20,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
   ]);
@@ -285,7 +346,7 @@ async function main() {
       stock: 30,
       lowStockThreshold: 5,
       points: 18,
-      category: "Grooming",
+      categoryId: prodCatMap.get("Grooming")!,
     },
   });
 
@@ -301,7 +362,7 @@ async function main() {
         duration: 60,
         price: 75.0,
         points: 75,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -312,7 +373,7 @@ async function main() {
         duration: 30,
         price: 35.0,
         points: 35,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -323,7 +384,7 @@ async function main() {
         duration: 120,
         price: 150.0,
         points: 150,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -334,7 +395,7 @@ async function main() {
         duration: 90,
         price: 120.0,
         points: 120,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -345,7 +406,7 @@ async function main() {
         duration: 45,
         price: 50.0,
         points: 50,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -356,7 +417,7 @@ async function main() {
         duration: 30,
         price: 30.0,
         points: 30,
-        category: "Nails",
+        categoryId: svcCatMap.get("Nails")!,
       },
     }),
     prisma.service.create({
@@ -367,7 +428,7 @@ async function main() {
         duration: 45,
         price: 45.0,
         points: 45,
-        category: "Nails",
+        categoryId: svcCatMap.get("Nails")!,
       },
     }),
     prisma.service.create({
@@ -378,7 +439,7 @@ async function main() {
         duration: 60,
         price: 55.0,
         points: 55,
-        category: "Nails",
+        categoryId: svcCatMap.get("Nails")!,
       },
     }),
     prisma.service.create({
@@ -389,7 +450,7 @@ async function main() {
         duration: 60,
         price: 80.0,
         points: 80,
-        category: "Skincare",
+        categoryId: svcCatMap.get("Skin")!,
       },
     }),
     prisma.service.create({
@@ -400,7 +461,7 @@ async function main() {
         duration: 90,
         price: 150.0,
         points: 150,
-        category: "Skincare",
+        categoryId: svcCatMap.get("Skin")!,
       },
     }),
   ]);
@@ -420,7 +481,7 @@ async function main() {
         stock: 25,
         lowStockThreshold: 5,
         points: 25,
-        category: "Hair Care",
+        categoryId: prodCatMap.get("Hair Care")!,
       },
     }),
     prisma.product.create({
@@ -434,7 +495,7 @@ async function main() {
         stock: 18,
         lowStockThreshold: 5,
         points: 35,
-        category: "Hair Care",
+        categoryId: prodCatMap.get("Hair Care")!,
       },
     }),
     prisma.product.create({
@@ -448,7 +509,7 @@ async function main() {
         stock: 12,
         lowStockThreshold: 3,
         points: 45,
-        category: "Nails",
+        categoryId: prodCatMap.get("Nail Care")!,
       },
     }),
     prisma.product.create({
@@ -462,7 +523,7 @@ async function main() {
         stock: 30,
         lowStockThreshold: 8,
         points: 13,
-        category: "Nails",
+        categoryId: prodCatMap.get("Nail Care")!,
       },
     }),
     prisma.product.create({
@@ -476,7 +537,7 @@ async function main() {
         stock: 8,
         lowStockThreshold: 5,
         points: 60,
-        category: "Skincare",
+        categoryId: prodCatMap.get("Skin Care")!,
       },
     }),
     prisma.product.create({
@@ -490,7 +551,7 @@ async function main() {
         stock: 3,
         lowStockThreshold: 5,
         points: 28,
-        category: "Skincare",
+        categoryId: prodCatMap.get("Skin Care")!,
       },
     }),
   ]);
@@ -897,12 +958,14 @@ async function main() {
   // Seed default role-permission assignments for both salons
   const allSalonIds = [salon.id, branchSalon.id];
   for (const sId of allSalonIds) {
-    const rolePermData: Array<{ salonId: string; role: string; permissionId: string }> = [];
+    const rolePermData: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
     for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
       const permId = permissionIdMap.get(code);
       if (!permId) continue;
-      for (const role of roles) {
-        rolePermData.push({ salonId: sId, role, permissionId: permId });
+      for (const roleName of roles) {
+        const rdId = roleDefMap.get(roleName);
+        if (!rdId) continue;
+        rolePermData.push({ salonId: sId, roleDefinitionId: rdId, permissionId: permId });
       }
     }
     await prisma.rolePermission.createMany({ data: rolePermData });

@@ -17,9 +17,14 @@ export default async function SchedulesPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "schedules:create", isSuperAdmin, salonId, session.user.id);
+  const [canCreate, canUpdate] = await Promise.all([
+    hasPermission(userRoleId, "schedules:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "schedules:update", isSuperAdmin, salonId, session.user.id),
+  ]);
+  const canManage = canCreate || canUpdate;
 
   const staffResult = await getStaffWithSchedules();
 

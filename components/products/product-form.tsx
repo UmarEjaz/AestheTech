@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { productSchema, ProductFormData, ProductFormInput } from "@/lib/validations/product";
 import { createProduct, updateProduct } from "@/lib/actions/product";
 
@@ -25,11 +32,11 @@ interface ProductFormProps {
     stock: number;
     lowStockThreshold: number;
     points: number;
-    category: string | null;
+    categoryId: string | null;
     isActive: boolean;
   };
   mode: "create" | "edit";
-  categories: string[];
+  categories: { id: string; name: string }[];
   currencyCode?: string;
 }
 
@@ -40,6 +47,7 @@ export function ProductForm({ product, mode, categories, currencyCode = "USD" }:
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<ProductFormInput, unknown, ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -52,7 +60,7 @@ export function ProductForm({ product, mode, categories, currencyCode = "USD" }:
       stock: product?.stock ?? 0,
       lowStockThreshold: product?.lowStockThreshold ?? 5,
       points: product?.points || 0,
-      category: product?.category || "",
+      categoryId: product?.categoryId || "",
       isActive: product?.isActive ?? true,
     },
   });
@@ -106,20 +114,31 @@ export function ProductForm({ product, mode, categories, currencyCode = "USD" }:
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
-              <Input
-                id="category"
-                {...register("category")}
-                placeholder="Hair Care"
-                list="product-categories"
+              <Label htmlFor="categoryId">Category</Label>
+              <Controller
+                control={control}
+                name="categoryId"
+                render={({ field }) => (
+                  <Select
+                    value={field.value || ""}
+                    onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)}
+                  >
+                    <SelectTrigger id="categoryId">
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No category</SelectItem>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               />
-              <datalist id="product-categories">
-                {categories.map((cat) => (
-                  <option key={cat} value={cat} />
-                ))}
-              </datalist>
-              {errors.category && (
-                <p className="text-sm text-destructive">{errors.category.message}</p>
+              {errors.categoryId && (
+                <p className="text-sm text-destructive">{errors.categoryId.message}</p>
               )}
             </div>
           </div>

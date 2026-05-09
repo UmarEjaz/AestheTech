@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 interface ProductSearchProps {
-  categories: string[];
+  categories: { id: string; name: string }[];
 }
 
 export function ProductSearch({ categories }: ProductSearchProps) {
@@ -93,13 +93,13 @@ export function ProductSearch({ categories }: ProductSearchProps) {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>Filter by Category</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {categories.map((category) => (
+              {categories.map((cat) => (
                 <DropdownMenuItem
-                  key={category}
-                  onClick={() => handleCategorySelect(category)}
-                  className={selectedCategory === category ? "bg-accent" : ""}
+                  key={cat.id}
+                  onClick={() => handleCategorySelect(cat.id)}
+                  className={selectedCategory === cat.id ? "bg-accent" : ""}
                 >
-                  {category}
+                  {cat.name}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -135,7 +135,7 @@ export function ProductSearch({ categories }: ProductSearchProps) {
           )}
           {selectedCategory && (
             <Badge variant="secondary" className="gap-1">
-              {selectedCategory}
+              {categories.find((c) => c.id === selectedCategory)?.name ?? selectedCategory}
               <button
                 onClick={() => handleCategorySelect(selectedCategory)}
                 className="ml-1 hover:text-destructive"

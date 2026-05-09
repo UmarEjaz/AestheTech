@@ -80,19 +80,19 @@ export async function getRoleDefinitions(): Promise<ActionResult<RoleInfo[]>> {
 
     const [orgCounts, branchCounts] = await Promise.all([
       prisma.userSalon.groupBy({
-        by: ["role"],
+        by: ["roleDefinitionId"],
         where: { salonId: { in: orgSalonIds }, isActive: true },
         _count: true,
       }),
       prisma.userSalon.groupBy({
-        by: ["role"],
+        by: ["roleDefinitionId"],
         where: { salonId: authResult.salonId, isActive: true },
         _count: true,
       }),
     ]);
 
-    const orgCountMap = new Map(orgCounts.map((uc) => [uc.role, uc._count]));
-    const branchCountMap = new Map(branchCounts.map((uc) => [uc.role, uc._count]));
+    const orgCountMap = new Map(orgCounts.map((uc) => [uc.roleDefinitionId, uc._count]));
+    const branchCountMap = new Map(branchCounts.map((uc) => [uc.roleDefinitionId, uc._count]));
 
     return {
       success: true,
@@ -106,8 +106,8 @@ export async function getRoleDefinitions(): Promise<ActionResult<RoleInfo[]>> {
         hierarchyLevel: r.hierarchyLevel,
         isSystem: r.isSystem,
         salonId: r.salonId,
-        userCount: orgCountMap.get(r.name) ?? 0,
-        branchUserCount: branchCountMap.get(r.name) ?? 0,
+        userCount: orgCountMap.get(r.id) ?? 0,
+        branchUserCount: branchCountMap.get(r.id) ?? 0,
       })),
     };
   } catch (error) {
@@ -147,7 +147,7 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
   // Hierarchy level must be below the caller's own level
   const { getHierarchyLevels } = await import("@/lib/permissions");
   const hierarchy = await getHierarchyLevels(authResult.salonId);
-  const callerLevel = hierarchy[authResult.role] ?? 0;
+  const callerLevel = hierarchy[authResult.roleId] ?? 0;
   if (!authResult.isSuperAdmin && hierarchyLevel >= callerLevel) {
     return { success: false, error: "Cannot create a role at or above your own hierarchy level" };
   }
@@ -262,23 +262,48 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
 
     // Verify caller can manage this role (hierarchy check)
     const { canManageRole, getHierarchyLevels } = await import("@/lib/permissions");
-    if (!authResult.isSuperAdmin && !(await canManageRole(authResult.role, existing.name, authResult.isSuperAdmin, authResult.salonId))) {
+    if (!authResult.isSuperAdmin && !(await canManageRole(authResult.roleId, existing.id, authResult.isSuperAdmin, authResult.salonId))) {
       return { success: false, error: "Not authorized to manage this role" };
     }
 
     // Validate hierarchy level if changing
     if (updateData.hierarchyLevel !== undefined) {
       const hierarchy = await getHierarchyLevels(authResult.salonId);
-      const callerLevel = hierarchy[authResult.role] ?? 0;
+      const callerLevel = hierarchy[authResult.roleId] ?? 0;
       if (!authResult.isSuperAdmin && updateData.hierarchyLevel >= callerLevel) {
         return { success: false, error: "Cannot set hierarchy level at or above your own" };
       }
     }
 
+    // If name is changing, compute new internal name and slug, and update all references
+    const isRenaming = updateData.name !== undefined && updateData.name !== existing.label;
+    let newRoleName: string | undefined;
+    let newSlug: string | undefined;
+
+    if (isRenaming) {
+      newRoleName = updateData.name!.toUpperCase().replace(/ /g, "_");
+      newSlug = slugify(updateData.name!);
+
+      if (isSystemRole(newRoleName)) {
+        return { success: false, error: "Cannot use a system role name" };
+      }
+
+      // Check for duplicate slug in this salon
+      const duplicate = await prisma.roleDefinition.findFirst({
+        where: { salonId: authResult.salonId, slug: newSlug, id: { not: id } },
+      });
+      if (duplicate) {
+        return { success: false, error: "A role with this name already exists" };
+      }
+    }
+
+    // Since UserSalon and RolePermission reference by roleDefinitionId (FK),
+    // renaming only needs to update the RoleDefinition record itself.
     await prisma.roleDefinition.update({
       where: { id },
       data: {
-        ...(updateData.label !== undefined && { label: updateData.label }),
+        ...(isRenaming && { name: newRoleName, slug: newSlug }),
+        ...(updateData.name !== undefined && { label: updateData.name }),
         ...(updateData.description !== undefined && { description: updateData.description || null }),
         ...(updateData.color !== undefined && { color: updateData.color }),
         ...(updateData.hierarchyLevel !== undefined && { hierarchyLevel: updateData.hierarchyLevel }),
@@ -286,6 +311,7 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
     });
 
     await invalidateRoleCache(authResult.salonId);
+    await invalidatePermissionCache(authResult.salonId);
 
     await logAudit({
       action: "ROLE_UPDATED",
@@ -330,10 +356,16 @@ export async function deleteRole(id: string): Promise<ActionResult<null>> {
       return { success: false, error: "Role not found in this salon" };
     }
 
+    // Hierarchy check: caller must outrank the role being deleted
+    const { canManageRole } = await import("@/lib/permissions");
+    if (!(await canManageRole(authResult.roleId, existing.id, authResult.isSuperAdmin, authResult.salonId))) {
+      return { success: false, error: "Not authorized to manage this role" };
+    }
+
     // Check if any users are assigned this role (business-wide)
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
     const usersWithRole = await prisma.userSalon.count({
-      where: { salonId: { in: orgSalonIds }, role: existing.name, isActive: true },
+      where: { salonId: { in: orgSalonIds }, roleDefinitionId: existing.id, isActive: true },
     });
     if (usersWithRole > 0) {
       return {
@@ -344,7 +376,7 @@ export async function deleteRole(id: string): Promise<ActionResult<null>> {
 
     // Delete any role-permission assignments for this role
     await prisma.rolePermission.deleteMany({
-      where: { salonId: authResult.salonId, role: existing.name },
+      where: { salonId: authResult.salonId, roleDefinitionId: existing.id },
     });
 
     await prisma.roleDefinition.delete({ where: { id } });
@@ -426,7 +458,7 @@ export async function getRoleBySlug(slug: string): Promise<
       const hierarchy = await getHierarchyLevels(authResult.salonId);
       const callerHierarchyLevel = authResult.isSuperAdmin
         ? 999
-        : (hierarchy[authResult.role] ?? 0);
+        : (hierarchy[authResult.roleId] ?? 0);
 
       return {
         success: true,
@@ -462,7 +494,7 @@ export async function getRoleBySlug(slug: string): Promise<
 
     // Get granted permissions for this role at this salon
     const rolePermissions = await prisma.rolePermission.findMany({
-      where: { salonId: authResult.salonId, role: roleDef.name },
+      where: { salonId: authResult.salonId, roleDefinitionId: roleDef.id },
       include: { permission: { select: { code: true } } },
     });
 
@@ -490,7 +522,7 @@ export async function getRoleBySlug(slug: string): Promise<
     const hierarchy = await getHierarchyLevels(authResult.salonId);
     const callerHierarchyLevel = authResult.isSuperAdmin
       ? 999
-      : (hierarchy[authResult.role] ?? 0);
+      : (hierarchy[authResult.roleId] ?? 0);
 
     return {
       success: true,

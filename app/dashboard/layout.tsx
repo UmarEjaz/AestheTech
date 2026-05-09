@@ -11,13 +11,13 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  const role = session?.user?.salonRole ?? null;
+  const roleId = session?.user?.salonRoleId ?? null;
   const isSuperAdmin = session?.user?.isSuperAdmin ?? false;
   const salonId = session?.user?.salonId ?? null;
   const userId = session?.user?.id ?? null;
 
   const [permissions, roleDefs] = await Promise.all([
-    getPermissionsForRole(role, isSuperAdmin, salonId, userId),
+    getPermissionsForRole(roleId, isSuperAdmin, salonId, userId),
     loadRoleDefinitions(salonId),
   ]);
 

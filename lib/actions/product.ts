@@ -15,6 +15,9 @@ import { logAudit } from "./audit";
 import { getOrganizationSalonIds } from "./branch";
 
 const productListInclude = Prisma.validator<Prisma.ProductInclude>()({
+  category: {
+    select: { id: true, name: true },
+  },
   _count: {
     select: {
       saleItems: true,
@@ -31,7 +34,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
   total: number;
   page: number;
   totalPages: number;
-  categories: string[];
+  categories: { id: string; name: string }[];
 }>> {
   const authResult = await checkAuth("products:view");
   if (!authResult) {
@@ -57,23 +60,27 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
           { sku: { contains: query, mode: "insensitive" as const } },
         ],
       }),
-      ...(category && { category }),
+      ...(category && { categoryId: category }),
     };
+
+    // Fetch categories from the ProductCategory table via the org root
+    const { getOrgRootSalonId } = await import("./branch");
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
     // When lowStock filter is active, we must fetch all and filter in-memory
     // (Prisma can't compare two columns). Otherwise, use DB-level pagination.
-    const [fetchedProducts, total, allCategoryProducts] = await Promise.all([
+    const [fetchedProducts, total, allCategories] = await Promise.all([
       prisma.product.findMany({
         where,
-        orderBy: [{ category: "asc" }, { name: "asc" }],
+        orderBy: [{ category: { name: "asc" } }, { name: "asc" }],
         include: productListInclude,
         ...(lowStock ? {} : { skip, take: safeLimit }),
       }),
       lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
-      prisma.product.findMany({
-        where: { salonId: { in: orgSalonIds }, isActive: true },
-        select: { category: true },
-        distinct: ["category"],
+      prisma.productCategory.findMany({
+        where: { salonId: orgRootId, isActive: true },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
       }),
     ]);
 
@@ -89,11 +96,6 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
       paginatedProducts = fetchedProducts;
     }
 
-    const categories = allCategoryProducts
-      .map((p) => p.category)
-      .filter((c): c is string => c !== null)
-      .sort();
-
     return {
       success: true,
       data: {
@@ -101,7 +103,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
         total: filteredTotal,
         page: safePage,
         totalPages: Math.max(1, Math.ceil(filteredTotal / safeLimit)),
-        categories,
+        categories: allCategories,
       },
     };
   } catch (error) {
@@ -145,7 +147,7 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { description, category, sku, cost, ...rest } = validationResult.data;
+  const { description, categoryId, sku, cost, ...rest } = validationResult.data;
 
   try {
     const product = await prisma.product.create({
@@ -153,7 +155,7 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
         ...rest,
         salonId: authResult.salonId,
         description: description || null,
-        category: category || null,
+        categoryId: categoryId || null,
         sku: sku || null,
         cost: cost ?? null,
       },
@@ -195,7 +197,7 @@ export async function updateProduct(
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { id, description, category, sku, cost, ...rest } = validationResult.data;
+  const { id, description, categoryId, sku, cost, ...rest } = validationResult.data;
 
   try {
     const existingProduct = await prisma.product.findFirst({
@@ -211,7 +213,7 @@ export async function updateProduct(
       data: {
         ...rest,
         ...(description !== undefined && { description: description || null }),
-        ...(category !== undefined && { category: category || null }),
+        ...(categoryId !== undefined && { categoryId: categoryId || null }),
         ...(sku !== undefined && { sku: sku || null }),
         ...(cost !== undefined && { cost: cost ?? null }),
       },
@@ -222,7 +224,7 @@ export async function updateProduct(
     if (rest.price !== undefined && Number(rest.price) !== Number(existingProduct.price)) changes.price = { from: Number(existingProduct.price), to: Number(rest.price) };
     if (rest.stock !== undefined && rest.stock !== existingProduct.stock) changes.stock = { from: existingProduct.stock, to: rest.stock };
     if (sku !== undefined && (sku || null) !== existingProduct.sku) changes.sku = { from: existingProduct.sku, to: sku || null };
-    if (category !== undefined && (category || null) !== existingProduct.category) changes.category = { from: existingProduct.category, to: category || null };
+    if (categoryId !== undefined && (categoryId || null) !== existingProduct.categoryId) changes.categoryId = { from: existingProduct.categoryId, to: categoryId || null };
 
     await logAudit({
       action: "PRODUCT_UPDATED",
@@ -322,24 +324,21 @@ export async function restoreProduct(id: string): Promise<ActionResult> {
   }
 }
 
-export async function getAllProductCategories(): Promise<ActionResult<string[]>> {
-  const authResult = await checkAuth("products:view");
+export async function getAllProductCategories(): Promise<ActionResult<{ id: string; name: string }[]>> {
+  const authResult = await checkAuth("product-categories:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    const products = await prisma.product.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
-      select: { category: true },
-      distinct: ["category"],
-    });
+    const { getOrgRootSalonId } = await import("./branch");
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
-    const categories = products
-      .map((p) => p.category)
-      .filter((c): c is string => c !== null)
-      .sort();
+    const categories = await prisma.productCategory.findMany({
+      where: { salonId: orgRootId, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
 
     return { success: true, data: categories };
   } catch (error) {
@@ -372,19 +371,25 @@ export async function getActiveProducts(): Promise<ActionResult<{
         name: true,
         price: true,
         stock: true,
-        category: true,
+        category: { select: { name: true } },
         points: true,
         sku: true,
         lowStockThreshold: true,
       },
-      orderBy: [{ category: "asc" }, { name: "asc" }],
+      orderBy: [{ category: { name: "asc" } }, { name: "asc" }],
     });
 
     return {
       success: true,
       data: products.map((p) => ({
-        ...p,
+        id: p.id,
+        name: p.name,
         price: Number(p.price),
+        stock: p.stock,
+        category: p.category?.name ?? null,
+        points: p.points,
+        sku: p.sku,
+        lowStockThreshold: p.lowStockThreshold,
       })),
     };
   } catch (error) {

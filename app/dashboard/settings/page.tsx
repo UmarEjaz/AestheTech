@@ -19,12 +19,13 @@ export default async function SettingsPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canView = await hasPermission(userRole, "settings:view", isSuperAdmin, salonId, session.user.id);
-  const canManage = await hasPermission(userRole, "settings:manage", isSuperAdmin, salonId, session.user.id);
-  const canManageRoles = await hasPermission(userRole, "roles:manage", isSuperAdmin, salonId, session.user.id);
-  const canManagePermissions = await hasPermission(userRole, "permissions:manage", isSuperAdmin, salonId, session.user.id);
+  const canView = await hasPermission(userRoleId, "settings:view", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRoleId, "settings:manage", isSuperAdmin, salonId, session.user.id);
+  const canManageRoles = await hasPermission(userRoleId, "roles:manage", isSuperAdmin, salonId, session.user.id);
+  const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id);
 
   if (!canView) {
     redirect("/dashboard/access-denied");

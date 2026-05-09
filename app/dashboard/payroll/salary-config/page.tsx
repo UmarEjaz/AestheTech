@@ -20,13 +20,19 @@ export default async function SalaryConfigPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  if (!await hasPermission(userRole, "salary-config:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "salary-config:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = await hasPermission(userRole, "salary-config:create", isSuperAdmin, salonId, session.user.id);
+  const [canCreate, canUpdate, canDelete] = await Promise.all([
+    hasPermission(userRoleId, "salary-config:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "salary-config:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "salary-config:delete", isSuperAdmin, salonId, session.user.id),
+  ]);
+  const canManage = canCreate || canUpdate || canDelete;
 
   const [result, settingsResult] = await Promise.all([
     getSalaryConfigs("current"),
@@ -63,7 +69,7 @@ export default async function SalaryConfigPage() {
               </p>
             </div>
           </div>
-          {canManage && (
+          {canCreate && (
             <Button asChild>
               <Link href="/dashboard/payroll/salary-config/new">
                 <Plus className="mr-2 h-4 w-4" />

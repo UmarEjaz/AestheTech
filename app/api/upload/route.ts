@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
   if (!session.user.salonRole && !isSuperAdmin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const role = session.user.salonRole ?? "OWNER";
-  if (!(await hasPermission(role, "clients:update", isSuperAdmin, salonId, session.user.id))) {
+  const roleId = session.user.salonRoleId ?? null;
+  if (!(await hasPermission(roleId, "clients:update", isSuperAdmin, salonId, session.user.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -101,8 +101,8 @@ export async function DELETE(request: NextRequest) {
   if (!session.user.salonRole && !isSuperAdmin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const role = session.user.salonRole ?? "OWNER";
-  if (!(await hasPermission(role, "clients:update", isSuperAdmin, salonId, session.user.id))) {
+  const roleId = session.user.salonRoleId ?? null;
+  if (!(await hasPermission(roleId, "clients:update", isSuperAdmin, salonId, session.user.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

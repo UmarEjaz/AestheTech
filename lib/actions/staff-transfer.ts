@@ -13,7 +13,7 @@ import { logAudit } from "./audit";
 export async function assignStaffToBranch(
   userId: string,
   targetSalonId: string,
-  role: string
+  roleDefinitionId: string
 ): Promise<ActionResult<{ id: string }>> {
   const authResult = await checkAuth("branches:update");
   if (!authResult) {
@@ -21,6 +21,24 @@ export async function assignStaffToBranch(
   }
 
   try {
+    // Validate role exists (system or salon-scoped)
+    const roleDef = await prisma.roleDefinition.findFirst({
+      where: {
+        id: roleDefinitionId,
+        OR: [{ isSystem: true }, { salonId: targetSalonId }],
+      },
+      select: { id: true, name: true },
+    });
+    if (!roleDef) {
+      return { success: false, error: "Invalid role" };
+    }
+
+    // Enforce hierarchy — caller must outrank the role being assigned
+    const { canManageRole } = await import("@/lib/permissions");
+    if (!(await canManageRole(authResult.roleId, roleDefinitionId, authResult.isSuperAdmin, authResult.salonId))) {
+      return { success: false, error: "Cannot assign a role above your level" };
+    }
+
     // Verify same organization
     const [currentSalon, targetSalon] = await Promise.all([
       prisma.salon.findUnique({
@@ -81,7 +99,7 @@ export async function assignStaffToBranch(
       // Reactivate
       await prisma.userSalon.update({
         where: { id: existing.id },
-        data: { isActive: true, role },
+        data: { isActive: true, roleDefinitionId },
       });
 
       await logAudit({
@@ -94,7 +112,7 @@ export async function assignStaffToBranch(
           staffEmail: user.email,
           staffName: `${user.firstName} ${user.lastName}`,
           targetBranch: targetSalon.name,
-          role,
+          roleDefinitionId,
         },
       });
 
@@ -104,7 +122,7 @@ export async function assignStaffToBranch(
 
     // Create new assignment
     const userSalon = await prisma.userSalon.create({
-      data: { userId, salonId: targetSalonId, role },
+      data: { userId, salonId: targetSalonId, roleDefinitionId },
     });
 
     await logAudit({
@@ -117,7 +135,7 @@ export async function assignStaffToBranch(
         staffEmail: user.email,
         staffName: `${user.firstName} ${user.lastName}`,
         targetBranch: targetSalon.name,
-        role,
+        roleDefinitionId,
       },
     });
 
@@ -218,7 +236,7 @@ export async function removeStaffFromBranch(
           where: { id: userId },
           data: {
             salonId: fallback.salon.id,
-            role: fallback.role,
+            roleDefinitionId: fallback.roleDefinitionId,
           },
         });
       }
@@ -280,6 +298,11 @@ export async function getAvailableStaffForBranch(
 
     const orgSalonIds = orgSalons.map((s) => s.id);
 
+    // Verify target branch belongs to this organization
+    if (!orgSalonIds.includes(targetSalonId)) {
+      return { success: false, error: "Target branch is not in your organization" };
+    }
+
     // Get users already assigned to target branch
     const assignedUserIds = (
       await prisma.userSalon.findMany({
@@ -300,6 +323,9 @@ export async function getAvailableStaffForBranch(
         user: {
           select: { id: true, firstName: true, lastName: true, email: true },
         },
+        roleDefinition: {
+          select: { name: true },
+        },
       },
       distinct: ["userId"],
     });
@@ -309,7 +335,7 @@ export async function getAvailableStaffForBranch(
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.role,
+      role: us.roleDefinition.name,
     }));
 
     return { success: true, data: result };

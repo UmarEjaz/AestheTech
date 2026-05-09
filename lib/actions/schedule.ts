@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { checkAuth } from "@/lib/auth-helpers";
+import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
+import { hasPermission } from "@/lib/permissions";
 import {
   scheduleSchema,
   weekScheduleSchema,
@@ -21,7 +22,8 @@ const scheduleListInclude = Prisma.validator<Prisma.ScheduleInclude>()({
       firstName: true,
       lastName: true,
       email: true,
-      role: true,
+      roleDefinitionId: true,
+      roleDefinition: { select: { name: true } },
     },
   },
 });
@@ -327,92 +329,6 @@ export async function deleteSchedule(id: string): Promise<ActionResult<void>> {
   }
 }
 
-// Set week schedule for a staff member (bulk create/update)
-export async function setWeekSchedule(data: WeekScheduleFormData): Promise<ActionResult<ScheduleListItem[]>> {
-  const authResult = await checkAuth("schedules:create");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  const validationResult = weekScheduleSchema.safeParse(data);
-  if (!validationResult.success) {
-    return { success: false, error: validationResult.error.issues[0].message };
-  }
-
-  const { staffId, schedules } = validationResult.data;
-
-  // Check for intra-batch overlaps (new entries conflicting with each other)
-  for (let i = 0; i < schedules.length; i++) {
-    for (let j = i + 1; j < schedules.length; j++) {
-      if (schedules[i].dayOfWeek !== schedules[j].dayOfWeek) continue;
-      const aStart = timeToMinutes(schedules[i].startTime);
-      const aEnd = timeToMinutes(schedules[i].endTime);
-      const bStart = timeToMinutes(schedules[j].startTime);
-      const bEnd = timeToMinutes(schedules[j].endTime);
-      if (aStart < bEnd && aEnd > bStart) {
-        return {
-          success: false,
-          error: `Overlapping shifts on ${DAY_NAMES[schedules[i].dayOfWeek]}: ${schedules[i].startTime}-${schedules[i].endTime} and ${schedules[j].startTime}-${schedules[j].endTime}`,
-        };
-      }
-    }
-  }
-
-  try {
-    // Verify staff exists
-    const staff = await prisma.user.findUnique({
-      where: { id: staffId },
-      select: { isActive: true },
-    });
-
-    if (!staff || !staff.isActive) {
-      return { success: false, error: "Staff member not found or inactive" };
-    }
-
-    // Atomic delete + create inside a transaction
-    const createdSchedules = await prisma.$transaction(async (tx) => {
-      await tx.schedule.deleteMany({
-        where: { staffId, salonId: authResult.salonId },
-      });
-
-      const results: ScheduleListItem[] = [];
-      for (const schedule of schedules) {
-        const created = await tx.schedule.create({
-          data: {
-            salonId: authResult.salonId,
-            staffId,
-            dayOfWeek: schedule.dayOfWeek,
-            startTime: schedule.startTime,
-            endTime: schedule.endTime,
-            shiftType: schedule.shiftType,
-            isAvailable: schedule.isAvailable,
-          },
-          include: scheduleListInclude,
-        });
-        results.push(created);
-      }
-      return results;
-    });
-
-    const mapped = createdSchedules;
-
-    await logAudit({
-      action: "WEEK_SCHEDULE_SET",
-      entityType: "Schedule",
-      userId: authResult.userId,
-      userRole: authResult.role,
-      details: { staffId, shiftsCount: mapped.length },
-    });
-
-    revalidatePath("/dashboard/schedules");
-    return { success: true, data: mapped };
-  } catch (error) {
-    console.error("Error setting week schedule:", error);
-    const message = error instanceof Error ? error.message : "Failed to set week schedule";
-    return { success: false, error: message };
-  }
-}
-
 // Toggle availability for a schedule
 export async function toggleScheduleAvailability(id: string): Promise<ActionResult<ScheduleListItem>> {
   const authResult = await checkAuth("schedules:update");
@@ -486,7 +402,8 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
         firstName: true,
         lastName: true,
         email: true,
-        role: true,
+        roleDefinitionId: true,
+        roleDefinition: { select: { name: true, label: true } },
         schedules: {
           where: { salonId: authResult.salonId },
           select: {
@@ -503,23 +420,13 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
       orderBy: { firstName: "asc" },
     });
 
-    // Load role labels for display
-    const roleDefs = await prisma.roleDefinition.findMany({
-      where: {
-        OR: [{ salonId: null, isSystem: true }, { salonId: authResult.salonId }],
-        isActive: true,
-      },
-      select: { name: true, label: true },
-    });
-    const roleLabelMap = new Map(roleDefs.map((r) => [r.name, r.label]));
-
     const staff = users.map((u) => ({
       id: u.id,
       firstName: u.firstName,
       lastName: u.lastName,
       email: u.email,
-      role: u.role,
-      roleLabel: roleLabelMap.get(u.role) ?? undefined,
+      role: u.roleDefinition?.name ?? "",
+      roleLabel: u.roleDefinition?.label ?? undefined,
       schedules: u.schedules,
     }));
 
@@ -530,12 +437,119 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
   }
 }
 
+// Set entire week schedule for a staff member (bulk replace)
+export async function setWeekSchedule(data: WeekScheduleFormData): Promise<ActionResult<ScheduleListItem[]>> {
+  const authResult = await checkAuthBasic();
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const validationResult = weekScheduleSchema.safeParse(data);
+  if (!validationResult.success) {
+    return { success: false, error: validationResult.error.issues[0].message };
+  }
+
+  const { staffId, schedules } = validationResult.data;
+
+  // Determine required permissions based on existing schedules
+  const existingSchedules = await prisma.schedule.findMany({
+    where: { staffId, salonId: authResult.salonId },
+    select: { dayOfWeek: true },
+  });
+  const existingDays = new Set(existingSchedules.map((s) => s.dayOfWeek));
+  const newDays = new Set(schedules.map((s) => s.dayOfWeek));
+
+  const hasOverlap = [...newDays].some((d) => existingDays.has(d));
+  const hasNew = [...newDays].some((d) => !existingDays.has(d)) || existingDays.size === 0;
+
+  const missingPerms: string[] = [];
+  if (hasOverlap) {
+    const canUpdate = await hasPermission(authResult.roleId || null, "schedules:update", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    if (!canUpdate) missingPerms.push("update schedules");
+  }
+  if (hasNew) {
+    const canCreate = await hasPermission(authResult.roleId || null, "schedules:create", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    if (!canCreate) missingPerms.push("create schedules");
+  }
+
+  if (missingPerms.length > 0) {
+    return { success: false, error: `You don't have permission to ${missingPerms.join(" and ")}` };
+  }
+
+  // Check for intra-batch overlaps
+  for (let i = 0; i < schedules.length; i++) {
+    for (let j = i + 1; j < schedules.length; j++) {
+      if (schedules[i].dayOfWeek !== schedules[j].dayOfWeek) continue;
+      const aStart = timeToMinutes(schedules[i].startTime);
+      const aEnd = timeToMinutes(schedules[i].endTime);
+      const bStart = timeToMinutes(schedules[j].startTime);
+      const bEnd = timeToMinutes(schedules[j].endTime);
+      if (aStart < bEnd && aEnd > bStart) {
+        return {
+          success: false,
+          error: `Overlapping shifts on ${DAY_NAMES[schedules[i].dayOfWeek]}: ${schedules[i].startTime}-${schedules[i].endTime} and ${schedules[j].startTime}-${schedules[j].endTime}`,
+        };
+      }
+    }
+  }
+
+  try {
+    const staff = await prisma.user.findUnique({
+      where: { id: staffId },
+      select: { isActive: true },
+    });
+
+    if (!staff || !staff.isActive) {
+      return { success: false, error: "Staff member not found or inactive" };
+    }
+
+    const createdSchedules = await prisma.$transaction(async (tx) => {
+      await tx.schedule.deleteMany({
+        where: { staffId, salonId: authResult.salonId },
+      });
+
+      const results: ScheduleListItem[] = [];
+      for (const schedule of schedules) {
+        const created = await tx.schedule.create({
+          data: {
+            salonId: authResult.salonId,
+            staffId,
+            dayOfWeek: schedule.dayOfWeek,
+            startTime: schedule.startTime,
+            endTime: schedule.endTime,
+            shiftType: schedule.shiftType,
+            isAvailable: schedule.isAvailable,
+          },
+          include: scheduleListInclude,
+        });
+        results.push(created);
+      }
+      return results;
+    });
+
+    await logAudit({
+      action: "WEEK_SCHEDULE_SET",
+      entityType: "Schedule",
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { staffId, shiftsCount: createdSchedules.length },
+    });
+
+    revalidatePath("/dashboard/schedules");
+    return { success: true, data: createdSchedules };
+  } catch (error) {
+    console.error("Error setting week schedule:", error);
+    const message = error instanceof Error ? error.message : "Failed to set week schedule";
+    return { success: false, error: message };
+  }
+}
+
 // Copy schedule from one staff to another
 export async function copySchedule(
   fromStaffId: string,
   toStaffId: string
 ): Promise<ActionResult<ScheduleListItem[]>> {
-  const authResult = await checkAuth("schedules:create");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -548,6 +562,31 @@ export async function copySchedule(
 
     if (sourceSchedules.length === 0) {
       return { success: false, error: "Source staff has no schedules to copy" };
+    }
+
+    // Determine required permissions based on target staff's existing schedules
+    const existingSchedules = await prisma.schedule.findMany({
+      where: { staffId: toStaffId, salonId: authResult.salonId },
+      select: { dayOfWeek: true },
+    });
+    const existingDays = new Set(existingSchedules.map((s) => s.dayOfWeek));
+    const sourceDays = new Set(sourceSchedules.map((s) => s.dayOfWeek));
+
+    const hasOverlap = [...sourceDays].some((d) => existingDays.has(d));
+    const hasNew = [...sourceDays].some((d) => !existingDays.has(d)) || existingDays.size === 0;
+
+    const missingPerms: string[] = [];
+    if (hasOverlap) {
+      const canUpdate = await hasPermission(authResult.roleId || null, "schedules:update", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+      if (!canUpdate) missingPerms.push("update schedules");
+    }
+    if (hasNew) {
+      const canCreate = await hasPermission(authResult.roleId || null, "schedules:create", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+      if (!canCreate) missingPerms.push("create schedules");
+    }
+
+    if (missingPerms.length > 0) {
+      return { success: false, error: `You don't have permission to ${missingPerms.join(" and ")}` };
     }
 
     // Delete existing schedules for target staff

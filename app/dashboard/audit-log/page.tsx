@@ -31,11 +31,12 @@ export default async function AuditLogPage({
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   const salonId = session.user.salonId;
-  if (!(await hasPermission(userRole, "audit:view", isSuperAdmin, salonId, session.user.id))) {
+  if (!(await hasPermission(userRoleId, "audit:view", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 

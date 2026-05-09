@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Loader2, Eye, EyeOff, Scissors } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { userSchema, UserFormData, UserFormInput, UserUpdateData } from "@/lib/validations/user";
 import { createUser, updateUser } from "@/lib/actions/user";
 import { useRoles } from "@/lib/roles-context";
@@ -32,6 +33,7 @@ interface StaffFormProps {
     phone: string | null;
     role: string;
     isActive: boolean;
+    isServiceProvider: boolean;
   };
   mode: "create" | "edit";
   currentUserRole: string | null;
@@ -45,6 +47,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>(user?.role || "STAFF");
+  const [isServiceProvider, setIsServiceProvider] = useState(user?.isServiceProvider ?? false);
 
   // Filter available roles based on current user's role hierarchy
   const getAvailableRoles = () => {
@@ -81,7 +84,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
     setIsSubmitting(true);
 
     try {
-      const formData = { ...data, role: selectedRole };
+      const formData = { ...data, role: selectedRole, isServiceProvider };
 
       if (mode === "create") {
         const result = await createUser(formData);
@@ -99,6 +102,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
           email: formData.email,
           phone: formData.phone,
           role: selectedRole,
+          isServiceProvider,
         };
         const result = await updateUser(updateData);
         if (result.success) {
@@ -208,6 +212,23 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
                 You can only create users with roles lower than your own.
               </p>
             )}
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <Scissors className="h-4 w-4 text-muted-foreground" />
+                <Label htmlFor="isServiceProvider" className="font-medium">Service Provider</Label>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Enable if this person provides services to clients (e.g., haircuts, makeup). They will appear in the appointment booking dropdown.
+              </p>
+            </div>
+            <Switch
+              id="isServiceProvider"
+              checked={isServiceProvider}
+              onCheckedChange={setIsServiceProvider}
+            />
           </div>
         </CardContent>
       </Card>

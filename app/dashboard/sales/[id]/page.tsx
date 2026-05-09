@@ -48,10 +48,11 @@ export default async function SaleDetailPage({
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  if (!await hasPermission(userRole, "sales:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
@@ -138,7 +139,7 @@ export default async function SaleDetailPage({
   };
 
   // Calculate refund information
-  const canRefund = await hasPermission(userRole, "invoices:refund", isSuperAdmin, salonId, session.user.id);
+  const canRefund = await hasPermission(userRoleId, "invoices:refund", isSuperAdmin, salonId, session.user.id);
   const invoiceRefunds = sale.invoice?.refunds || [];
   const totalRefunded = invoiceRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
   const maxRefundable = sale.invoice ? Number(sale.invoice.total) - totalRefunded : 0;

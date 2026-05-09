@@ -14,6 +14,7 @@ declare module "next-auth" {
     isSuperAdmin: boolean;
     salonId: string | null;
     salonRole: string | null;
+    salonRoleId: string | null;
   }
 
   interface Session {
@@ -26,6 +27,7 @@ declare module "next-auth" {
       isSuperAdmin: boolean;
       salonId: string | null;
       salonRole: string | null;
+      salonRoleId: string | null;
     };
   }
 }
@@ -39,6 +41,7 @@ interface CustomJWT {
   isSuperAdmin: boolean;
   salonId: string | null;
   salonRole: string | null;
+  salonRoleId: string | null;
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -61,6 +64,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: { email },
           include: {
             salon: { select: { isActive: true } },
+            roleDefinition: { select: { id: true, name: true } },
           },
         });
 
@@ -88,7 +92,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           lastName: user.lastName,
           isSuperAdmin: user.isSuperAdmin,
           salonId: user.salonId,
-          salonRole: user.role,
+          salonRole: user.roleDefinition?.name ?? null,
+          salonRoleId: user.roleDefinitionId,
         };
       },
     }),
@@ -104,6 +109,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.isSuperAdmin = user.isSuperAdmin;
         token.salonId = user.salonId;
         token.salonRole = user.salonRole;
+        token.salonRoleId = user.salonRoleId;
       }
 
       // Salon switch — verify against DB instead of trusting client values
@@ -116,12 +122,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             },
             isActive: true,
           },
-          include: { salon: { select: { isActive: true } } },
+          include: {
+            salon: { select: { isActive: true } },
+            roleDefinition: { select: { id: true, name: true } },
+          },
         });
 
         if (userSalon && userSalon.salon.isActive) {
           token.salonId = userSalon.salonId;
-          token.salonRole = userSalon.role;
+          token.salonRole = userSalon.roleDefinition.name;
+          token.salonRoleId = userSalon.roleDefinitionId;
         }
       }
 
@@ -138,6 +148,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.isSuperAdmin = t.isSuperAdmin;
         session.user.salonId = t.salonId;
         session.user.salonRole = t.salonRole;
+        session.user.salonRoleId = t.salonRoleId;
       }
       return session;
     },

@@ -967,7 +967,7 @@ export async function getStaffPayrollHistory(
   const targetUserId = userId || authResult.userId;
   if (targetUserId !== authResult.userId) {
     const { hasPermission } = await import("@/lib/permissions");
-    if (!await hasPermission(authResult.role, "payroll:view", authResult.isSuperAdmin, authResult.salonId)) {
+    if (!await hasPermission(authResult.roleId, "payroll:view", authResult.isSuperAdmin, authResult.salonId)) {
       return { success: false, error: "Unauthorized" };
     }
   }

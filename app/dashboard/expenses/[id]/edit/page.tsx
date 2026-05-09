@@ -22,14 +22,19 @@ export default async function EditExpensePage({ params }: PageProps) {
   }
 
   const userRole = session.user.salonRole;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canUpdate =
-    isSuperAdmin ||
-    (userRole != null && await hasPermission(userRole, "expenses:update", isSuperAdmin, salonId, session.user.id));
+  if (!isSuperAdmin) {
+    const [canView, canUpdate, canViewCategories] = await Promise.all([
+      hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id),
+    ]);
 
-  if (!canUpdate) {
-    redirect("/dashboard/access-denied");
+    if (!canView || !canUpdate || !canViewCategories) {
+      redirect("/dashboard/access-denied");
+    }
   }
 
   const { id } = await params;

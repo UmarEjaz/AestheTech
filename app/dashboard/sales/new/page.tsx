@@ -20,10 +20,11 @@ export default async function NewSalePage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   const salonId = session.user.salonId;
-  if (!(await hasPermission(userRole, "sales:create", isSuperAdmin, salonId, session.user.id))) {
+  if (!(await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 
@@ -90,7 +91,7 @@ export default async function NewSalePage() {
     name: service.name,
     price: Number(service.price),
     duration: service.duration,
-    category: service.category,
+    category: service.category?.name ?? null,
     points: service.points,
   }));
 

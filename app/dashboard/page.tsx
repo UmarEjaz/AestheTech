@@ -28,15 +28,16 @@ export default async function DashboardPage({
     redirect("/dashboard/access-denied");
   }
   const userRole = user.salonRole ?? null;
+  const userRoleId = user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = user.salonId;
   const [canViewReports, canCreateAppointments, canCreateSales, canCreateClients, canManageServices, canViewSchedules] = await Promise.all([
-    hasPermission(userRole, "reports:view", isSuperAdmin, salonId, user.id),
-    hasPermission(userRole, "appointments:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRole, "sales:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRole, "clients:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRole, "services:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRole, "schedules:view", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, user.id),
   ]);
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 

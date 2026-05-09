@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, FolderOpen } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -31,14 +31,20 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  if (!await hasPermission(userRole, "products:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canManage = await hasPermission(userRole, "products:create", isSuperAdmin, salonId, session.user.id);
+  const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([
+    hasPermission(userRoleId, "products:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "products:delete", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";
@@ -53,7 +59,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout>
+      <DashboardLayout isSuperAdmin={isSuperAdmin}>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
@@ -64,7 +70,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const { products, total, totalPages, categories } = result.data;
 
   return (
-    <DashboardLayout>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -74,14 +80,24 @@ export default async function ProductsPage({ searchParams }: PageProps) {
               Manage your salon&apos;s retail products
             </p>
           </div>
-          {canManage && (
-            <Button asChild>
-              <Link href="/dashboard/products/new">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Product
-              </Link>
-            </Button>
-          )}
+          <div className="flex gap-2">
+            {canViewCategories && (
+              <Button variant="outline" asChild>
+                <Link href="/dashboard/products/categories">
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  Categories
+                </Link>
+              </Button>
+            )}
+            {canCreate && (
+              <Button asChild>
+                <Link href="/dashboard/products/new">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Product
+                </Link>
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Search and Filters */}
@@ -93,7 +109,8 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           page={page}
           totalPages={totalPages}
           total={total}
-          canManage={canManage}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
           currencyCode={currencyCode}
         />
       </div>

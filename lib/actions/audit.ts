@@ -72,9 +72,10 @@ export async function getAuditLogs(
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
   const role = session.user.salonRole;
+  const roleId = session.user.salonRoleId ?? null;
   const salonId = session.user.salonId;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!await hasPermission(role, "audit:view", isSuperAdmin, salonId)) {
+  if (!await hasPermission(roleId, "audit:view", isSuperAdmin, salonId)) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -143,9 +144,10 @@ export async function getAuditActions(branchFilter: "current" | "all" = "current
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
   const role = session.user.salonRole;
+  const roleId = session.user.salonRoleId ?? null;
   const salonId = session.user.salonId;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!await hasPermission(role, "audit:view", isSuperAdmin, salonId)) {
+  if (!await hasPermission(roleId, "audit:view", isSuperAdmin, salonId)) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -180,9 +182,10 @@ export async function getAuditEntityTypes(branchFilter: "current" | "all" = "cur
   if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
 
   const role = session.user.salonRole;
+  const roleId = session.user.salonRoleId ?? null;
   const salonId = session.user.salonId;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!await hasPermission(role, "audit:view", isSuperAdmin, salonId)) {
+  if (!await hasPermission(roleId, "audit:view", isSuperAdmin, salonId)) {
     return { success: false, error: "Unauthorized" };
   }
 

@@ -25,12 +25,13 @@ export default async function ReportsPage({
     redirect("/dashboard/access-denied");
   }
   const userRole = user.salonRole ?? null;
+  const userRoleId = user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   // Check permission to view reports
   const salonId = session.user.salonId;
-  if (!(await hasPermission(userRole, "reports:view", isSuperAdmin, salonId, session.user.id))) {
+  if (!(await hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, session.user.id))) {
     redirect("/dashboard/access-denied");
   }
 

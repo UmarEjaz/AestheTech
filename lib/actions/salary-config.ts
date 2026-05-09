@@ -363,6 +363,7 @@ export async function getBranchStaff(): Promise<
       where: { salonId: authResult.salonId, isActive: true },
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        roleDefinition: { select: { name: true } },
       },
     });
 
@@ -371,7 +372,7 @@ export async function getBranchStaff(): Promise<
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.role,
+      role: us.roleDefinition.name,
     }));
 
     return { success: true, data: staff };

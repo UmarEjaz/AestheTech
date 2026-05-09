@@ -17,16 +17,17 @@ export default async function BranchesPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  if (!await hasPermission(userRole, "branches:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
   const result = await getBranches();
   const branches = result.success ? result.data : [];
-  const canManage = await hasPermission(userRole, "branches:create", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRoleId, "branches:create", isSuperAdmin, salonId, session.user.id);
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

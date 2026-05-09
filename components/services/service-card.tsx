@@ -34,9 +34,9 @@ export function ServiceCard({ service, onDelete, canManage = false }: ServiceCar
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <CardTitle className="text-lg">{service.name}</CardTitle>
-            {service.category && (
+            {service.category?.name && (
               <Badge variant="secondary" className="text-xs">
-                {service.category}
+                {service.category.name}
               </Badge>
             )}
           </div>

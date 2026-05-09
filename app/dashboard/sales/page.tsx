@@ -17,9 +17,10 @@ export default async function SalesPage() {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canCreate = await hasPermission(userRole, "sales:create", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, session.user.id);
 
   const [salesResult, settingsResult, todaySummaryResult] = await Promise.all([
     getSales({ page: 1, limit: 15 }),

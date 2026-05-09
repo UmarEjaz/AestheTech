@@ -42,10 +42,15 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
     currencyCode,
   } = stats;
 
+  const perms = stats.permissions;
   const hasAnyStats = todaysAppointments || todaysRevenue || clients || todaysExpenses || monthlyPayroll || todaysProfit;
   const hasAnyLists = !!upcomingAppointments || !!recentSales || !!topServices;
 
-  if (!hasAnyStats && !hasAnyLists && (!staffPerformance || staffPerformance.length === 0)) {
+  const hasAnyPermission = perms
+    ? (perms.canViewAppointments || perms.canViewSales || perms.canViewClients || perms.canViewStaff || perms.canViewExpenses || perms.canViewPayroll || perms.canViewProfit)
+    : (hasAnyStats || hasAnyLists || (staffPerformance && staffPerformance.length > 0));
+
+  if (!hasAnyPermission) {
     return (
       <Card>
         <CardContent className="p-12 text-center">

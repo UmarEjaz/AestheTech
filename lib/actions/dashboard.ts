@@ -78,6 +78,15 @@ export interface DashboardStats {
     margin: number; // percentage
   };
   currencyCode: string;
+  permissions?: {
+    canViewAppointments: boolean;
+    canViewSales: boolean;
+    canViewClients: boolean;
+    canViewStaff: boolean;
+    canViewExpenses: boolean;
+    canViewPayroll: boolean;
+    canViewProfit: boolean;
+  };
 }
 
 export async function getDashboardStats(params?: {
@@ -91,13 +100,13 @@ export async function getDashboardStats(params?: {
   try {
     const branchFilter = params?.branchFilter || "current";
     const [canViewAppointments, canViewSales, canViewClients, canViewStaff, canViewExpenses, canViewPayroll, canViewProfit] = await Promise.all([
-      hasPermission(authResult.role, "appointments:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
-      hasPermission(authResult.role, "sales:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
-      hasPermission(authResult.role, "clients:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
-      hasPermission(authResult.role, "staff:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
-      hasPermission(authResult.role, "expenses:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
-      hasPermission(authResult.role, "payroll:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
-      hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "appointments:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "sales:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "clients:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "staff:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "expenses:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "payroll:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
     ]);
     const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
@@ -168,8 +177,8 @@ export async function getDashboardStats(params?: {
           })
         : Promise.resolve([]),
 
-      // Today's sales (only if permitted)
-      canViewSales
+      // Today's sales (needed for revenue and profit)
+      (canViewSales || canViewProfit)
         ? prisma.sale.findMany({
             where: {
               salonId: salonFilter,
@@ -457,6 +466,15 @@ export async function getDashboardStats(params?: {
         })(),
       }),
       currencyCode,
+      permissions: {
+        canViewAppointments,
+        canViewSales,
+        canViewClients,
+        canViewStaff,
+        canViewExpenses,
+        canViewPayroll,
+        canViewProfit,
+      },
     };
 
     await cacheSet(cacheKey, data, 300); // 5 min TTL
@@ -504,7 +522,7 @@ export async function getReportData(params: {
     return { success: false, error: "Unauthorized" };
   }
 
-  if (!(await hasPermission(authResult.role, "reports:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId))) {
+  if (!(await hasPermission(authResult.roleId, "reports:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId))) {
     return { success: false, error: "You don't have permission to view reports" };
   }
 
@@ -525,7 +543,7 @@ export async function getReportData(params: {
     const settingsResult = await getSettings();
     const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
-    const canViewProfit = await hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const canViewProfit = await hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
     // Check cache — use org root ID for org-wide queries so invalidation works correctly
     let cacheKey: string;

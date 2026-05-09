@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, FolderOpen } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -29,9 +29,13 @@ export default async function ServicesPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "services:create", isSuperAdmin, salonId, session.user.id);
+  const [canManage, canViewCategories] = await Promise.all([
+    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";
@@ -62,14 +66,24 @@ export default async function ServicesPage({ searchParams }: PageProps) {
               Manage your salon&apos;s service offerings
             </p>
           </div>
-          {canManage && (
-            <Button asChild>
-              <Link href="/dashboard/services/new">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Service
-              </Link>
-            </Button>
-          )}
+          <div className="flex gap-2">
+            {canViewCategories && (
+              <Button variant="outline" asChild>
+                <Link href="/dashboard/services/categories">
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  Categories
+                </Link>
+              </Button>
+            )}
+            {canManage && (
+              <Button asChild>
+                <Link href="/dashboard/services/new">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Service
+                </Link>
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Search and Filters */}

@@ -25,12 +25,19 @@ export default async function EditServicePage({ params }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRole, "services:update", isSuperAdmin, salonId, session.user.id);
+  if (!isSuperAdmin) {
+    const [canView, canUpdate, canViewCategories] = await Promise.all([
+      hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id),
+      hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id),
+    ]);
 
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+    if (!canView || !canUpdate || !canViewCategories) {
+      redirect("/dashboard/access-denied");
+    }
   }
 
   const [serviceResult, categoriesResult, settingsResult] = await Promise.all([
@@ -74,7 +81,7 @@ export default async function EditServicePage({ params }: PageProps) {
             price: Number(service.price),
             cost: service.cost ? Number(service.cost) : null,
             points: service.points,
-            category: service.category,
+            categoryId: service.categoryId,
             isActive: service.isActive,
           }}
           categories={categories}

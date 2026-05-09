@@ -29,6 +29,7 @@ export const userSchema = z.object({
     .optional()
     .or(z.literal("")),
   role: z.string().min(1, "Please select a role"),
+  isServiceProvider: z.boolean().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -56,6 +57,7 @@ export const userUpdateSchema = z.object({
     .or(z.literal("")),
   role: z.string().min(1, "Please select a role"),
   isActive: z.boolean().optional(),
+  isServiceProvider: z.boolean().optional(),
 });
 
 export const passwordChangeSchema = z.object({

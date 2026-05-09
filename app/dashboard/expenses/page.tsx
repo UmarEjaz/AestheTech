@@ -34,16 +34,17 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     redirect("/dashboard/access-denied");
   }
   const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  if (!await hasPermission(userRole, "expenses:view", isSuperAdmin, salonId, session.user.id)) {
+  if (!await hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id)) {
     redirect("/dashboard/access-denied");
   }
 
-  const canCreate = await hasPermission(userRole, "expenses:create", isSuperAdmin, salonId, session.user.id);
-  const canManage = await hasPermission(userRole, "expenses:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRole, "expenses:delete", isSuperAdmin, salonId, session.user.id);
-  const canManageCategories = await hasPermission(userRole, "expense-categories:create", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id);
+  const canManage = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "expenses:delete", isSuperAdmin, salonId, session.user.id);
+  const canViewCategories = await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";
@@ -97,7 +98,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
             </p>
           </div>
           <div className="flex gap-2">
-            {canManageCategories && (
+            {canViewCategories && (
               <Button variant="outline" asChild>
                 <Link href="/dashboard/expenses/categories">
                   <Settings2 className="mr-2 h-4 w-4" />

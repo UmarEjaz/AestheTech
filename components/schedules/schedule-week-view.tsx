@@ -11,6 +11,7 @@ import {
   X,
   Copy,
   Users,
+  CalendarDays,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ShiftType } from "@prisma/client";
@@ -52,7 +53,9 @@ import {
   updateSchedule,
   toggleScheduleAvailability,
   copySchedule,
+  setWeekSchedule,
 } from "@/lib/actions/schedule";
+import { Switch } from "@/components/ui/switch";
 
 const DAY_NAMES = [
   "Sunday",
@@ -106,6 +109,13 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
   const [copyDialog, setCopyDialog] = useState<{ fromStaffId: string; fromName: string } | null>(null);
   const [copyToStaffId, setCopyToStaffId] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Bulk week schedule state
+  type DayEntry = { enabled: boolean; startTime: string; endTime: string; shiftType: ShiftType };
+  const [weekDialog, setWeekDialog] = useState<{ staffId: string; staffName: string } | null>(null);
+  const [weekDays, setWeekDays] = useState<DayEntry[]>(() =>
+    DAY_NAMES.map(() => ({ enabled: false, startTime: "09:00", endTime: "17:00", shiftType: ShiftType.REGULAR }))
+  );
 
   // Form state
   const [startTime, setStartTime] = useState("09:00");
@@ -195,6 +205,64 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
         toast.success("Schedule copied successfully");
         setCopyDialog(null);
         setCopyToStaffId("");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openWeekDialog = (staff: StaffWithSchedules) => {
+    const days: DayEntry[] = DAY_NAMES.map((_, dayIndex) => {
+      const existing = staff.schedules.find((s) => s.dayOfWeek === dayIndex);
+      if (existing) {
+        return {
+          enabled: true,
+          startTime: existing.startTime,
+          endTime: existing.endTime,
+          shiftType: existing.shiftType,
+        };
+      }
+      return { enabled: false, startTime: "09:00", endTime: "17:00", shiftType: ShiftType.REGULAR };
+    });
+    setWeekDays(days);
+    setWeekDialog({ staffId: staff.id, staffName: `${staff.firstName} ${staff.lastName}` });
+  };
+
+  const updateWeekDay = (index: number, updates: Partial<DayEntry>) => {
+    setWeekDays((prev) => prev.map((d, i) => (i === index ? { ...d, ...updates } : d)));
+  };
+
+  const applyToWeekdays = () => {
+    const monday = weekDays[1];
+    setWeekDays((prev) =>
+      prev.map((d, i) =>
+        i >= 1 && i <= 5
+          ? { ...d, enabled: monday.enabled, startTime: monday.startTime, endTime: monday.endTime, shiftType: monday.shiftType }
+          : d
+      )
+    );
+  };
+
+  const handleSaveWeekSchedule = async () => {
+    if (!weekDialog) return;
+
+    const schedules = weekDays
+      .map((day, index) =>
+        day.enabled
+          ? { dayOfWeek: index, startTime: day.startTime, endTime: day.endTime, shiftType: day.shiftType, isAvailable: true }
+          : null
+      )
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+
+    setIsSubmitting(true);
+    try {
+      const result = await setWeekSchedule({ staffId: weekDialog.staffId, schedules });
+      if (result.success) {
+        toast.success("Week schedule saved");
+        setWeekDialog(null);
         router.refresh();
       } else {
         toast.error(result.error);
@@ -343,15 +411,26 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                     })}
                     {canManage && (
                       <td className="p-2 text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => setCopyDialog({ fromStaffId: staff.id, fromName: `${staff.firstName} ${staff.lastName}` })}
-                          title="Copy schedule"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => openWeekDialog(staff)}
+                            title="Set week schedule"
+                          >
+                            <CalendarDays className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => setCopyDialog({ fromStaffId: staff.id, fromName: `${staff.firstName} ${staff.lastName}` })}
+                            title="Copy schedule"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -491,6 +570,81 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
             </Button>
             <Button onClick={handleCopySchedule} disabled={!copyToStaffId || isSubmitting}>
               {isSubmitting ? "Copying..." : "Copy Schedule"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set Week Schedule Dialog */}
+      <Dialog open={!!weekDialog} onOpenChange={() => setWeekDialog(null)}>
+        <DialogContent className="sm:max-w-fit max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Set Week Schedule</DialogTitle>
+            <DialogDescription>
+              Set {weekDialog?.staffName}&apos;s entire week at once. This will replace their current schedule.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={applyToWeekdays}>
+                Apply Monday to all weekdays
+              </Button>
+            </div>
+            {DAY_NAMES.map((day, index) => (
+              <div
+                key={index}
+                className={`flex items-center gap-3 p-3 rounded-lg border ${
+                  weekDays[index].enabled ? "bg-background" : "bg-muted/50"
+                }`}
+              >
+                <Switch
+                  checked={weekDays[index].enabled}
+                  onCheckedChange={(checked) => updateWeekDay(index, { enabled: checked })}
+                  aria-label={`Enable ${day}`}
+                />
+                <span className="text-sm font-medium w-12 shrink-0">{day.slice(0, 3)}</span>
+                {weekDays[index].enabled ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <Input
+                      type="time"
+                      value={weekDays[index].startTime}
+                      onChange={(e) => updateWeekDay(index, { startTime: e.target.value })}
+                      className="w-[120px] h-8 text-sm"
+                    />
+                    <span className="text-muted-foreground text-xs">to</span>
+                    <Input
+                      type="time"
+                      value={weekDays[index].endTime}
+                      onChange={(e) => updateWeekDay(index, { endTime: e.target.value })}
+                      className="w-[120px] h-8 text-sm"
+                    />
+                    <Select
+                      value={weekDays[index].shiftType}
+                      onValueChange={(v) => updateWeekDay(index, { shiftType: v as ShiftType })}
+                    >
+                      <SelectTrigger className="w-[110px] h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="OPENING">Opening</SelectItem>
+                        <SelectItem value="REGULAR">Regular</SelectItem>
+                        <SelectItem value="CLOSING">Closing</SelectItem>
+                        <SelectItem value="SPLIT">Split</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Day off</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setWeekDialog(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveWeekSchedule} disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : "Save Week Schedule"}
             </Button>
           </DialogFooter>
         </DialogContent>
