@@ -6,12 +6,14 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/categories/category-manager";
 import {
-  getServiceCategories,
+  getAllServiceCategories,
   createServiceCategory,
   updateServiceCategory,
   toggleServiceCategory,
+  deleteServiceCategory,
 } from "@/lib/actions/service-category";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function ServiceCategoriesPage() {
   const session = await auth();
@@ -24,13 +26,16 @@ export default async function ServiceCategoriesPage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  const canManage = isSuperAdmin || await hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id);
-
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+  const canView = isSuperAdmin || await hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id);
+  if (!canView) {
+    redirectAccessDenied(["service-categories:view"]);
   }
 
-  const result = await getServiceCategories();
+  const canCreate = isSuperAdmin || await hasPermission(userRoleId, "service-categories:create", isSuperAdmin, salonId, session.user.id);
+  const canUpdate = isSuperAdmin || await hasPermission(userRoleId, "service-categories:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = isSuperAdmin || await hasPermission(userRoleId, "service-categories:delete", isSuperAdmin, salonId, session.user.id);
+
+  const result = await getAllServiceCategories();
   const categories = result.success ? result.data : [];
 
   return (
@@ -54,9 +59,10 @@ export default async function ServiceCategoriesPage() {
           title="Service Categories"
           countLabel="Services"
           categories={categories}
-          onCreate={createServiceCategory}
-          onUpdate={updateServiceCategory}
-          onToggle={toggleServiceCategory}
+          onCreate={canCreate ? createServiceCategory : undefined}
+          onUpdate={canUpdate ? updateServiceCategory : undefined}
+          onToggle={canUpdate ? toggleServiceCategory : undefined}
+          onDelete={canDelete ? deleteServiceCategory : undefined}
         />
       </div>
     </DashboardLayout>

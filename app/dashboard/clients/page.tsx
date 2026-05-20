@@ -5,6 +5,7 @@ import { ClientTable } from "@/components/clients/client-table";
 import { getClients } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function ClientsPage() {
   const session = await auth();
@@ -14,9 +15,8 @@ export default async function ClientsPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;

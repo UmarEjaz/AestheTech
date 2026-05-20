@@ -5,6 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { SettingsForm } from "@/components/settings/settings-form";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -16,9 +17,8 @@ export default async function SettingsPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
@@ -28,7 +28,7 @@ export default async function SettingsPage() {
   const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id);
 
   if (!canView) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["settings:view"]);
   }
 
   const result = await getSettings();

@@ -66,7 +66,9 @@ export type BranchDetail = BranchListItem & {
     firstName: string;
     lastName: string;
     email: string;
-    role: string;
+    role: string;       // Slug — for matching/logic
+    roleName: string;   // Display name — for UI
+    roleColor: string;  // Hex color — for badge styling
     isActive: boolean;
   }[];
 };
@@ -300,7 +302,7 @@ export async function getBranchDetail(
           },
         },
         roleDefinition: {
-          select: { name: true },
+          select: { slug: true, name: true, color: true },
         },
       },
       orderBy: { user: { firstName: "asc" } },
@@ -311,7 +313,9 @@ export async function getBranchDetail(
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.roleDefinition.name,
+      role: us.roleDefinition.slug,
+      roleName: us.roleDefinition.name,
+      roleColor: us.roleDefinition.color,
       isActive: us.user.isActive,
     }));
 

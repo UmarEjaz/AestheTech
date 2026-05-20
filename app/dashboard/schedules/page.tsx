@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getStaffWithSchedules } from "@/lib/actions/schedule";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { getSettings } from "@/lib/actions/settings";
 import { SchedulePageClient } from "@/components/schedules/schedule-page-client";
 
@@ -14,9 +15,8 @@ export default async function SchedulesPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;

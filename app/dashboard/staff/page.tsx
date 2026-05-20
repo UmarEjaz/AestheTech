@@ -5,6 +5,7 @@ import { StaffTable } from "@/components/staff/staff-table";
 import { getUsers } from "@/lib/actions/user";
 import { getTimezone } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function StaffPage() {
   const session = await auth();
@@ -14,16 +15,15 @@ export default async function StaffPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
   // Check if user can view staff
   if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["staff:view"]);
   }
 
   const canCreate = await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id);

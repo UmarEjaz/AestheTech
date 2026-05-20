@@ -5,9 +5,10 @@ import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/products/product-form";
-import { getAllProductCategories } from "@/lib/actions/product";
+import { getActiveProductCategories } from "@/lib/actions/product-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewProductPage() {
   const session = await auth();
@@ -16,7 +17,6 @@ export default async function NewProductPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.salonRole;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
@@ -28,12 +28,16 @@ export default async function NewProductPage() {
     ]);
 
     if (!canView || !canCreate || !canViewCategories) {
-      redirect("/dashboard/access-denied");
+      const missing: string[] = [];
+      if (!canView) missing.push("products:view");
+      if (!canCreate) missing.push("products:create");
+      if (!canViewCategories) missing.push("product-categories:view");
+      redirectAccessDenied(missing);
     }
   }
 
   const [categoriesResult, settingsResult] = await Promise.all([
-    getAllProductCategories(),
+    getActiveProductCategories(),
     getSettings(),
   ]);
   const categories = categoriesResult.success ? categoriesResult.data : [];
@@ -46,6 +50,7 @@ export default async function NewProductPage() {
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/products">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to products</span>
             </Link>
           </Button>
           <div>

@@ -32,7 +32,7 @@ const DEFAULT_CATEGORIES = [
 /**
  * Lazy-seed default categories for an organization if none exist.
  */
-async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
+export async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
   const count = await prisma.serviceCategory.count({
     where: { salonId: orgRootSalonId },
   });
@@ -54,7 +54,7 @@ async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
 /**
  * Get all service categories for the organization.
  */
-export async function getServiceCategories(): Promise<ActionResult<ServiceCategoryItem[]>> {
+export async function getAllServiceCategories(): Promise<ActionResult<ServiceCategoryItem[]>> {
   const authResult = await checkAuth("service-categories:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
@@ -65,7 +65,7 @@ export async function getServiceCategories(): Promise<ActionResult<ServiceCatego
     await ensureDefaultCategories(orgRootId);
 
     const categories = await prisma.serviceCategory.findMany({
-      where: { salonId: orgRootId },
+      where: { salonId: orgRootId, deletedAt: null },
       select: {
         id: true,
         name: true,
@@ -101,7 +101,7 @@ export async function getActiveServiceCategories(): Promise<
     await ensureDefaultCategories(orgRootId);
 
     const categories = await prisma.serviceCategory.findMany({
-      where: { salonId: orgRootId, isActive: true },
+      where: { salonId: orgRootId, isActive: true, deletedAt: null },
       select: { id: true, name: true, icon: true, color: true },
       orderBy: { name: "asc" },
     });
@@ -188,17 +188,21 @@ export async function updateServiceCategory(
   try {
     const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
-    // Verify the category belongs to this org
+    // Fetch existing for audit-log purposes only (we need the previous name)
     const existing = await prisma.serviceCategory.findFirst({
-      where: { id, salonId: orgRootId },
+      where: { id, salonId: orgRootId, deletedAt: null },
+      select: { name: true },
     });
 
     if (!existing) {
       return { success: false, error: "Category not found" };
     }
 
-    const category = await prisma.serviceCategory.update({
-      where: { id },
+    // Atomic update: verification filters are part of the update itself,
+    // so a race between the find above and the write here can't silently
+    // change a category that no longer belongs to this org or got soft-deleted.
+    const result = await prisma.serviceCategory.updateMany({
+      where: { id, salonId: orgRootId, deletedAt: null },
       data: {
         name,
         icon: icon || null,
@@ -206,17 +210,21 @@ export async function updateServiceCategory(
       },
     });
 
+    if (result.count === 0) {
+      return { success: false, error: "Category not found" };
+    }
+
     await logAudit({
       action: "SERVICE_CATEGORY_UPDATED",
       entityType: "ServiceCategory",
-      entityId: category.id,
+      entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
       details: { name, previousName: existing.name },
     });
 
     revalidatePath("/dashboard/services");
-    return { success: true, data: { id: category.id } };
+    return { success: true, data: { id } };
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -244,7 +252,7 @@ export async function toggleServiceCategory(
     const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
     const existing = await prisma.serviceCategory.findFirst({
-      where: { id, salonId: orgRootId },
+      where: { id, salonId: orgRootId, deletedAt: null },
     });
 
     if (!existing) {
@@ -270,5 +278,86 @@ export async function toggleServiceCategory(
   } catch (error) {
     console.error("Error toggling service category:", error);
     return { success: false, error: "Failed to update service category" };
+  }
+}
+
+/**
+ * Delete a service category.
+ * - Hard-deletes when no references exist anywhere (excluding audit logs).
+ * - Soft-deletes (sets deletedAt) when only "other" references exist beyond Services.
+ * - Blocks with an error if any Service still references it (defense-in-depth — UI also disables).
+ */
+export async function deleteServiceCategory(
+  id: string
+): Promise<ActionResult<{ hardDeleted: boolean }>> {
+  const authResult = await checkAuth("service-categories:delete");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+
+    const existing = await prisma.serviceCategory.findFirst({
+      where: { id, salonId: orgRootId, deletedAt: null },
+    });
+
+    if (!existing) {
+      return { success: false, error: "Category not found" };
+    }
+
+    // Direct references — Services using this category (active OR inactive)
+    const servicesCount = await prisma.service.count({
+      where: { categoryId: id },
+    });
+    if (servicesCount > 0) {
+      return {
+        success: false,
+        error: `Cannot delete: ${servicesCount} service(s) use this category. Deactivate it instead.`,
+      };
+    }
+
+    // "Other references" check — defensive future-proofing.
+    // No other tables currently reference ServiceCategory (verified in schema audit on 2026-05-19).
+    // If a future table adds a FK to ServiceCategory, add the count here and the soft-delete
+    // path below will trigger automatically.
+    const otherReferencesCount = 0;
+
+    const snapshot = {
+      name: existing.name,
+      icon: existing.icon,
+      color: existing.color,
+      isDefault: existing.isDefault,
+      isActive: existing.isActive,
+      createdAt: existing.createdAt,
+    };
+
+    let hardDeleted: boolean;
+    if (otherReferencesCount > 0) {
+      await prisma.serviceCategory.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
+      hardDeleted = false;
+    } else {
+      await prisma.serviceCategory.delete({ where: { id } });
+      hardDeleted = true;
+    }
+
+    await logAudit({
+      action: "SERVICE_CATEGORY_DELETED",
+      entityType: "ServiceCategory",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { hardDeleted, snapshot },
+    });
+
+    revalidatePath("/dashboard/services");
+    revalidatePath("/dashboard/services/categories");
+    return { success: true, data: { hardDeleted } };
+  } catch (error) {
+    console.error("Error deleting service category:", error);
+    return { success: false, error: "Failed to delete service category" };
   }
 }

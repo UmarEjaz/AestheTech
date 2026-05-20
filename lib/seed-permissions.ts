@@ -12,16 +12,16 @@ export async function seedPermissionsForSalon(salonId: string): Promise<void> {
   });
   const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
 
-  // Resolve role names to roleDefinitionIds
-  const allRoleNames = [...new Set(Object.values(DEFAULT_PERMISSION_ROLES).flat())];
+  // Resolve role slugs to roleDefinitionIds (DEFAULT_PERMISSION_ROLES values are slugs)
+  const allRoleSlugs = [...new Set(Object.values(DEFAULT_PERMISSION_ROLES).flat())];
   const roleDefs = await prisma.roleDefinition.findMany({
     where: {
-      name: { in: allRoleNames },
+      slug: { in: allRoleSlugs },
       OR: [{ isSystem: true }, { salonId }],
     },
-    select: { id: true, name: true },
+    select: { id: true, slug: true },
   });
-  const roleNameToId = new Map(roleDefs.map((rd) => [rd.name, rd.id]));
+  const roleSlugToId = new Map(roleDefs.map((rd) => [rd.slug, rd.id]));
 
   const missingCodes: string[] = [];
   const data: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
@@ -31,8 +31,8 @@ export async function seedPermissionsForSalon(salonId: string): Promise<void> {
       missingCodes.push(code);
       continue;
     }
-    for (const roleName of roles) {
-      const roleDefId = roleNameToId.get(roleName);
+    for (const roleSlug of roles) {
+      const roleDefId = roleSlugToId.get(roleSlug);
       if (!roleDefId) continue;
       data.push({ salonId, roleDefinitionId: roleDefId, permissionId: permId });
     }

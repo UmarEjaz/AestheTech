@@ -8,6 +8,7 @@ import { ServiceSearch } from "@/components/services/service-search";
 import { ServiceList } from "@/components/services/service-list";
 import { getServices } from "@/lib/actions/service";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   searchParams: Promise<{
@@ -26,14 +27,15 @@ export default async function ServicesPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const [canManage, canViewCategories] = await Promise.all([
+  const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([
     hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "services:delete", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id),
   ]);
 
@@ -75,7 +77,7 @@ export default async function ServicesPage({ searchParams }: PageProps) {
                 </Link>
               </Button>
             )}
-            {canManage && (
+            {canCreate && (
               <Button asChild>
                 <Link href="/dashboard/services/new">
                   <Plus className="mr-2 h-4 w-4" />
@@ -95,7 +97,8 @@ export default async function ServicesPage({ searchParams }: PageProps) {
           page={page}
           totalPages={totalPages}
           total={total}
-          canManage={canManage}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
         />
       </div>
     </DashboardLayout>

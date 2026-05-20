@@ -49,7 +49,7 @@ interface PayrollRunListProps {
   page: number;
   totalPages: number;
   total: number;
-  canManage?: boolean;
+  canCancel?: boolean;
   canDelete?: boolean;
   currencyCode?: string;
   timezone?: string;
@@ -75,7 +75,7 @@ export function PayrollRunList({
   page,
   totalPages,
   total,
-  canManage = false,
+  canCancel = false,
   canDelete = false,
   currencyCode = "USD",
   timezone = "UTC",
@@ -147,7 +147,7 @@ export function PayrollRunList({
               <TableHead className="text-right">Net Pay</TableHead>
               <TableHead>Branch</TableHead>
               <TableHead>Created</TableHead>
-              {(canManage || canDelete) && <TableHead className="w-[50px]" />}
+              {(canCancel || canDelete) && <TableHead className="w-[50px]" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -172,7 +172,7 @@ export function PayrollRunList({
                 <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                   {formatInTz(run.createdAt, "MMM d, yyyy", timezone)}
                 </TableCell>
-                {(canManage || canDelete) && (
+                {(canCancel || canDelete) && (
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -188,7 +188,7 @@ export function PayrollRunList({
                           <Eye className="mr-2 h-4 w-4" />
                           View Details
                         </DropdownMenuItem>
-                        {canManage && (run.status === "DRAFT" || run.status === "FINALIZED") && (
+                        {canCancel && (run.status === "DRAFT" || run.status === "FINALIZED") && (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

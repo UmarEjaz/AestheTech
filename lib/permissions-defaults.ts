@@ -108,6 +108,7 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
   "payroll:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "payroll:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "payroll:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
+  "payroll:cancel": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "payroll:pay": [SYSTEM_ROLES.OWNER],
   "payroll:delete": [SYSTEM_ROLES.OWNER],
   "salary-config:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
@@ -120,6 +121,9 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
 
   // Audit
   "audit:view": [SYSTEM_ROLES.OWNER],
+
+  // Data Access (cross-branch viewing)
+  "data:all-branches": [SYSTEM_ROLES.OWNER],
 };
 
 /**
@@ -233,8 +237,9 @@ export const PERMISSION_REGISTRY: Array<{
   { code: "payroll:view", module: "payroll", label: "View Payroll", sortOrder: 0 },
   { code: "payroll:create", module: "payroll", label: "Create Payroll", sortOrder: 1 },
   { code: "payroll:update", module: "payroll", label: "Update Payroll", sortOrder: 2 },
-  { code: "payroll:pay", module: "payroll", label: "Process Payroll Payment", sortOrder: 3 },
-  { code: "payroll:delete", module: "payroll", label: "Delete Payroll", sortOrder: 4 },
+  { code: "payroll:cancel", module: "payroll", label: "Cancel Payroll Runs", description: "Cancel a payroll run (preserves record for audit; does not delete data)", sortOrder: 3 },
+  { code: "payroll:pay", module: "payroll", label: "Process Payroll Payment", sortOrder: 4 },
+  { code: "payroll:delete", module: "payroll", label: "Delete Payroll", sortOrder: 5 },
   { code: "salary-config:view", module: "payroll", label: "View Salary Config", sortOrder: 5 },
   { code: "salary-config:create", module: "payroll", label: "Create Salary Config", sortOrder: 6 },
   { code: "salary-config:update", module: "payroll", label: "Update Salary Config", sortOrder: 7 },
@@ -245,29 +250,13 @@ export const PERMISSION_REGISTRY: Array<{
 
   // Audit
   { code: "audit:view", module: "audit", label: "View Audit Log", sortOrder: 0 },
+
+  // Data Access (cross-branch viewing)
+  { code: "data:all-branches", module: "data", label: "View Data Across All Branches", description: "Access combined data from all branches (dashboard, reports, audit logs, payroll, expenses). Without this, users only see data from their current branch.", sortOrder: 0 },
 ];
 
-/** The role name used for owner lockout checks */
-export const OWNER_ROLE_NAME = SYSTEM_ROLES.OWNER;
-
-/**
- * Permissions that OWNER role can never lose (lockout protection).
- * These checkboxes are disabled in the UI and enforced server-side.
- */
-export const OWNER_LOCKED_PERMISSIONS = [
-  "settings:manage",
-  "settings:view",
-  "roles:manage",
-  "permissions:manage",
-  "staff:view",
-  "staff:create",
-  "staff:update",
-  "staff:delete",
-  "branches:view",
-  "branches:create",
-  "branches:update",
-  "branches:delete",
-];
+/** The slug of the owner system role, used for owner-specific checks */
+export const OWNER_ROLE_SLUG = SYSTEM_ROLES.OWNER;
 
 /**
  * Human-readable module labels for the permissions UI.
@@ -292,4 +281,5 @@ export const MODULE_LABELS: Record<string, string> = {
   payroll: "Payroll & Salary",
   profit: "Profit Analytics",
   audit: "Audit Log",
+  data: "Data Access",
 };

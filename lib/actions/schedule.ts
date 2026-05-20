@@ -403,7 +403,7 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
         lastName: true,
         email: true,
         roleDefinitionId: true,
-        roleDefinition: { select: { name: true, label: true } },
+        roleDefinition: { select: { name: true, slug: true } },
         schedules: {
           where: { salonId: authResult.salonId },
           select: {
@@ -425,8 +425,8 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
       firstName: u.firstName,
       lastName: u.lastName,
       email: u.email,
-      role: u.roleDefinition?.name ?? "",
-      roleLabel: u.roleDefinition?.label ?? undefined,
+      role: u.roleDefinition?.slug ?? "",
+      roleLabel: u.roleDefinition?.name ?? undefined,
       schedules: u.schedules,
     }));
 
@@ -589,30 +589,29 @@ export async function copySchedule(
       return { success: false, error: `You don't have permission to ${missingPerms.join(" and ")}` };
     }
 
-    // Delete existing schedules for target staff
-    await prisma.schedule.deleteMany({
-      where: { staffId: toStaffId, salonId: authResult.salonId },
+    // Atomic delete + copy inside a transaction
+    const copiedSchedules = await prisma.$transaction(async (tx) => {
+      await tx.schedule.deleteMany({
+        where: { staffId: toStaffId, salonId: authResult.salonId },
+      });
+
+      return Promise.all(
+        sourceSchedules.map((schedule) =>
+          tx.schedule.create({
+            data: {
+              salonId: authResult.salonId,
+              staffId: toStaffId,
+              dayOfWeek: schedule.dayOfWeek,
+              startTime: schedule.startTime,
+              endTime: schedule.endTime,
+              shiftType: schedule.shiftType,
+              isAvailable: schedule.isAvailable,
+            },
+            include: scheduleListInclude,
+          })
+        )
+      );
     });
-
-    // Copy schedules
-    const rawCopied = await Promise.all(
-      sourceSchedules.map((schedule) =>
-        prisma.schedule.create({
-          data: {
-            salonId: authResult.salonId,
-            staffId: toStaffId,
-            dayOfWeek: schedule.dayOfWeek,
-            startTime: schedule.startTime,
-            endTime: schedule.endTime,
-            shiftType: schedule.shiftType,
-            isAvailable: schedule.isAvailable,
-          },
-          include: scheduleListInclude,
-        })
-      )
-    );
-
-    const copiedSchedules = rawCopied;
 
     await logAudit({
       action: "SCHEDULE_COPIED",

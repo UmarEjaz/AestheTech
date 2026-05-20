@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getBranchDetail } from "@/lib/actions/branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,15 +21,14 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   if (!session) redirect("/login");
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
   if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["branches:view"]);
   }
 
   const result = await getBranchDetail(id);
@@ -47,7 +47,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   }
 
   const branch = result.data;
-  const canManage = await hasPermission(userRoleId, "branches:update", isSuperAdmin, salonId, session.user.id);
+  const canManageStaff = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>
@@ -56,6 +56,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
           <Link href="/dashboard/branches">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to branches</span>
             </Button>
           </Link>
           <div>
@@ -103,7 +104,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
         <BranchStaffTable
           branchId={branch.id}
           staff={branch.staff}
-          canManage={canManage}
+          canManageStaff={canManageStaff}
         />
       </div>
     </DashboardLayout>

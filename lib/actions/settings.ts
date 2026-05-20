@@ -25,7 +25,7 @@ export interface SettingsData {
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
   platinumThreshold: number;
-  silverMultiplier: number;
+  memberMultiplier: number;
   goldMultiplier: number;
   platinumMultiplier: number;
   pointsPerDollar: number;
@@ -68,7 +68,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           loyaltyPointsPerDollar: 1,
           goldThreshold: 500,
           platinumThreshold: 1000,
-          silverMultiplier: 1.0,
+          memberMultiplier: 1.0,
           goldMultiplier: 1.5,
           platinumMultiplier: 2.0,
           pointsPerDollar: 100,
@@ -84,7 +84,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
         data: {
           ...defaultSettings,
           taxRate: Number(defaultSettings.taxRate),
-          silverMultiplier: Number(defaultSettings.silverMultiplier),
+          memberMultiplier: Number(defaultSettings.memberMultiplier),
           goldMultiplier: Number(defaultSettings.goldMultiplier),
           platinumMultiplier: Number(defaultSettings.platinumMultiplier),
         },
@@ -96,7 +96,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
       data: {
         ...settings,
         taxRate: Number(settings.taxRate),
-        silverMultiplier: Number(settings.silverMultiplier),
+        memberMultiplier: Number(settings.memberMultiplier),
         goldMultiplier: Number(settings.goldMultiplier),
         platinumMultiplier: Number(settings.platinumMultiplier),
       },
@@ -155,11 +155,11 @@ export async function updateSettings(
     }
 
     // Validate multipliers if provided
-    const silverMult = data.silverMultiplier ?? Number(existingSettings.silverMultiplier);
+    const memberMult = data.memberMultiplier ?? Number(existingSettings.memberMultiplier);
     const goldMult = data.goldMultiplier ?? Number(existingSettings.goldMultiplier);
     const platMult = data.platinumMultiplier ?? Number(existingSettings.platinumMultiplier);
-    if (silverMult > goldMult || goldMult > platMult) {
-      return { success: false, error: "Tier multipliers must be in ascending order (Silver <= Gold <= Platinum)" };
+    if (memberMult > goldMult || goldMult > platMult) {
+      return { success: false, error: "Tier multipliers must be in ascending order (Member <= Gold <= Platinum)" };
     }
 
     // Validate birthday bonus points if provided
@@ -196,7 +196,7 @@ export async function updateSettings(
       });
       await prisma.loyaltyPoints.updateMany({
         where: { salonId: authResult.salonId, balance: { lt: updatedSettings.goldThreshold } },
-        data: { tier: "SILVER" },
+        data: { tier: "MEMBER" },
       });
     }
 
@@ -228,7 +228,7 @@ export async function updateSettings(
       data: {
         ...updatedSettings,
         taxRate: Number(updatedSettings.taxRate),
-        silverMultiplier: Number(updatedSettings.silverMultiplier),
+        memberMultiplier: Number(updatedSettings.memberMultiplier),
         goldMultiplier: Number(updatedSettings.goldMultiplier),
         platinumMultiplier: Number(updatedSettings.platinumMultiplier),
       },

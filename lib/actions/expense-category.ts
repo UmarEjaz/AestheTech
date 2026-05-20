@@ -57,7 +57,7 @@ async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
 /**
  * Get all expense categories for the organization.
  */
-export async function getExpenseCategories(): Promise<ActionResult<ExpenseCategoryItem[]>> {
+export async function getAllExpenseCategories(): Promise<ActionResult<ExpenseCategoryItem[]>> {
   const authResult = await checkAuth("expense-categories:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
@@ -68,7 +68,7 @@ export async function getExpenseCategories(): Promise<ActionResult<ExpenseCatego
     await ensureDefaultCategories(orgRootId);
 
     const categories = await prisma.expenseCategory.findMany({
-      where: { salonId: orgRootId },
+      where: { salonId: orgRootId, deletedAt: null },
       select: {
         id: true,
         name: true,
@@ -104,7 +104,7 @@ export async function getActiveExpenseCategories(): Promise<
     await ensureDefaultCategories(orgRootId);
 
     const categories = await prisma.expenseCategory.findMany({
-      where: { salonId: orgRootId, isActive: true },
+      where: { salonId: orgRootId, isActive: true, deletedAt: null },
       select: { id: true, name: true, icon: true, color: true },
       orderBy: { name: "asc" },
     });
@@ -191,17 +191,21 @@ export async function updateExpenseCategory(
   try {
     const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
-    // Verify the category belongs to this org
+    // Fetch existing for audit-log purposes only (we need the previous name)
     const existing = await prisma.expenseCategory.findFirst({
-      where: { id, salonId: orgRootId },
+      where: { id, salonId: orgRootId, deletedAt: null },
+      select: { name: true },
     });
 
     if (!existing) {
       return { success: false, error: "Category not found" };
     }
 
-    const category = await prisma.expenseCategory.update({
-      where: { id },
+    // Atomic update: verification filters are part of the update itself,
+    // so a race between the find above and the write here can't silently
+    // change a category that no longer belongs to this org or got soft-deleted.
+    const result = await prisma.expenseCategory.updateMany({
+      where: { id, salonId: orgRootId, deletedAt: null },
       data: {
         name,
         icon: icon || null,
@@ -209,17 +213,21 @@ export async function updateExpenseCategory(
       },
     });
 
+    if (result.count === 0) {
+      return { success: false, error: "Category not found" };
+    }
+
     await logAudit({
       action: "EXPENSE_CATEGORY_UPDATED",
       entityType: "ExpenseCategory",
-      entityId: category.id,
+      entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
       details: { name, previousName: existing.name },
     });
 
     revalidatePath("/dashboard/expenses");
-    return { success: true, data: { id: category.id } };
+    return { success: true, data: { id } };
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -247,7 +255,7 @@ export async function toggleExpenseCategory(
     const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
     const existing = await prisma.expenseCategory.findFirst({
-      where: { id, salonId: orgRootId },
+      where: { id, salonId: orgRootId, deletedAt: null },
     });
 
     if (!existing) {
@@ -273,5 +281,83 @@ export async function toggleExpenseCategory(
   } catch (error) {
     console.error("Error toggling expense category:", error);
     return { success: false, error: "Failed to update expense category" };
+  }
+}
+
+/**
+ * Delete an expense category.
+ * - Hard-deletes when no references exist anywhere (excluding audit logs).
+ * - Soft-deletes (sets deletedAt) when only "other" references exist beyond Expenses.
+ * - Blocks with an error if any Expense still references it (defense-in-depth — UI also disables).
+ */
+export async function deleteExpenseCategory(
+  id: string
+): Promise<ActionResult<{ hardDeleted: boolean }>> {
+  const authResult = await checkAuth("expense-categories:delete");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+
+    const existing = await prisma.expenseCategory.findFirst({
+      where: { id, salonId: orgRootId, deletedAt: null },
+    });
+
+    if (!existing) {
+      return { success: false, error: "Category not found" };
+    }
+
+    const expensesCount = await prisma.expense.count({
+      where: { categoryId: id },
+    });
+    if (expensesCount > 0) {
+      return {
+        success: false,
+        error: `Cannot delete: ${expensesCount} expense(s) use this category. Deactivate it instead.`,
+      };
+    }
+
+    // "Other references" check — defensive future-proofing.
+    // No other tables currently reference ExpenseCategory.
+    const otherReferencesCount = 0;
+
+    const snapshot = {
+      name: existing.name,
+      icon: existing.icon,
+      color: existing.color,
+      isDefault: existing.isDefault,
+      isActive: existing.isActive,
+      createdAt: existing.createdAt,
+    };
+
+    let hardDeleted: boolean;
+    if (otherReferencesCount > 0) {
+      await prisma.expenseCategory.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
+      hardDeleted = false;
+    } else {
+      await prisma.expenseCategory.delete({ where: { id } });
+      hardDeleted = true;
+    }
+
+    await logAudit({
+      action: "EXPENSE_CATEGORY_DELETED",
+      entityType: "ExpenseCategory",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { hardDeleted, snapshot },
+    });
+
+    revalidatePath("/dashboard/expenses");
+    revalidatePath("/dashboard/expenses/categories");
+    return { success: true, data: { hardDeleted } };
+  } catch (error) {
+    console.error("Error deleting expense category:", error);
+    return { success: false, error: "Failed to delete expense category" };
   }
 }

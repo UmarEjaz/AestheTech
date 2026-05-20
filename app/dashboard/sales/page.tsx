@@ -5,6 +5,7 @@ import { SalesTable } from "@/components/sales/sales-table";
 import { getSales, getTodaysSalesSummary } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function SalesPage() {
   const session = await auth();
@@ -14,9 +15,8 @@ export default async function SalesPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;

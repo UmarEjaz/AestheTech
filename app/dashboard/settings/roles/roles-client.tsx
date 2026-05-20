@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
 import { RoleForm } from "@/components/settings/role-form";
 import { deleteRole, getRoleBySlug, type RoleInfo } from "@/lib/actions/role";
 import { updateRolePermissions, resetRolePermissionsToDefaults } from "@/lib/actions/permission";
-import { OWNER_LOCKED_PERMISSIONS, OWNER_ROLE_NAME, MODULE_LABELS } from "@/lib/permissions-defaults";
+import { MODULE_LABELS } from "@/lib/permissions-defaults";
 
 type PermissionInfo = {
   code: string;
@@ -86,7 +86,6 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
   const isReadOnly = !canManagePermissions || (selectedRole
     ? selectedRole.hierarchyLevel >= (permData?.callerHierarchyLevel ?? 0)
     : true);
-  const isOwnerRole = selectedRole?.name === OWNER_ROLE_NAME;
 
   // Group permissions by module
   const modules = useMemo(() => {
@@ -102,10 +101,9 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
   const isPermDisabled = useCallback(
     (code: string) => {
       if (isReadOnly) return true;
-      if (isOwnerRole && OWNER_LOCKED_PERMISSIONS.includes(code)) return true;
       return false;
     },
-    [isReadOnly, isOwnerRole]
+    [isReadOnly]
   );
 
   // Compute changes
@@ -218,7 +216,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
     setIsSaving(true);
     try {
       const result = await updateRolePermissions({
-        roleName: selectedRole.name,
+        roleName: selectedRole.slug,
         grants: changes.grants,
         revokes: changes.revokes,
       });
@@ -239,7 +237,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
     if (!selectedRole) return;
     setIsResetting(true);
     try {
-      const result = await resetRolePermissionsToDefaults(selectedRole.name);
+      const result = await resetRolePermissionsToDefaults(selectedRole.slug);
       if (result.success) {
         toast.success("Permissions reset to defaults");
         const reloadResult = await getRoleBySlug(selectedSlug);
@@ -303,6 +301,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/settings">
               <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back to settings</span>
             </Link>
           </Button>
           <div>
@@ -337,7 +336,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                     className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                     style={{ backgroundColor: role.color }}
                   />
-                  {role.label}
+                  {role.name}
                   <span className="text-muted-foreground text-xs">
                     ({role.isSystem ? "System" : "Custom"})
                   </span>
@@ -379,7 +378,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-semibold truncate">
-                      {role.label}
+                      {role.name}
                     </span>
                     {!role.isSystem && (
                       <Badge
@@ -442,7 +441,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl font-bold">{selectedRole.label}</h2>
+                  <h2 className="text-xl font-bold">{selectedRole.name}</h2>
                   <Badge
                     variant={selectedRole.isSystem ? "secondary" : "default"}
                     className={
@@ -520,9 +519,6 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                             isPermDisabled(perm.code) ||
                             isSaving ||
                             isResetting;
-                          const isLocked =
-                            isOwnerRole &&
-                            OWNER_LOCKED_PERMISSIONS.includes(perm.code);
                           return (
                             <div
                               key={perm.code}
@@ -546,9 +542,6 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                               >
                                 {perm.label}
                               </span>
-                              {isLocked && (
-                                <Lock className="h-3 w-3 text-muted-foreground" />
-                              )}
                             </div>
                           );
                         })}
@@ -585,7 +578,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                 <AlertDialogTitle>Reset Permissions?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This will reset all permissions for the{" "}
-                  <strong>{selectedRole?.label}</strong> role to their default
+                  <strong>{selectedRole?.name}</strong> role to their default
                   values. Any custom changes will be lost.
                 </AlertDialogDescription>
               </AlertDialogHeader>

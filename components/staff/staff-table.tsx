@@ -15,7 +15,6 @@ import {
   Mail,
   Loader2,
   Users,
-  Shield,
   UserCheck,
   UserX,
 } from "lucide-react";
@@ -52,7 +51,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { UserListItem, deleteUser, toggleUserActive } from "@/lib/actions/user";
-import { useRoles, useRoleLabel, useRoleColor } from "@/lib/roles-context";
+import { useRoles } from "@/lib/roles-context";
 
 interface StaffTableProps {
   initialUsers: UserListItem[];
@@ -289,7 +288,7 @@ export function StaffTable({
               <SelectContent>
                 <SelectItem value="ALL">All Roles</SelectItem>
                 {roles.map((r) => (
-                  <SelectItem key={r.name} value={r.name}>{r.label}</SelectItem>
+                  <SelectItem key={r.slug} value={r.slug}>{r.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -392,7 +391,7 @@ export function StaffTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <RoleBadge roleName={user.role} />
+                      <RoleBadge label={user.roleName} color={user.roleColor} />
                     </TableCell>
                     <TableCell>
                       {user.isActive ? (
@@ -559,10 +558,7 @@ export function StaffTable({
   );
 }
 
-function RoleBadge({ roleName }: { roleName: string }) {
-  const label = useRoleLabel(roleName);
-  const color = useRoleColor(roleName);
-
+function RoleBadge({ label, color }: { label: string; color: string }) {
   return (
     <Badge
       className="border"
@@ -572,7 +568,6 @@ function RoleBadge({ roleName }: { roleName: string }) {
         borderColor: `${color}40`,
       }}
     >
-      <Shield className="h-3 w-3 mr-1" />
       {label}
     </Badge>
   );

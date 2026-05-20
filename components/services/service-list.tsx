@@ -23,7 +23,8 @@ interface ServiceListProps {
   page: number;
   totalPages: number;
   total: number;
-  canManage?: boolean;
+  canUpdate?: boolean;
+  canDelete?: boolean;
 }
 
 export function ServiceList({
@@ -31,7 +32,8 @@ export function ServiceList({
   page,
   totalPages,
   total,
-  canManage = false,
+  canUpdate = false,
+  canDelete = false,
 }: ServiceListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -73,8 +75,8 @@ export function ServiceList({
           <ServiceCard
             key={service.id}
             service={service}
-            onDelete={canManage ? setDeleteId : undefined}
-            canManage={canManage}
+            onDelete={canDelete ? setDeleteId : undefined}
+            canUpdate={canUpdate}
           />
         ))}
       </div>

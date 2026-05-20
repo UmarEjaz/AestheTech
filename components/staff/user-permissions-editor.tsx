@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Loader2, RotateCcw, ShieldCheck, ShieldX, ShieldMinus } from "lucide-react";
+import { Loader2, RotateCcw, ShieldCheck, ShieldX, ShieldMinus, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -29,7 +29,7 @@ import {
   updateUserPermissions,
   clearUserPermissionOverrides,
 } from "@/lib/actions/permission";
-import { MODULE_LABELS, OWNER_LOCKED_PERMISSIONS, OWNER_ROLE_NAME } from "@/lib/permissions-defaults";
+import { MODULE_LABELS } from "@/lib/permissions-defaults";
 import { useRoleLabel } from "@/lib/roles-context";
 
 interface UserPermissionsEditorProps {
@@ -67,11 +67,7 @@ export function UserPermissionsEditor({ data }: UserPermissionsEditorProps) {
 
   const overrideCount = Object.values(overrideState).filter((v) => v !== "inherit").length;
 
-  const isLocked = (permCode: string) =>
-    data.targetUser.role === OWNER_ROLE_NAME && OWNER_LOCKED_PERMISSIONS.includes(permCode);
-
   const handleChange = (permCode: string, value: OverrideState) => {
-    if (isLocked(permCode)) return;
     setOverrideState((prev) => ({ ...prev, [permCode]: value }));
   };
 
@@ -82,7 +78,43 @@ export function UserPermissionsEditor({ data }: UserPermissionsEditorProps) {
     return data.rolePermissions.includes(permCode);
   };
 
+  // View-dependency check: for each module, if any non-view permission is effectively granted
+  // but view is not, that's a violation. Mirrors the role-permissions editor and the server
+  // validation in updateUserPermissions.
+  const validateViewDependencies = useCallback((): string[] => {
+    const allCodes = data.permissions.map((p) => p.code);
+    const viewPrefixes = new Set<string>();
+    for (const code of allCodes) {
+      if (code.endsWith(":view")) {
+        viewPrefixes.add(code.slice(0, -":view".length));
+      }
+    }
+    const violations: string[] = [];
+    for (const prefix of viewPrefixes) {
+      const viewCode = `${prefix}:view`;
+      if (getEffectiveAccess(viewCode)) continue;
+      const hasNonView = allCodes.some(
+        (code) =>
+          code.startsWith(`${prefix}:`) &&
+          code !== viewCode &&
+          getEffectiveAccess(code)
+      );
+      if (hasNonView) violations.push(prefix);
+    }
+    return violations;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overrideState, data.permissions, data.rolePermissions]);
+
   const handleSave = async () => {
+    const violations = validateViewDependencies();
+    if (violations.length > 0) {
+      const moduleNames = violations.map((v) => MODULE_LABELS[v] || v);
+      toast.error(
+        `Cannot save: View permission is required for ${moduleNames.join(", ")}`
+      );
+      return;
+    }
+
     setIsSaving(true);
     try {
       // Collect only non-inherit overrides
@@ -146,6 +178,10 @@ export function UserPermissionsEditor({ data }: UserPermissionsEditorProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        <div className="flex items-center gap-2 pb-4 border-b text-sm text-muted-foreground">
+          <Info className="h-4 w-4 shrink-0" />
+          <p>View permission is required when granting Create, Update, or Delete for any module.</p>
+        </div>
         {Array.from(modules.entries()).map(([module, perms]) => (
           <div key={module} className="space-y-2">
             <h4 className="text-sm font-semibold text-muted-foreground">
@@ -153,7 +189,6 @@ export function UserPermissionsEditor({ data }: UserPermissionsEditorProps) {
             </h4>
             <div className="space-y-1">
               {perms.map((perm) => {
-                const locked = isLocked(perm.code);
                 const state = overrideState[perm.code];
                 const roleHas = data.rolePermissions.includes(perm.code);
                 const effective = getEffectiveAccess(perm.code);
@@ -192,9 +227,9 @@ export function UserPermissionsEditor({ data }: UserPermissionsEditorProps) {
                       <Select
                         value={state}
                         onValueChange={(v) => handleChange(perm.code, v as OverrideState)}
-                        disabled={locked || isSaving}
+                        disabled={isSaving}
                       >
-                        <SelectTrigger className={`w-[130px] h-8 text-xs ${locked ? "opacity-50" : ""}`}>
+                        <SelectTrigger className="w-[130px] h-8 text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

@@ -8,6 +8,7 @@ import { SalaryConfigList } from "@/components/payroll/salary-config-list";
 import { getSalaryConfigs } from "@/lib/actions/salary-config";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function SalaryConfigPage() {
   const session = await auth();
@@ -17,14 +18,13 @@ export default async function SalaryConfigPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!await hasPermission(userRoleId, "salary-config:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["salary-config:view"]);
   }
 
   const [canCreate, canUpdate, canDelete] = await Promise.all([
@@ -32,7 +32,6 @@ export default async function SalaryConfigPage() {
     hasPermission(userRoleId, "salary-config:update", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "salary-config:delete", isSuperAdmin, salonId, session.user.id),
   ]);
-  const canManage = canCreate || canUpdate || canDelete;
 
   const [result, settingsResult] = await Promise.all([
     getSalaryConfigs("current"),
@@ -81,7 +80,8 @@ export default async function SalaryConfigPage() {
 
         <SalaryConfigList
           configs={result.data}
-          canManage={canManage}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
           currencyCode={currencyCode}
         />
       </div>

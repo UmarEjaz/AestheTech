@@ -47,11 +47,8 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
   const skip = (safePage - 1) * safeLimit;
 
   try {
-    // Get all salon IDs in the organization for cross-branch product visibility
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-
     const where: Prisma.ProductWhereInput = {
-      salonId: { in: orgSalonIds },
+      salonId: authResult.salonId,
       isActive,
       ...(query && {
         OR: [
@@ -78,7 +75,7 @@ export async function getProducts(params: ProductSearchParams = {}): Promise<Act
       }),
       lowStock ? Promise.resolve(0) : prisma.product.count({ where }),
       prisma.productCategory.findMany({
-        where: { salonId: orgRootId, isActive: true },
+        where: { salonId: orgRootId, isActive: true, deletedAt: null },
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       }),
@@ -321,29 +318,6 @@ export async function restoreProduct(id: string): Promise<ActionResult> {
   } catch (error) {
     console.error("Error restoring product:", error);
     return { success: false, error: "Failed to restore product" };
-  }
-}
-
-export async function getAllProductCategories(): Promise<ActionResult<{ id: string; name: string }[]>> {
-  const authResult = await checkAuth("product-categories:view");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  try {
-    const { getOrgRootSalonId } = await import("./branch");
-    const orgRootId = await getOrgRootSalonId(authResult.salonId);
-
-    const categories = await prisma.productCategory.findMany({
-      where: { salonId: orgRootId, isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    });
-
-    return { success: true, data: categories };
-  } catch (error) {
-    console.error("Error fetching product categories:", error);
-    return { success: false, error: "Failed to fetch categories" };
   }
 }
 

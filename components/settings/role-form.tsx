@@ -23,7 +23,7 @@ const PRESET_COLORS = [
 
 export function RoleForm({ role, onClose }: RoleFormProps) {
   const isEdit = !!role;
-  const [name, setName] = useState(role?.label ?? "");
+  const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
   const [color, setColor] = useState(role?.color ?? "#6B7280");
   const [hierarchyLevel, setHierarchyLevel] = useState(role?.hierarchyLevel ?? 30);
@@ -38,7 +38,7 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
         const result = await updateRole({
           id: role.id,
           name,
-          description: description || undefined,
+          description,
           color,
           hierarchyLevel,
         });
@@ -52,7 +52,7 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
         const result = await createRole({
           name,
           label: name,
-          description: description || undefined,
+          description,
           color,
           hierarchyLevel,
         });
@@ -85,9 +85,12 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
           id="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g., Senior Stylist"
+          placeholder="e.g., Senior Stylist, Branch Manager"
           required
         />
+        <p className="text-xs text-muted-foreground">
+          Letters, numbers, spaces, underscores, and hyphens only. No other special characters.
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -102,7 +105,7 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
       </div>
 
       <div className="space-y-2">
-        <Label>Color</Label>
+        <Label htmlFor="custom-role-color">Color</Label>
         <div className="flex flex-wrap gap-2">
           {PRESET_COLORS.map((c) => (
             <button
@@ -113,13 +116,16 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
               }`}
               style={{ backgroundColor: c }}
               onClick={() => setColor(c)}
+              aria-label={`Select color ${c}`}
             />
           ))}
           <Input
+            id="custom-role-color"
             type="color"
             value={color}
             onChange={(e) => setColor(e.target.value)}
             className="h-8 w-8 p-0 border-0 cursor-pointer"
+            aria-label="Pick a custom color"
           />
         </div>
       </div>

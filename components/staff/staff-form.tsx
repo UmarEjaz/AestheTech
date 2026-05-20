@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { userSchema, UserFormData, UserFormInput, UserUpdateData } from "@/lib/validations/user";
 import { createUser, updateUser } from "@/lib/actions/user";
 import { useRoles } from "@/lib/roles-context";
-import { SYSTEM_ROLE_HIERARCHY } from "@/lib/roles";
+import { SYSTEM_ROLES, SYSTEM_ROLE_HIERARCHY } from "@/lib/roles";
 
 interface StaffFormProps {
   user?: {
@@ -46,7 +46,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<string>(user?.role || "STAFF");
+  const [selectedRole, setSelectedRole] = useState<string>(user?.role || SYSTEM_ROLES.STAFF);
   const [isServiceProvider, setIsServiceProvider] = useState(user?.isServiceProvider ?? false);
 
   // Filter available roles based on current user's role hierarchy
@@ -55,7 +55,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
     if (isSuperAdmin) return roles;
     if (!currentUserRole) return [];
 
-    const currentLevel = roles.find((r) => r.name === currentUserRole)?.hierarchyLevel
+    const currentLevel = roles.find((r) => r.slug === currentUserRole)?.hierarchyLevel
       ?? SYSTEM_ROLE_HIERARCHY[currentUserRole] ?? 0;
 
     return roles.filter((r) => currentLevel > r.hierarchyLevel);
@@ -74,7 +74,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
       lastName: user?.lastName || "",
       email: user?.email || "",
       phone: user?.phone || "",
-      role: user?.role || "STAFF",
+      role: user?.role || SYSTEM_ROLES.STAFF,
       password: "",
       confirmPassword: "",
     },
@@ -199,9 +199,9 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
               </SelectTrigger>
               <SelectContent>
                 {availableRoles.map((role) => (
-                  <SelectItem key={role.name} value={role.name}>
+                  <SelectItem key={role.slug} value={role.slug}>
                     <div className="flex flex-col">
-                      <span>{role.label}</span>
+                      <span>{role.name}</span>
                     </div>
                   </SelectItem>
                 ))}

@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { BranchForm } from "./branch-form";
 
@@ -9,15 +10,14 @@ export default async function NewBranchPage() {
   if (!session) redirect("/login");
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   const salonId = session.user.salonId;
   if (!(await hasPermission(userRoleId, "branches:create", isSuperAdmin, salonId, session.user.id))) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["branches:create"]);
   }
 
   return (

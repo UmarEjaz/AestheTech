@@ -11,6 +11,7 @@ import { getExpenses, getIncomeExpenseSummary } from "@/lib/actions/expense";
 import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   searchParams: Promise<{
@@ -31,18 +32,17 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!await hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["expenses:view"]);
   }
 
   const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id);
-  const canManage = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
+  const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
   const canDelete = await hasPermission(userRoleId, "expenses:delete", isSuperAdmin, salonId, session.user.id);
   const canViewCategories = await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id);
 
@@ -137,7 +137,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           page={page}
           totalPages={totalPages}
           total={total}
-          canManage={canManage}
+          canUpdate={canUpdate}
           canDelete={canDelete}
           currencyCode={currencyCode}
           timezone={timezone}

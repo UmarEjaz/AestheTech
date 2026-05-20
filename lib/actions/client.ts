@@ -219,7 +219,7 @@ export async function createClient(data: ClientFormData): Promise<ActionResult<{
         create: {
           salonId,
           balance: 0,
-          tier: "SILVER",
+          tier: "MEMBER",
         },
       },
     },
@@ -281,7 +281,7 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
         create: {
           salonId,
           balance: 0,
-          tier: "SILVER",
+          tier: "MEMBER",
         },
       },
     },

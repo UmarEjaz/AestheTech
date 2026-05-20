@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
+import { hasPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import { salaryConfigSchema, SalaryConfigInput } from "@/lib/validations/payroll";
 import { getOrganizationSalonIds } from "./branch";
@@ -57,10 +58,10 @@ export async function getSalaryConfigs(
   }
 
   try {
-    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -89,10 +90,10 @@ export async function getSalaryConfig(id: string): Promise<ActionResult<SalaryCo
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     const config = await prisma.salaryConfig.findFirst({
       where: { id, salonId: { in: salonIds } },
@@ -124,10 +125,10 @@ export async function getStaffCurrentConfig(
 
   try {
     // Verify the caller has access to this salon
-    const authorizedSalonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const authorizedSalonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     if (!authorizedSalonIds.includes(salonId)) {
       return { success: false, error: "Unauthorized access to this branch" };
@@ -234,10 +235,10 @@ export async function updateSalaryConfig(
   const { userId, payType, baseRate, effectiveDate, notes } = validation.data;
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     const existing = await prisma.salaryConfig.findFirst({
       where: { id, salonId: { in: salonIds } },
@@ -298,19 +299,20 @@ export async function updateSalaryConfig(
 }
 
 /**
- * Soft-delete a salary config (set isActive=false).
+ * Toggle a salary config's active status. Flips isActive (true ↔ false).
+ * Requires `salary-config:delete` permission because deactivating ends the active rate.
  */
-export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>> {
+export async function toggleSalaryConfigActive(id: string): Promise<ActionResult<void>> {
   const authResult = await checkAuth("salary-config:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     const existing = await prisma.salaryConfig.findFirst({
       where: { id, salonId: { in: salonIds } },
@@ -351,7 +353,7 @@ export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>
  * Get staff members at the current branch (for dropdowns).
  */
 export async function getBranchStaff(): Promise<
-  ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string }[]>
+  ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string; roleName: string }[]>
 > {
   const authResult = await checkAuth("salary-config:view");
   if (!authResult) {
@@ -363,7 +365,7 @@ export async function getBranchStaff(): Promise<
       where: { salonId: authResult.salonId, isActive: true },
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
-        roleDefinition: { select: { name: true } },
+        roleDefinition: { select: { slug: true, name: true } },
       },
     });
 
@@ -372,7 +374,8 @@ export async function getBranchStaff(): Promise<
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.roleDefinition.name,
+      role: us.roleDefinition.slug,
+      roleName: us.roleDefinition.name,
     }));
 
     return { success: true, data: staff };

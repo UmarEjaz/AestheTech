@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewStaffPage() {
   const session = await auth();
@@ -16,14 +17,14 @@ export default async function NewStaffPage() {
 
   const isSuperAdmin = session.user.isSuperAdmin === true;
   if (!session.user.salonRole && !isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
   const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
 
   const salonId = session.user.salonId;
   if (!(await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id))) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["staff:create"]);
   }
 
   return (
@@ -34,6 +35,7 @@ export default async function NewStaffPage() {
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/staff">
               <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back to staff</span>
             </Link>
           </Button>
           <div>

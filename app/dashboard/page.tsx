@@ -11,6 +11,7 @@ import { getDashboardStats } from "@/lib/actions/dashboard";
 import { getTimezone } from "@/lib/actions/settings";
 import { getBranches } from "@/lib/actions/branch";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function DashboardPage({
   searchParams,
@@ -25,29 +26,28 @@ export default async function DashboardPage({
 
   const { user } = session;
   if (!user.salonRole && !user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = user.salonRole ?? null;
   const userRoleId = user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = user.salonId;
-  const [canViewReports, canCreateAppointments, canCreateSales, canCreateClients, canManageServices, canViewSchedules] = await Promise.all([
+  const [canViewReports, canCreateAppointments, canCreateSales, canCreateClients, canManageServices, canViewSchedules, canViewAllBranches] = await Promise.all([
     hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, user.id),
     hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, user.id),
     hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, user.id),
     hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, user.id),
     hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, user.id),
     hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, user.id),
   ]);
-  const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   const params = await searchParams;
-  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = canViewAllBranches && params.branch === "all" ? "all" as const : "current" as const;
 
   const [statsResult, tz, branchesResult] = await Promise.all([
     getDashboardStats({ branchFilter }),
     getTimezone(),
-    isOwner ? getBranches() : Promise.resolve(null),
+    canViewAllBranches ? getBranches() : Promise.resolve(null),
   ]);
 
   const hasMultipleBranches = branchesResult?.success && branchesResult.data.length > 1;

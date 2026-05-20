@@ -28,7 +28,7 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
           select: { id: true, name: true },
         },
         roleDefinition: {
-          select: { name: true },
+          select: { slug: true },
         },
       },
       orderBy: { salon: { name: "asc" } },
@@ -37,7 +37,7 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
     const items: UserSalonItem[] = userSalons.map((us) => ({
       salonId: us.salon.id,
       salonName: us.salon.name,
-      role: us.roleDefinition.name,
+      role: us.roleDefinition.slug,
       isCurrent: us.salonId === authResult.salonId,
     }));
 
@@ -67,7 +67,7 @@ export async function switchSalon(
       },
       include: {
         salon: { select: { isActive: true } },
-        roleDefinition: { select: { name: true } },
+        roleDefinition: { select: { slug: true } },
       },
     });
 
@@ -90,7 +90,7 @@ export async function switchSalon(
 
     return {
       success: true,
-      data: { salonId: targetSalonId, role: userSalon.roleDefinition.name },
+      data: { salonId: targetSalonId, role: userSalon.roleDefinition.slug },
     };
   } catch (error) {
     console.error("Error switching salon:", error);

@@ -17,10 +17,10 @@ import { ServiceListItem } from "@/lib/actions/service";
 interface ServiceCardProps {
   service: ServiceListItem;
   onDelete?: (id: string) => void;
-  canManage?: boolean;
+  canUpdate?: boolean;
 }
 
-export function ServiceCard({ service, onDelete, canManage = false }: ServiceCardProps) {
+export function ServiceCard({ service, onDelete, canUpdate = false }: ServiceCardProps) {
   const formatDuration = (minutes: number) => {
     if (minutes < 60) return `${minutes} min`;
     const hours = Math.floor(minutes / 60);
@@ -40,7 +40,7 @@ export function ServiceCard({ service, onDelete, canManage = false }: ServiceCar
               </Badge>
             )}
           </div>
-          {canManage && (
+          {(canUpdate || onDelete) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -49,15 +49,17 @@ export function ServiceCard({ service, onDelete, canManage = false }: ServiceCar
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link href={`/dashboard/services/${service.id}/edit`}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Edit
-                  </Link>
-                </DropdownMenuItem>
+                {canUpdate && (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/dashboard/services/${service.id}/edit`}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      Edit
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 {onDelete && (
                   <>
-                    <DropdownMenuSeparator />
+                    {canUpdate && <DropdownMenuSeparator />}
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => onDelete(service.id)}

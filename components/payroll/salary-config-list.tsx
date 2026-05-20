@@ -21,18 +21,20 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { SalaryConfigListItem, deleteSalaryConfig } from "@/lib/actions/salary-config";
+import { SalaryConfigListItem, toggleSalaryConfigActive } from "@/lib/actions/salary-config";
 import { formatCurrency } from "@/lib/utils/currency";
 
 interface SalaryConfigListProps {
   configs: SalaryConfigListItem[];
-  canManage?: boolean;
+  canUpdate?: boolean;
+  canDelete?: boolean;
   currencyCode?: string;
 }
 
 export function SalaryConfigList({
   configs,
-  canManage = false,
+  canUpdate = false,
+  canDelete = false,
   currencyCode = "USD",
 }: SalaryConfigListProps) {
   const router = useRouter();
@@ -42,7 +44,7 @@ export function SalaryConfigList({
   const handleToggle = async (id: string) => {
     setPendingIds((prev) => new Set(prev).add(id));
     try {
-      const result = await deleteSalaryConfig(id);
+      const result = await toggleSalaryConfigActive(id);
       if (result.success) {
         toast.success("Salary configuration updated");
       } else {
@@ -78,7 +80,7 @@ export function SalaryConfigList({
             <TableHead>Effective Date</TableHead>
             <TableHead>Branch</TableHead>
             <TableHead>Status</TableHead>
-            {canManage && <TableHead className="w-[50px]" />}
+            {(canUpdate || canDelete) && <TableHead className="w-[50px]" />}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -110,7 +112,7 @@ export function SalaryConfigList({
                   <Badge variant="secondary">Inactive</Badge>
                 )}
               </TableCell>
-              {canManage && (
+              {(canUpdate || canDelete) && (
                 <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -120,32 +122,36 @@ export function SalaryConfigList({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() =>
-                          startTransition(() => {
-                            router.push(`/dashboard/payroll/salary-config/${config.id}/edit`);
-                          })
-                        }
-                      >
-                        <Edit className="mr-2 h-4 w-4" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleToggle(config.id)}
-                        disabled={pendingIds.has(config.id)}
-                      >
-                        {config.isActive ? (
-                          <>
-                            <ToggleLeft className="mr-2 h-4 w-4" />
-                            Deactivate
-                          </>
-                        ) : (
-                          <>
-                            <ToggleRight className="mr-2 h-4 w-4" />
-                            Reactivate
-                          </>
-                        )}
-                      </DropdownMenuItem>
+                      {canUpdate && (
+                        <DropdownMenuItem
+                          onClick={() =>
+                            startTransition(() => {
+                              router.push(`/dashboard/payroll/salary-config/${config.id}/edit`);
+                            })
+                          }
+                        >
+                          <Edit className="mr-2 h-4 w-4" />
+                          Edit
+                        </DropdownMenuItem>
+                      )}
+                      {canDelete && (
+                        <DropdownMenuItem
+                          onClick={() => handleToggle(config.id)}
+                          disabled={pendingIds.has(config.id)}
+                        >
+                          {config.isActive ? (
+                            <>
+                              <ToggleLeft className="mr-2 h-4 w-4" />
+                              Deactivate
+                            </>
+                          ) : (
+                            <>
+                              <ToggleRight className="mr-2 h-4 w-4" />
+                              Reactivate
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>

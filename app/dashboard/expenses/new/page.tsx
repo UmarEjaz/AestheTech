@@ -8,6 +8,7 @@ import { ExpenseForm } from "@/components/expenses/expense-form";
 import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewExpensePage() {
   const session = await auth();
@@ -16,19 +17,20 @@ export default async function NewExpensePage() {
     redirect("/login");
   }
 
-  const userRole = session.user.salonRole;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!isSuperAdmin) {
-    const [canView, canCreate, canViewCategories] = await Promise.all([
+    const [canView, canCreate] = await Promise.all([
       hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id),
       hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id),
     ]);
 
-    if (!canView || !canCreate || !canViewCategories) {
-      redirect("/dashboard/access-denied");
+    if (!canView || !canCreate) {
+      const missing: string[] = [];
+      if (!canView) missing.push("expenses:view");
+      if (!canCreate) missing.push("expenses:create");
+      redirectAccessDenied(missing);
     }
   }
 

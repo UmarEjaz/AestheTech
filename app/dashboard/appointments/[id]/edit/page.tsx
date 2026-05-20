@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { getAppointment } from "@/lib/actions/appointment";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { prisma } from "@/lib/prisma";
 import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
@@ -23,19 +24,13 @@ export default async function EditAppointmentPage({ params }: PageProps) {
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  const canUpdate = await hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id);
 
-  if (!canUpdate) {
-    redirect("/dashboard/access-denied");
-  }
-
-  // Fetch appointment
+  // Fetch appointment first so we know which branch it belongs to.
+  // All subsequent checks/loads use appointment.salonId — not the caller's current branch.
   const appointmentResult = await getAppointment(id);
 
   if (!appointmentResult.success || !appointmentResult.data) {
@@ -44,17 +39,22 @@ export default async function EditAppointmentPage({ params }: PageProps) {
 
   const appointment = appointmentResult.data;
 
+  // Permission check scoped to the appointment's branch
+  const canUpdate = await hasPermission(userRoleId, "appointments:update", isSuperAdmin, appointment.salonId, session.user.id);
+
+  if (!canUpdate) {
+    redirectAccessDenied(["appointments:update"]);
+  }
+
   // Check if appointment can be edited
   if (appointment.status === "COMPLETED" || appointment.status === "CANCELLED") {
     redirect("/dashboard/appointments");
   }
 
-  if (!salonId) {
-    redirect("/dashboard");
-  }
-
-  // Fetch clients, services, and staff for the form (org-scoped)
-  const orgSalonIds = await getOrganizationSalonIds(salonId);
+  // Fetch clients, services, and staff for the form
+  // - Clients/services: org-scoped against the appointment's organization
+  // - Staff: scoped to the appointment's branch (so the currently assigned staff appears)
+  const orgSalonIds = await getOrganizationSalonIds(appointment.salonId);
   const [clients, services, staff] = await Promise.all([
     prisma.client.findMany({
       where: { salonId: { in: orgSalonIds }, isActive: true },
@@ -67,7 +67,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       orderBy: { firstName: "asc" },
     }),
     prisma.service.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
+      where: { salonId: appointment.salonId, isActive: true },
       select: {
         id: true,
         name: true,
@@ -79,7 +79,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     }),
     prisma.user.findMany({
       where: {
-        salonId,
+        salonId: appointment.salonId,
         isActive: true,
         isServiceProvider: true,
       },
@@ -99,6 +99,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/appointments">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to appointments</span>
             </Link>
           </Button>
           <div>

@@ -11,6 +11,7 @@ import { PayrollRunActions } from "./payroll-run-actions";
 import { getPayrollRun } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatInTz, formatDateOnly } from "@/lib/utils/timezone";
 
@@ -26,19 +27,21 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["payroll:view"]);
   }
 
   const { id } = await params;
-  const canManage = await hasPermission(userRoleId, "payroll:update", isSuperAdmin, salonId, session.user.id);
-  const canPay = await hasPermission(userRoleId, "payroll:pay", isSuperAdmin, salonId, session.user.id);
+  const [canUpdate, canCancel, canPay] = await Promise.all([
+    hasPermission(userRoleId, "payroll:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:pay", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   const [result, settingsResult] = await Promise.all([
     getPayrollRun(id),
@@ -99,7 +102,8 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
           <PayrollRunActions
             runId={run.id}
             status={run.status}
-            canManage={canManage}
+            canUpdate={canUpdate}
+            canCancel={canCancel}
             canPay={canPay}
           />
         </div>

@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { prisma } from "@/lib/prisma";
 import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
@@ -22,16 +23,15 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   const canCreate = await hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id);
 
   if (!canCreate) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["appointments:create"]);
   }
 
   if (!salonId) {
@@ -52,7 +52,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       orderBy: { firstName: "asc" },
     }),
     prisma.service.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
+      where: { salonId, isActive: true },
       select: {
         id: true,
         name: true,
@@ -87,6 +87,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/appointments">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to appointments</span>
             </Link>
           </Button>
           <div>

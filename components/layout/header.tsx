@@ -102,12 +102,20 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
                 </AvatarFallback>
               </Avatar>
               <div className="hidden md:flex flex-col items-start">
-                <span className="text-sm font-medium">
-                  {session?.user?.name || "User"}
-                </span>
-                <span className="text-xs text-muted-foreground capitalize">
-                  {isSuperAdmin ? "super admin" : (roleDisplayLabel || "staff")}
-                </span>
+                {session?.user?.name ? (
+                  <span className="text-sm font-medium">{session.user.name}</span>
+                ) : session?.user?.email ? (
+                  <span className="text-sm font-medium">{session.user.email}</span>
+                ) : null}
+                {isSuperAdmin ? (
+                  <span className="text-xs text-muted-foreground capitalize">
+                    super admin
+                  </span>
+                ) : roleDisplayLabel ? (
+                  <span className="text-xs text-muted-foreground">
+                    {roleDisplayLabel}
+                  </span>
+                ) : null}
               </div>
               <ChevronDown className="h-4 w-4 hidden md:block" />
             </Button>

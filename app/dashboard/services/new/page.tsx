@@ -5,9 +5,10 @@ import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceForm } from "@/components/services/service-form";
-import { getAllCategories } from "@/lib/actions/service";
+import { getActiveServiceCategories } from "@/lib/actions/service-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewServicePage() {
   const session = await auth();
@@ -17,9 +18,8 @@ export default async function NewServicePage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
@@ -31,12 +31,16 @@ export default async function NewServicePage() {
     ]);
 
     if (!canView || !canCreate || !canViewCategories) {
-      redirect("/dashboard/access-denied");
+      const missing: string[] = [];
+      if (!canView) missing.push("services:view");
+      if (!canCreate) missing.push("services:create");
+      if (!canViewCategories) missing.push("service-categories:view");
+      redirectAccessDenied(missing);
     }
   }
 
   const [categoriesResult, settingsResult] = await Promise.all([
-    getAllCategories(),
+    getActiveServiceCategories(),
     getSettings(),
   ]);
   const categories = categoriesResult.success ? categoriesResult.data : [];
@@ -49,6 +53,7 @@ export default async function NewServicePage() {
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/services">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to services</span>
             </Link>
           </Button>
           <div>

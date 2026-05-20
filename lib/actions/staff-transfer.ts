@@ -15,7 +15,7 @@ export async function assignStaffToBranch(
   targetSalonId: string,
   roleDefinitionId: string
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("branches:update");
+  const authResult = await checkAuth("staff:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -35,7 +35,7 @@ export async function assignStaffToBranch(
 
     // Enforce hierarchy — caller must outrank the role being assigned
     const { canManageRole } = await import("@/lib/permissions");
-    if (!(await canManageRole(authResult.roleId, roleDefinitionId, authResult.isSuperAdmin, authResult.salonId))) {
+    if (!(await canManageRole(authResult.roleId, roleDefinitionId, authResult.isSuperAdmin, targetSalonId))) {
       return { success: false, error: "Cannot assign a role above your level" };
     }
 
@@ -155,7 +155,7 @@ export async function removeStaffFromBranch(
   userId: string,
   salonId: string
 ): Promise<ActionResult> {
-  const authResult = await checkAuth("branches:update");
+  const authResult = await checkAuth("staff:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -201,6 +201,12 @@ export async function removeStaffFromBranch(
 
     if (!userSalon || !userSalon.isActive) {
       return { success: false, error: "User is not assigned to this branch" };
+    }
+
+    // Enforce hierarchy — caller must outrank the user's role at the target branch
+    const { canManageRole } = await import("@/lib/permissions");
+    if (!(await canManageRole(authResult.roleId, userSalon.roleDefinitionId, authResult.isSuperAdmin, salonId))) {
+      return { success: false, error: "Cannot remove a user with a role above your level" };
     }
 
     // Ensure user has at least one other active salon
@@ -269,8 +275,8 @@ export async function removeStaffFromBranch(
  */
 export async function getAvailableStaffForBranch(
   targetSalonId: string
-): Promise<ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string }[]>> {
-  const authResult = await checkAuth("branches:update");
+): Promise<ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string; roleName: string }[]>> {
+  const authResult = await checkAuth("staff:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -324,7 +330,7 @@ export async function getAvailableStaffForBranch(
           select: { id: true, firstName: true, lastName: true, email: true },
         },
         roleDefinition: {
-          select: { name: true },
+          select: { slug: true, name: true },
         },
       },
       distinct: ["userId"],
@@ -335,7 +341,8 @@ export async function getAvailableStaffForBranch(
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.roleDefinition.name,
+      role: us.roleDefinition.slug,
+      roleName: us.roleDefinition.name,
     }));
 
     return { success: true, data: result };

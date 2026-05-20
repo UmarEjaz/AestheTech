@@ -8,6 +8,7 @@ import { SalaryConfigForm } from "@/components/payroll/salary-config-form";
 import { getBranchStaff } from "@/lib/actions/salary-config";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewSalaryConfigPage() {
   const session = await auth();
@@ -17,14 +18,13 @@ export default async function NewSalaryConfigPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!(await hasPermission(userRoleId, "salary-config:create", isSuperAdmin, salonId, session.user.id))) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["salary-config:create"]);
   }
 
   const [staffResult, settingsResult] = await Promise.all([

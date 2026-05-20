@@ -448,7 +448,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       platinumThreshold: settings?.platinumThreshold ?? 1000,
     };
     const multipliers = {
-      silverMultiplier: settings?.silverMultiplier ?? 1.0,
+      memberMultiplier: settings?.memberMultiplier ?? 1.0,
       goldMultiplier: settings?.goldMultiplier ?? 1.5,
       platinumMultiplier: settings?.platinumMultiplier ?? 2.0,
     };
@@ -474,7 +474,11 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const invoiceNumber = await generateInvoiceNumber(tz, authResult.salonId);
 
     // Calculate points earned from this sale
-    const currentTier = sale.client.loyaltyPoints?.tier ?? "SILVER";
+    // Every client has a LoyaltyPoints row (created at client creation), so this is guaranteed to exist.
+    if (!sale.client.loyaltyPoints) {
+      return { success: false, error: "Client is missing loyalty points record. Please contact support." };
+    }
+    const currentTier = sale.client.loyaltyPoints.tier;
     const tierMultiplier = loyaltyEnabled ? getTierMultiplier(currentTier, multipliers) : 1;
 
     let pointsEarned = 0;

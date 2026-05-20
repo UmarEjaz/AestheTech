@@ -1,51 +1,47 @@
-/** System role names — replaces the Prisma Role enum */
+/** System role identifiers (slugs) — these match RoleDefinition.slug for the built-in roles */
 export const SYSTEM_ROLES = {
-  OWNER: "OWNER",
-  ADMIN: "ADMIN",
-  STAFF: "STAFF",
-  RECEPTIONIST: "RECEPTIONIST",
+  OWNER: "owner",
+  ADMIN: "admin",
+  STAFF: "staff",
+  RECEPTIONIST: "receptionist",
 } as const;
 
 export type SystemRole = (typeof SYSTEM_ROLES)[keyof typeof SYSTEM_ROLES];
 
-/** Check if a role name is a system role */
-export function isSystemRole(role: string): role is SystemRole {
-  return Object.values(SYSTEM_ROLES).includes(role as SystemRole);
+/** Check if a slug identifies a system role */
+export function isSystemRole(slug: string): slug is SystemRole {
+  return Object.values(SYSTEM_ROLES).includes(slug as SystemRole);
 }
 
 /** Default system role definitions (for seeding) */
 export const SYSTEM_ROLE_DEFINITIONS = [
   {
-    name: "OWNER",
+    name: "Owner",
     slug: "owner",
-    label: "Owner",
     description: "Full access to all features",
     color: "#9333EA",
     hierarchyLevel: 100,
     isSystem: true,
   },
   {
-    name: "ADMIN",
+    name: "Admin",
     slug: "admin",
-    label: "Admin",
     description: "Manage staff, clients, and settings",
     color: "#3B82F6",
     hierarchyLevel: 75,
     isSystem: true,
   },
   {
-    name: "STAFF",
+    name: "Staff",
     slug: "staff",
-    label: "Staff",
     description: "Provide services and view schedules",
     color: "#22C55E",
     hierarchyLevel: 50,
     isSystem: true,
   },
   {
-    name: "RECEPTIONIST",
+    name: "Receptionist",
     slug: "receptionist",
-    label: "Receptionist",
     description: "Handle appointments and check-ins",
     color: "#EAB308",
     hierarchyLevel: 25,
@@ -53,10 +49,10 @@ export const SYSTEM_ROLE_DEFINITIONS = [
   },
 ] as const;
 
-/** Hardcoded system role hierarchy levels (fallback when DB is unavailable) */
+/** Hardcoded system role hierarchy levels (fallback when DB is unavailable), keyed by slug */
 export const SYSTEM_ROLE_HIERARCHY: Record<string, number> = {
-  OWNER: 100,
-  ADMIN: 75,
-  STAFF: 50,
-  RECEPTIONIST: 25,
+  owner: 100,
+  admin: 75,
+  staff: 50,
+  receptionist: 25,
 };

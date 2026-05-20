@@ -6,12 +6,14 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/categories/category-manager";
 import {
-  getProductCategories,
+  getAllProductCategories,
   createProductCategory,
   updateProductCategory,
   toggleProductCategory,
+  deleteProductCategory,
 } from "@/lib/actions/product-category";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function ProductCategoriesPage() {
   const session = await auth();
@@ -24,13 +26,16 @@ export default async function ProductCategoriesPage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  const canManage = isSuperAdmin || await hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id);
-
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+  const canView = isSuperAdmin || await hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id);
+  if (!canView) {
+    redirectAccessDenied(["product-categories:view"]);
   }
 
-  const result = await getProductCategories();
+  const canCreate = isSuperAdmin || await hasPermission(userRoleId, "product-categories:create", isSuperAdmin, salonId, session.user.id);
+  const canUpdate = isSuperAdmin || await hasPermission(userRoleId, "product-categories:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = isSuperAdmin || await hasPermission(userRoleId, "product-categories:delete", isSuperAdmin, salonId, session.user.id);
+
+  const result = await getAllProductCategories();
   const categories = result.success ? result.data : [];
 
   return (
@@ -54,9 +59,10 @@ export default async function ProductCategoriesPage() {
           title="Product Categories"
           countLabel="Products"
           categories={categories}
-          onCreate={createProductCategory}
-          onUpdate={updateProductCategory}
-          onToggle={toggleProductCategory}
+          onCreate={canCreate ? createProductCategory : undefined}
+          onUpdate={canUpdate ? updateProductCategory : undefined}
+          onToggle={canUpdate ? toggleProductCategory : undefined}
+          onDelete={canDelete ? deleteProductCategory : undefined}
         />
       </div>
     </DashboardLayout>

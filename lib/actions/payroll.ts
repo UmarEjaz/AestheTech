@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma, PayrollRunStatus, PayrollEntryStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
+import { hasPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import {
   createPayrollRunSchema,
@@ -128,10 +129,10 @@ export async function getPayrollRuns(
   const { status, startDate, endDate, page = 1, limit = 20 } = validation.data;
 
   try {
-    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -187,10 +188,10 @@ export async function getPayrollRun(id: string): Promise<ActionResult<PayrollRun
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     const run = await prisma.payrollRun.findFirst({
       where: { id, salonId: { in: salonIds } },
@@ -500,10 +501,10 @@ export async function updatePayrollEntry(
         }
 
         // Verify access
-        const salonIds =
-          authResult.role === "OWNER" || authResult.isSuperAdmin
-            ? await getOrganizationSalonIds(authResult.salonId)
-            : [authResult.salonId];
+        const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+        const salonIds = canViewAllBranches
+          ? await getOrganizationSalonIds(authResult.salonId)
+          : [authResult.salonId];
 
         if (!salonIds.includes(entry.payrollRun.salonId)) {
           throw new Error("Payroll entry not found");
@@ -578,10 +579,10 @@ export async function finalizePayrollRun(id: string): Promise<ActionResult<void>
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     const run = await prisma.$transaction(async (tx) => {
       // Step 1: Find by ID only to determine the specific error
@@ -646,11 +647,11 @@ export async function markPayrollRunPaid(
   }
 
   try {
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
     await prisma.$transaction(async (tx) => {
-      const salonIds =
-        authResult.role === "OWNER" || authResult.isSuperAdmin
-          ? await getOrganizationSalonIds(authResult.salonId)
-          : [authResult.salonId];
+      const salonIds = canViewAllBranches
+        ? await getOrganizationSalonIds(authResult.salonId)
+        : [authResult.salonId];
 
       // Step 1: Find by ID only to determine the specific error
       const run = await tx.payrollRun.findUnique({
@@ -700,6 +701,7 @@ export async function markPayrollRunPaid(
             salonId: orgRootId,
             name: "Salaries",
             isActive: true,
+            deletedAt: null,
           },
         });
 
@@ -756,16 +758,16 @@ export async function markPayrollRunPaid(
  * Cancel a payroll run (DRAFT/FINALIZED → CANCELLED).
  */
 export async function cancelPayrollRun(id: string): Promise<ActionResult<void>> {
-  const authResult = await checkAuth("payroll:update");
+  const authResult = await checkAuth("payroll:cancel");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     await prisma.$transaction(async (tx) => {
       // Step 1: Find by ID only to determine the specific error
@@ -883,10 +885,10 @@ export async function getPayrollSummary(
   }
 
   try {
-    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -966,17 +968,16 @@ export async function getStaffPayrollHistory(
   // If viewing someone else's history, require payroll:view permission
   const targetUserId = userId || authResult.userId;
   if (targetUserId !== authResult.userId) {
-    const { hasPermission } = await import("@/lib/permissions");
-    if (!await hasPermission(authResult.roleId, "payroll:view", authResult.isSuperAdmin, authResult.salonId)) {
+    if (!await hasPermission(authResult.roleId, "payroll:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId)) {
       return { success: false, error: "Unauthorized" };
     }
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     const entries = await prisma.payrollEntry.findMany({
       where: {

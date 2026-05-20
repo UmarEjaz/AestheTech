@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { getRoleDefinitions, getRoleBySlug } from "@/lib/actions/role";
 import { RolesPageClient } from "./roles-client";
 
@@ -13,10 +14,9 @@ export default async function RolesPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
 
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
@@ -27,7 +27,7 @@ export default async function RolesPage() {
   ]);
 
   if (!canManageRoles) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["roles:manage"]);
   }
 
   const rolesResult = await getRoleDefinitions();

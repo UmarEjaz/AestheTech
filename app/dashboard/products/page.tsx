@@ -9,6 +9,7 @@ import { ProductList } from "@/components/products/product-list";
 import { getProducts } from "@/lib/actions/product";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   searchParams: Promise<{
@@ -28,15 +29,14 @@ export default async function ProductsPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
   if (!await hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["products:view"]);
   }
 
   const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([

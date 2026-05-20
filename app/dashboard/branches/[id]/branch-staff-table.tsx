@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useRoles } from "@/lib/roles-context";
+import { SYSTEM_ROLES } from "@/lib/roles";
 import {
   assignStaffToBranch,
   removeStaffFromBranch,
@@ -53,7 +54,9 @@ type StaffMember = {
   firstName: string;
   lastName: string;
   email: string;
-  role: string;
+  role: string;       // Slug
+  roleName: string;   // Display name
+  roleColor: string;  // Hex color for badge styling
   isActive: boolean;
 };
 
@@ -62,23 +65,24 @@ type AvailableStaff = {
   firstName: string;
   lastName: string;
   email: string;
-  role: string;
+  role: string;       // Slug
+  roleName: string;   // Display name
 };
 
 interface BranchStaffTableProps {
   branchId: string;
   staff: StaffMember[];
-  canManage: boolean;
+  canManageStaff: boolean;
 }
 
-export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTableProps) {
+export function BranchStaffTable({ branchId, staff, canManageStaff }: BranchStaffTableProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [availableStaff, setAvailableStaff] = useState<AvailableStaff[]>([]);
   const [selectedUserId, setSelectedUserId] = useState("");
   const allRoles = useRoles();
-  const [selectedRole, setSelectedRole] = useState<string>("STAFF");
+  const [selectedRole, setSelectedRole] = useState<string>(SYSTEM_ROLES.STAFF);
   const [loadingAvailable, setLoadingAvailable] = useState(false);
 
   async function openAddDialog() {
@@ -124,7 +128,7 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Staff ({staff.length})</CardTitle>
-        {canManage && (
+        {canManageStaff && (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" onClick={openAddDialog}>
@@ -173,9 +177,9 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
                       </SelectTrigger>
                       <SelectContent>
                         {allRoles
-                          .filter((r) => r.name !== "OWNER")
+                          .filter((r) => r.slug !== SYSTEM_ROLES.OWNER)
                           .map((r) => (
-                            <SelectItem key={r.name} value={r.name}>{r.label}</SelectItem>
+                            <SelectItem key={r.slug} value={r.slug}>{r.name}</SelectItem>
                           ))}
                       </SelectContent>
                     </Select>
@@ -208,7 +212,7 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
-                {canManage && <TableHead className="text-right">Actions</TableHead>}
+                {canManageStaff && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -219,8 +223,15 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
                   </TableCell>
                   <TableCell>{member.email}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="capitalize">
-                      {member.role.toLowerCase()}
+                    <Badge
+                      className="border"
+                      style={{
+                        backgroundColor: `${member.roleColor}20`,
+                        color: member.roleColor,
+                        borderColor: `${member.roleColor}40`,
+                      }}
+                    >
+                      {member.roleName}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -228,7 +239,7 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
                       {member.isActive ? "Active" : "Inactive"}
                     </Badge>
                   </TableCell>
-                  {canManage && (
+                  {canManageStaff && (
                     <TableCell className="text-right">
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -239,6 +250,7 @@ export function BranchStaffTable({ branchId, staff, canManage }: BranchStaffTabl
                             disabled={isPending}
                           >
                             <UserMinus className="h-4 w-4" />
+                            <span className="sr-only">Remove staff</span>
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>

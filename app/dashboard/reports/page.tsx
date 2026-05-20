@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
@@ -22,26 +23,26 @@ export default async function ReportsPage({
 
   const { user } = session;
   if (!user.salonRole && !user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = user.salonRole ?? null;
   const userRoleId = user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   // Check permission to view reports
   const salonId = session.user.salonId;
   if (!(await hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, session.user.id))) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["reports:view"]);
   }
 
+  const canViewAllBranches = await hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, session.user.id);
+
   const params = await searchParams;
-  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = canViewAllBranches && params.branch === "all" ? "all" as const : "current" as const;
 
   // Get timezone first, then compute month range for initial report data
   const [tz, branchesResult] = await Promise.all([
     getTimezone(),
-    isOwner ? getBranches() : Promise.resolve(null),
+    canViewAllBranches ? getBranches() : Promise.resolve(null),
   ]);
   const { start: startDate, end: endDate } = getMonthRange(tz);
   const reportResult = await getReportData({ startDate, endDate, branchFilter });

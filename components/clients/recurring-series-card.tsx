@@ -74,13 +74,14 @@ interface RecurringSeries {
 interface RecurringSeriesCardProps {
   series: RecurringSeries[];
   clientId: string;
-  canManage?: boolean;
+  canUpdate?: boolean;
+  canCancel?: boolean;
   timezone: string;
 }
 
 const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-export function RecurringSeriesCard({ series, clientId, canManage = false, timezone }: RecurringSeriesCardProps) {
+export function RecurringSeriesCard({ series, clientId, canUpdate = false, canCancel = false, timezone }: RecurringSeriesCardProps) {
   const router = useRouter();
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [managingSeries, setManagingSeries] = useState<RecurringSeries | null>(null);
@@ -160,25 +161,29 @@ export function RecurringSeriesCard({ series, clientId, canManage = false, timez
                       </Badge>
                     </div>
                   </div>
-                  {canManage && (
+                  {(canUpdate || canCancel) && (
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setManagingSeries(s)}
-                      >
-                        <Settings2 className="h-4 w-4 mr-1" />
-                        Manage
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-destructive border-destructive hover:bg-destructive/10"
-                        onClick={() => setCancellingId(s.id)}
-                      >
-                        <XCircle className="h-4 w-4 mr-1" />
-                        Cancel
-                      </Button>
+                      {canUpdate && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setManagingSeries(s)}
+                        >
+                          <Settings2 className="h-4 w-4 mr-1" />
+                          Manage
+                        </Button>
+                      )}
+                      {canCancel && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive border-destructive hover:bg-destructive/10"
+                          onClick={() => setCancellingId(s.id)}
+                        >
+                          <XCircle className="h-4 w-4 mr-1" />
+                          Cancel
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>

@@ -49,7 +49,7 @@ interface ExpenseListProps {
   totalPages: number;
   total: number;
   pageSize?: number;
-  canManage?: boolean;
+  canUpdate?: boolean;
   canDelete?: boolean;
   currencyCode?: string;
   timezone?: string;
@@ -61,7 +61,7 @@ export function ExpenseList({
   totalPages,
   total,
   pageSize = 20,
-  canManage = false,
+  canUpdate = false,
   canDelete = false,
   currencyCode = "USD",
   timezone = "UTC",
@@ -112,7 +112,7 @@ export function ExpenseList({
               <TableHead>Branch</TableHead>
               <TableHead>Created By</TableHead>
               <TableHead className="text-right">Amount</TableHead>
-              {(canManage || canDelete) && <TableHead className="w-[50px]" />}
+              {(canUpdate || canDelete) && <TableHead className="w-[50px]" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -152,7 +152,7 @@ export function ExpenseList({
                 <TableCell className="text-right font-medium">
                   {formatCurrency(Number(expense.amount), currencyCode)}
                 </TableCell>
-                {(canManage || canDelete) && (
+                {(canUpdate || canDelete) && (
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -162,7 +162,7 @@ export function ExpenseList({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {canManage && (
+                        {canUpdate && (
                           <DropdownMenuItem
                             onClick={() => router.push(`/dashboard/expenses/${expense.id}/edit`)}
                           >
@@ -172,7 +172,7 @@ export function ExpenseList({
                         )}
                         {canDelete && (
                           <>
-                            {canManage && <DropdownMenuSeparator />}
+                            {canUpdate && <DropdownMenuSeparator />}
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => setDeleteId(expense.id)}

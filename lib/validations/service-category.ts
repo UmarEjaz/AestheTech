@@ -1,13 +1,4 @@
-import { z } from "zod";
+import { categorySchema, type CategoryInput } from "./category";
 
-export const serviceCategorySchema = z.object({
-  name: z.string().min(1, "Name is required").max(50, "Name too long"),
-  icon: z.string().max(50).optional().or(z.literal("")),
-  color: z
-    .string()
-    .regex(/^#[0-9A-Fa-f]{6}$/, "Invalid hex color")
-    .optional()
-    .or(z.literal("")),
-});
-
-export type ServiceCategoryInput = z.infer<typeof serviceCategorySchema>;
+export const serviceCategorySchema = categorySchema;
+export type ServiceCategoryInput = CategoryInput;

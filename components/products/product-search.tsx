@@ -150,6 +150,7 @@ export function ProductSearch({ categories }: ProductSearchProps) {
               <button
                 onClick={handleLowStockToggle}
                 className="ml-1 hover:text-destructive"
+                aria-label="Clear low stock filter"
               >
                 <X className="h-3 w-3" />
               </button>

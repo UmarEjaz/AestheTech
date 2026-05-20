@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { canManageRole, hasPermission } from "@/lib/permissions";
 import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
+import { SYSTEM_ROLES } from "@/lib/roles";
 import {
   userSchema,
   userUpdateSchema,
@@ -23,7 +24,9 @@ export type UserListItem = {
   lastName: string;
   email: string;
   phone: string | null;
-  role: string;
+  role: string;        // Slug (e.g., "owner") — for matching/logic
+  roleName: string;    // Display name (e.g., "Owner") — for UI
+  roleColor: string;   // Hex color (e.g., "#9333EA") — for badge styling
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -118,7 +121,7 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
           email: true,
           phone: true,
           roleDefinitionId: true,
-          roleDefinition: { select: { name: true } },
+          roleDefinition: { select: { slug: true, name: true, color: true } },
           isActive: true,
           createdAt: true,
           updatedAt: true,
@@ -139,7 +142,9 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
       lastName: u.lastName,
       email: u.email,
       phone: u.phone,
-      role: u.roleDefinition?.name ?? "",
+      role: u.roleDefinition?.slug ?? "",
+      roleName: u.roleDefinition?.name ?? "",
+      roleColor: u.roleDefinition?.color ?? "#6B7280",
       isActive: u.isActive,
       createdAt: u.createdAt,
       updatedAt: u.updatedAt,
@@ -177,7 +182,7 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
         email: true,
         phone: true,
         roleDefinitionId: true,
-        roleDefinition: { select: { name: true, label: true, color: true } },
+        roleDefinition: { select: { name: true, slug: true, color: true } },
         salonId: true,
         isActive: true,
         isServiceProvider: true,
@@ -238,8 +243,8 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       lastName: user.lastName,
       email: user.email,
       phone: user.phone,
-      role: user.roleDefinition?.name ?? "",
-      roleLabel: user.roleDefinition?.label ?? "",
+      role: user.roleDefinition?.slug ?? "",
+      roleLabel: user.roleDefinition?.name ?? "",
       roleColor: user.roleDefinition?.color ?? "#6B7280",
       roleDefinitionId: user.roleDefinitionId,
       isActive: user.isActive,
@@ -381,8 +386,8 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
 
     // Self-edit: only Owner can toggle isServiceProvider for themselves
     if (updateData.isServiceProvider !== undefined && updateData.isServiceProvider !== existingUser.isServiceProvider) {
-      if (authResult.role !== "OWNER" && !authResult.isSuperAdmin) {
-        return { success: false, error: "Only the owner can update their own service provider status" };
+      if (authResult.role !== SYSTEM_ROLES.OWNER && !authResult.isSuperAdmin) {
+        return { success: false, error: "You can't change your own service provider status. Ask the salon owner to update it for you." };
       }
     }
   } else {
@@ -647,7 +652,8 @@ export async function getActiveStaff(branchFilter: "current" | "all" = "current"
 
   try {
     let salonFilter: string | { in: string[] } = authResult.salonId;
-    if (branchFilter === "all" && authResult.role === "OWNER") {
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    if (branchFilter === "all" && canViewAllBranches) {
       const { getOrganizationSalonIds } = await import("./branch");
       const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
       salonFilter = { in: orgSalonIds };

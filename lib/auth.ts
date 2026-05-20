@@ -64,7 +64,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: { email },
           include: {
             salon: { select: { isActive: true } },
-            roleDefinition: { select: { id: true, name: true } },
+            roleDefinition: { select: { id: true, slug: true } },
           },
         });
 
@@ -92,7 +92,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           lastName: user.lastName,
           isSuperAdmin: user.isSuperAdmin,
           salonId: user.salonId,
-          salonRole: user.roleDefinition?.name ?? null,
+          salonRole: user.roleDefinition?.slug ?? null,
           salonRoleId: user.roleDefinitionId,
         };
       },
@@ -124,13 +124,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           },
           include: {
             salon: { select: { isActive: true } },
-            roleDefinition: { select: { id: true, name: true } },
+            roleDefinition: { select: { id: true, slug: true } },
           },
         });
 
         if (userSalon && userSalon.salon.isActive) {
           token.salonId = userSalon.salonId;
-          token.salonRole = userSalon.roleDefinition.name;
+          token.salonRole = userSalon.roleDefinition.slug;
           token.salonRoleId = userSalon.roleDefinitionId;
         }
       }

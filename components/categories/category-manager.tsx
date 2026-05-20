@@ -4,9 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Edit, Loader2, Power } from "lucide-react";
+import { Plus, Edit, Loader2, Power, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { z } from "zod";
+import { categorySchema, type CategoryInput } from "@/lib/validations/category";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,22 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Table,
   TableBody,
   TableCell,
@@ -33,14 +49,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-const categorySchema = z.object({
-  name: z.string().min(1, "Name is required").max(50, "Name too long"),
-  icon: z.string().max(50).optional().or(z.literal("")),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Invalid hex color").optional().or(z.literal("")),
-});
-
-type CategoryInput = z.infer<typeof categorySchema>;
 
 export type CategoryItem = {
   id: string;
@@ -58,9 +66,12 @@ interface CategoryManagerProps {
   title: string;
   countLabel: string;
   categories: CategoryItem[];
-  onCreate: (data: CategoryInput) => Promise<ActionResult<{ id: string }>>;
-  onUpdate: (id: string, data: CategoryInput) => Promise<ActionResult<{ id: string }>>;
-  onToggle: (id: string) => Promise<ActionResult<{ isActive: boolean }>>;
+  onCreate?: (data: CategoryInput) => Promise<ActionResult<{ id: string }>>;
+  onUpdate?: (id: string, data: CategoryInput) => Promise<ActionResult<{ id: string }>>;
+  onToggle?: (id: string) => Promise<ActionResult<{ isActive: boolean }>>;
+  onDelete?: (id: string) => Promise<ActionResult<{ hardDeleted: boolean }>>;
+  namePlaceholder?: string;
+  iconPlaceholder?: string;
 }
 
 export function CategoryManager({
@@ -70,17 +81,24 @@ export function CategoryManager({
   onCreate,
   onUpdate,
   onToggle,
+  onDelete,
+  namePlaceholder = "e.g. Hair Care",
+  iconPlaceholder = "e.g. Scissors",
 }: CategoryManagerProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<CategoryInput>({
     resolver: zodResolver(categorySchema),
@@ -103,6 +121,7 @@ export function CategoryManager({
     setIsSubmitting(true);
     try {
       if (editingId) {
+        if (!onUpdate) return;
         const result = await onUpdate(editingId, data);
         if (result.success) {
           toast.success("Category updated");
@@ -112,6 +131,7 @@ export function CategoryManager({
           toast.error(result.error);
         }
       } else {
+        if (!onCreate) return;
         const result = await onCreate(data);
         if (result.success) {
           toast.success("Category created");
@@ -129,6 +149,7 @@ export function CategoryManager({
   };
 
   const handleToggle = async (id: string) => {
+    if (!onToggle) return;
     setTogglingId(id);
     try {
       const result = await onToggle(id);
@@ -145,6 +166,25 @@ export function CategoryManager({
     }
   };
 
+  const handleDelete = async (id: string) => {
+    if (!onDelete) return;
+    setDeletingId(id);
+    setConfirmingDeleteId(null);
+    try {
+      const result = await onDelete(id);
+      if (result.success) {
+        toast.success("Category deleted");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    } catch {
+      toast.error("An unexpected error occurred");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const getCount = (category: CategoryItem) => {
     const counts = Object.values(category._count);
     return counts[0] ?? 0;
@@ -155,12 +195,14 @@ export function CategoryManager({
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>{title}</CardTitle>
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" onClick={openCreate}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Category
-            </Button>
-          </DialogTrigger>
+          {onCreate && (
+            <DialogTrigger asChild>
+              <Button size="sm" onClick={openCreate}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Category
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
@@ -173,7 +215,7 @@ export function CategoryManager({
                 <Input
                   id="name"
                   {...register("name")}
-                  placeholder="e.g. Hair Care"
+                  placeholder={namePlaceholder}
                 />
                 {errors.name && (
                   <p className="text-sm text-destructive">{errors.name.message}</p>
@@ -185,7 +227,7 @@ export function CategoryManager({
                   <Input
                     id="icon"
                     {...register("icon")}
-                    placeholder="e.g. Scissors"
+                    placeholder={iconPlaceholder}
                   />
                   {errors.icon && (
                     <p className="text-sm text-destructive">{errors.icon.message}</p>
@@ -197,7 +239,8 @@ export function CategoryManager({
                     <Input
                       id="color"
                       type="color"
-                      {...register("color")}
+                      value={watch("color") || "#000000"}
+                      onChange={(e) => setValue("color", e.target.value, { shouldValidate: true })}
                       className="w-12 h-10 p-1 cursor-pointer"
                     />
                     <Input
@@ -233,7 +276,7 @@ export function CategoryManager({
                 <TableHead>Name</TableHead>
                 <TableHead>{countLabel}</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-[100px]">Actions</TableHead>
+                {(onUpdate || onToggle || onDelete) && <TableHead className="w-[140px]">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -265,40 +308,78 @@ export function CategoryManager({
                       {category.isActive ? "Active" : "Inactive"}
                     </Badge>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => openEdit(category)}
-                      >
-                        <Edit className="h-4 w-4" />
-                        <span className="sr-only">Edit</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleToggle(category.id)}
-                        disabled={togglingId === category.id}
-                      >
-                        {togglingId === category.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Power className="h-4 w-4" />
+                  {(onUpdate || onToggle || onDelete) && (
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {onUpdate && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openEdit(category)}
+                          >
+                            <Edit className="h-4 w-4" />
+                            <span className="sr-only">Edit</span>
+                          </Button>
                         )}
-                        <span className="sr-only">
-                          {category.isActive ? "Deactivate" : "Activate"}
-                        </span>
-                      </Button>
-                    </div>
-                  </TableCell>
+                        {onToggle && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleToggle(category.id)}
+                            disabled={togglingId === category.id}
+                          >
+                            {togglingId === category.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Power className="h-4 w-4" />
+                            )}
+                            <span className="sr-only">
+                              {category.isActive ? "Deactivate" : "Activate"}
+                            </span>
+                          </Button>
+                        )}
+                        {onDelete && (() => {
+                          const refCount = getCount(category);
+                          const isReferenced = refCount > 0;
+                          const tooltipText = isReferenced
+                            ? `Cannot delete: ${refCount} ${countLabel.toLowerCase()} use this category. Deactivate it instead.`
+                            : "Delete this category permanently";
+                          return (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span tabIndex={isReferenced ? 0 : -1}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-destructive hover:text-destructive"
+                                      onClick={() => setConfirmingDeleteId(category.id)}
+                                      disabled={isReferenced || deletingId === category.id}
+                                    >
+                                      {deletingId === category.id ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="h-4 w-4" />
+                                      )}
+                                      <span className="sr-only">Delete</span>
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{tooltipText}</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        })()}
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {categories.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={(onUpdate || onToggle || onDelete) ? 5 : 4} className="text-center text-muted-foreground py-8">
                     No categories found
                   </TableCell>
                 </TableRow>
@@ -307,6 +388,29 @@ export function CategoryManager({
           </Table>
         </div>
       </CardContent>
+
+      <AlertDialog
+        open={confirmingDeleteId !== null}
+        onOpenChange={(open) => !open && setConfirmingDeleteId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the category. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmingDeleteId && handleDelete(confirmingDeleteId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

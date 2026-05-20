@@ -43,7 +43,9 @@ export type SalonDetail = {
     lastName: string;
     email: string;
     phone: string | null;
-    role: string | null;
+    role: string | null;       // Slug (e.g., "owner") — for matching/logic
+    roleName: string | null;   // Display name (e.g., "Owner") — for UI
+    roleColor: string | null;  // Hex color (e.g., "#9333EA") — for badge styling
     isActive: boolean;
     createdAt: Date;
   }[];
@@ -109,7 +111,7 @@ export async function getSalonById(
             email: true,
             phone: true,
             roleDefinitionId: true,
-            roleDefinition: { select: { name: true } },
+            roleDefinition: { select: { slug: true, name: true, color: true } },
             isActive: true,
             createdAt: true,
           },
@@ -130,7 +132,9 @@ export async function getSalonById(
         lastName: u.lastName,
         email: u.email,
         phone: u.phone,
-        role: u.roleDefinition?.name ?? null,
+        role: u.roleDefinition?.slug ?? null,
+        roleName: u.roleDefinition?.name ?? null,
+        roleColor: u.roleDefinition?.color ?? null,
         isActive: u.isActive,
         createdAt: u.createdAt,
       })),

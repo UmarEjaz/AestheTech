@@ -34,7 +34,7 @@ async function loadRoleDefinitions(salonId: string | null) {
   if (!salonId) {
     return SYSTEM_ROLE_DEFINITIONS.map((r) => ({
       name: r.name,
-      label: r.label,
+      slug: r.slug,
       color: r.color,
       hierarchyLevel: r.hierarchyLevel,
       isSystem: r.isSystem,
@@ -48,13 +48,13 @@ async function loadRoleDefinitions(salonId: string | null) {
         isActive: true,
       },
       orderBy: { hierarchyLevel: "desc" },
-      select: { name: true, label: true, color: true, hierarchyLevel: true, isSystem: true },
+      select: { name: true, slug: true, color: true, hierarchyLevel: true, isSystem: true },
     });
 
     if (roles.length === 0) {
       return SYSTEM_ROLE_DEFINITIONS.map((r) => ({
         name: r.name,
-        label: r.label,
+        slug: r.slug,
         color: r.color,
         hierarchyLevel: r.hierarchyLevel,
         isSystem: r.isSystem,
@@ -65,7 +65,7 @@ async function loadRoleDefinitions(salonId: string | null) {
   } catch {
     return SYSTEM_ROLE_DEFINITIONS.map((r) => ({
       name: r.name,
-      label: r.label,
+      slug: r.slug,
       color: r.color,
       hierarchyLevel: r.hierarchyLevel,
       isSystem: r.isSystem,

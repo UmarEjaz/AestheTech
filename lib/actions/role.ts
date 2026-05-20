@@ -18,9 +18,8 @@ type ActionResult<T> = { success: true; data: T } | { success: false; error: str
 
 export type RoleInfo = {
   id: string;
-  name: string;
-  slug: string;
-  label: string;
+  name: string;        // Display name (e.g., "Owner", "Senior Stylist")
+  slug: string;        // Internal identifier (e.g., "owner", "senior-stylist")
   description: string | null;
   color: string;
   hierarchyLevel: number;
@@ -64,7 +63,6 @@ export async function getRoleDefinitions(): Promise<ActionResult<RoleInfo[]>> {
           id: rd.slug,
           name: rd.name,
           slug: rd.slug,
-          label: rd.label,
           description: rd.description,
           color: rd.color,
           hierarchyLevel: rd.hierarchyLevel,
@@ -100,7 +98,6 @@ export async function getRoleDefinitions(): Promise<ActionResult<RoleInfo[]>> {
         id: r.id,
         name: r.name,
         slug: r.slug,
-        label: r.label,
         description: r.description,
         color: r.color,
         hierarchyLevel: r.hierarchyLevel,
@@ -140,8 +137,10 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
   const { name, label, description, color, hierarchyLevel } = parsed.data;
 
   // Cannot create a system role name
-  if (isSystemRole(name.toUpperCase())) {
-    return { success: false, error: "Cannot use a system role name" };
+  const slug = slugify(name);
+
+  if (isSystemRole(slug)) {
+    return { success: false, error: `"${name}" matches a built-in role. Try "Senior ${name}", "Branch ${name}", or another distinct name.` };
   }
 
   // Hierarchy level must be below the caller's own level
@@ -151,10 +150,6 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
   if (!authResult.isSuperAdmin && hierarchyLevel >= callerLevel) {
     return { success: false, error: "Cannot create a role at or above your own hierarchy level" };
   }
-
-  // Use uppercase name for DB storage
-  const roleName = name.toUpperCase().replace(/ /g, "_");
-  const slug = slugify(name);
 
   try {
     // Check for duplicate slug in this salon
@@ -182,9 +177,8 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
 
     const role = await prisma.roleDefinition.create({
       data: {
-        name: roleName,
+        name: label,  // The label field from input is the display name
         slug,
-        label,
         description: description || null,
         color,
         hierarchyLevel,
@@ -203,7 +197,7 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
       userId: authResult.userId,
       userRole: authResult.role,
       salonId: authResult.salonId,
-      details: { name: roleName, label, hierarchyLevel },
+      details: { name: role.name, slug, hierarchyLevel },
     });
 
     revalidatePath("/dashboard/settings/roles");
@@ -215,7 +209,6 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
         id: role.id,
         name: role.name,
         slug: role.slug,
-        label: role.label,
         description: role.description,
         color: role.color,
         hierarchyLevel: role.hierarchyLevel,
@@ -275,17 +268,15 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
       }
     }
 
-    // If name is changing, compute new internal name and slug, and update all references
-    const isRenaming = updateData.name !== undefined && updateData.name !== existing.label;
-    let newRoleName: string | undefined;
+    // If name is changing, compute new slug and check for conflicts
+    const isRenaming = updateData.name !== undefined && updateData.name !== existing.name;
     let newSlug: string | undefined;
 
     if (isRenaming) {
-      newRoleName = updateData.name!.toUpperCase().replace(/ /g, "_");
       newSlug = slugify(updateData.name!);
 
-      if (isSystemRole(newRoleName)) {
-        return { success: false, error: "Cannot use a system role name" };
+      if (isSystemRole(newSlug)) {
+        return { success: false, error: `"${updateData.name}" matches a built-in role. Try "Senior ${updateData.name}", "Branch ${updateData.name}", or another distinct name.` };
       }
 
       // Check for duplicate slug in this salon
@@ -302,8 +293,8 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
     await prisma.roleDefinition.update({
       where: { id },
       data: {
-        ...(isRenaming && { name: newRoleName, slug: newSlug }),
-        ...(updateData.name !== undefined && { label: updateData.name }),
+        ...(updateData.name !== undefined && { name: updateData.name }),
+        ...(isRenaming && { slug: newSlug }),
         ...(updateData.description !== undefined && { description: updateData.description || null }),
         ...(updateData.color !== undefined && { color: updateData.color }),
         ...(updateData.hierarchyLevel !== undefined && { hierarchyLevel: updateData.hierarchyLevel }),
@@ -391,7 +382,7 @@ export async function deleteRole(id: string): Promise<ActionResult<null>> {
       userId: authResult.userId,
       userRole: authResult.role,
       salonId: authResult.salonId,
-      details: { name: existing.name, label: existing.label },
+      details: { name: existing.name, slug: existing.slug },
     });
 
     revalidatePath("/dashboard/settings/roles");
@@ -467,7 +458,6 @@ export async function getRoleBySlug(slug: string): Promise<
             id: systemDef.slug,
             name: systemDef.name,
             slug: systemDef.slug,
-            label: systemDef.label,
             description: systemDef.description,
             color: systemDef.color,
             hierarchyLevel: systemDef.hierarchyLevel,
@@ -508,7 +498,7 @@ export async function getRoleBySlug(slug: string): Promise<
         // Fall back to defaults
         const { DEFAULT_PERMISSION_ROLES } = await import("@/lib/permissions-defaults");
         grantedPermissions = Object.entries(DEFAULT_PERMISSION_ROLES)
-          .filter(([, roles]) => roles.includes(roleDef.name))
+          .filter(([, roles]) => roles.includes(roleDef.slug))
           .map(([code]) => code);
       } else {
         grantedPermissions = [];
@@ -531,7 +521,6 @@ export async function getRoleBySlug(slug: string): Promise<
           id: roleDef.id,
           name: roleDef.name,
           slug: roleDef.slug,
-          label: roleDef.label,
           description: roleDef.description,
           color: roleDef.color,
           hierarchyLevel: roleDef.hierarchyLevel,
@@ -563,7 +552,7 @@ export async function seedSystemRoles(): Promise<void> {
     await prisma.roleDefinition.upsert({
       where: { salonId_slug: { salonId: null as unknown as string, slug: def.slug } },
       update: {
-        label: def.label,
+        name: def.name,
         description: def.description,
         color: def.color,
         hierarchyLevel: def.hierarchyLevel,
@@ -571,7 +560,6 @@ export async function seedSystemRoles(): Promise<void> {
       create: {
         name: def.name,
         slug: def.slug,
-        label: def.label,
         description: def.description,
         color: def.color,
         hierarchyLevel: def.hierarchyLevel,

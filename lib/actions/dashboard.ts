@@ -99,7 +99,7 @@ export async function getDashboardStats(params?: {
 
   try {
     const branchFilter = params?.branchFilter || "current";
-    const [canViewAppointments, canViewSales, canViewClients, canViewStaff, canViewExpenses, canViewPayroll, canViewProfit] = await Promise.all([
+    const [canViewAppointments, canViewSales, canViewClients, canViewStaff, canViewExpenses, canViewPayroll, canViewProfit, canViewAllBranches] = await Promise.all([
       hasPermission(authResult.roleId, "appointments:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
       hasPermission(authResult.roleId, "sales:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
       hasPermission(authResult.roleId, "clients:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
@@ -107,12 +107,12 @@ export async function getDashboardStats(params?: {
       hasPermission(authResult.roleId, "expenses:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
       hasPermission(authResult.roleId, "payroll:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
       hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
     ]);
-    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
 
-    // Determine which salon IDs to query (only owners can view all branches)
+    // Determine which salon IDs to query (only users with data:all-branches can view across all branches)
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -126,7 +126,7 @@ export async function getDashboardStats(params?: {
 
     // Check cache — use org root ID for org-wide queries so invalidation works correctly
     let cacheKey: string;
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
       cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:apt=${canViewAppointments}:sal=${canViewSales}:cli=${canViewClients}:stf=${canViewStaff}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
     } else {
@@ -527,12 +527,12 @@ export async function getReportData(params: {
   }
 
   const { startDate, endDate, branchFilter = "current" } = params;
-  const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
+  const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
   try {
-    // Determine which salon IDs to query (only owners can view all branches)
+    // Determine which salon IDs to query (only users with data:all-branches can view across all branches)
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -547,7 +547,7 @@ export async function getReportData(params: {
 
     // Check cache — use org root ID for org-wide queries so invalidation works correctly
     let cacheKey: string;
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
       cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:${startDate.toISOString()}:${endDate.toISOString()}`;
     } else {

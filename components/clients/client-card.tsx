@@ -25,7 +25,7 @@ interface ClientCardProps {
 }
 
 const tierColors: Record<LoyaltyTier, string> = {
-  SILVER: "bg-gray-400",
+  MEMBER: "bg-gray-400",
   GOLD: "bg-yellow-500",
   PLATINUM: "bg-purple-500",
 };

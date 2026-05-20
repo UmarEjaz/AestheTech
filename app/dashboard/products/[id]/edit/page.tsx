@@ -5,9 +5,11 @@ import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/products/product-form";
-import { getProduct, getAllProductCategories } from "@/lib/actions/product";
+import { getProduct } from "@/lib/actions/product";
+import { getActiveProductCategories } from "@/lib/actions/product-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -22,9 +24,8 @@ export default async function EditProductPage({ params }: PageProps) {
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
@@ -36,13 +37,17 @@ export default async function EditProductPage({ params }: PageProps) {
     ]);
 
     if (!canView || !canUpdate || !canViewCategories) {
-      redirect("/dashboard/access-denied");
+      const missing: string[] = [];
+      if (!canView) missing.push("products:view");
+      if (!canUpdate) missing.push("products:update");
+      if (!canViewCategories) missing.push("product-categories:view");
+      redirectAccessDenied(missing);
     }
   }
 
   const [productResult, categoriesResult, settingsResult] = await Promise.all([
     getProduct(id),
-    getAllProductCategories(),
+    getActiveProductCategories(),
     getSettings(),
   ]);
 
@@ -61,6 +66,7 @@ export default async function EditProductPage({ params }: PageProps) {
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/products">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to products</span>
             </Link>
           </Button>
           <div>

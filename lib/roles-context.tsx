@@ -3,8 +3,8 @@
 import { createContext, useContext } from "react";
 
 export type RoleInfo = {
-  name: string;
-  label: string;
+  name: string;        // Display name (e.g., "Owner")
+  slug: string;        // Internal identifier (e.g., "owner")
   color: string;
   hierarchyLevel: number;
   isSystem: boolean;
@@ -30,14 +30,16 @@ export function useRoles(): RoleInfo[] {
   return useContext(RolesContext);
 }
 
-export function useRoleLabel(roleName: string): string {
+/** Get display name for a role given its slug. */
+export function useRoleLabel(roleSlug: string): string {
   const roles = useContext(RolesContext);
-  const found = roles.find((r) => r.name === roleName);
-  return found?.label ?? roleName;
+  const found = roles.find((r) => r.slug === roleSlug);
+  return found?.name ?? roleSlug;
 }
 
-export function useRoleColor(roleName: string): string {
+/** Get color for a role given its slug. */
+export function useRoleColor(roleSlug: string): string {
   const roles = useContext(RolesContext);
-  const found = roles.find((r) => r.name === roleName);
+  const found = roles.find((r) => r.slug === roleSlug);
   return found?.color ?? "#6B7280";
 }

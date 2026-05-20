@@ -5,17 +5,11 @@ import { checkAuth } from "@/lib/auth-helpers";
 import { invalidatePermissionCache, invalidateUserPermissionCache } from "@/lib/redis";
 import { logAudit } from "@/lib/actions/audit";
 import {
-  permissionUpdateSchema,
-  PermissionUpdateInput,
   userPermissionUpdateSchema,
   UserPermissionUpdateInput,
   rolePermissionUpdateSchema,
 } from "@/lib/validations/permission";
-import {
-  DEFAULT_PERMISSION_ROLES,
-  OWNER_LOCKED_PERMISSIONS,
-  OWNER_ROLE_NAME,
-} from "@/lib/permissions-defaults";
+import { DEFAULT_PERMISSION_ROLES } from "@/lib/permissions-defaults";
 import { SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
 
 type ActionResult<T> = { success: true; data: T } | { success: false; error: string };
@@ -28,8 +22,8 @@ export interface PermissionMatrixData {
     description: string | null;
     sortOrder: number;
   }>;
-  assignments: Record<string, string[]>; // permCode -> role names
-  roles: Array<{ name: string; label: string; color: string; isSystem: boolean; hierarchyLevel: number }>;
+  assignments: Record<string, string[]>; // permCode -> role slugs
+  roles: Array<{ name: string; slug: string; color: string; isSystem: boolean; hierarchyLevel: number }>;
   callerHierarchyLevel: number;
 }
 
@@ -53,16 +47,16 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
       where: { salonId: authResult.salonId },
       include: {
         permission: { select: { code: true } },
-        roleDefinition: { select: { name: true } },
+        roleDefinition: { select: { slug: true } },
       },
     });
 
-    // Build assignments map: permCode -> [role names]
+    // Build assignments map: permCode -> [role slugs]
     const assignments: Record<string, string[]> = {};
     for (const rp of rolePermissions) {
       const code = rp.permission.code;
       if (!assignments[code]) assignments[code] = [];
-      assignments[code].push(rp.roleDefinition.name);
+      assignments[code].push(rp.roleDefinition.slug);
     }
 
     // If no assignments exist (salon not provisioned), use defaults
@@ -79,13 +73,13 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
         isActive: true,
       },
       orderBy: { hierarchyLevel: "desc" },
-      select: { name: true, label: true, color: true, isSystem: true, hierarchyLevel: true },
+      select: { name: true, slug: true, color: true, isSystem: true, hierarchyLevel: true },
     });
 
     // Fallback if no role definitions exist yet
     const roles = roleDefs.length > 0
-      ? roleDefs.map((r) => ({ name: r.name, label: r.label, color: r.color, isSystem: r.isSystem, hierarchyLevel: r.hierarchyLevel }))
-      : SYSTEM_ROLE_DEFINITIONS.map((r) => ({ name: r.name, label: r.label, color: r.color, isSystem: r.isSystem, hierarchyLevel: r.hierarchyLevel }));
+      ? roleDefs.map((r) => ({ name: r.name, slug: r.slug, color: r.color, isSystem: r.isSystem, hierarchyLevel: r.hierarchyLevel }))
+      : SYSTEM_ROLE_DEFINITIONS.map((r) => ({ name: r.name, slug: r.slug, color: r.color, isSystem: r.isSystem, hierarchyLevel: r.hierarchyLevel }));
 
     // Determine caller's hierarchy level
     const { getHierarchyLevels } = await import("@/lib/permissions");
@@ -114,206 +108,6 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
 }
 
 /**
- * Update role-permission assignments for the current salon.
- */
-export async function updatePermissions(
-  input: PermissionUpdateInput
-): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("permissions:manage");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  // Validate input
-  const parsed = permissionUpdateSchema.safeParse(input);
-  if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message || "Invalid input" };
-  }
-
-  const { assignments } = parsed.data;
-
-  // Enforce owner lockout protection
-  const ownerRevocations = assignments.filter(
-    (a) => a.role === OWNER_ROLE_NAME && !a.granted && OWNER_LOCKED_PERMISSIONS.includes(a.permissionCode)
-  );
-  if (ownerRevocations.length > 0) {
-    return {
-      success: false,
-      error: `Cannot remove critical permissions from Owner: ${ownerRevocations.map((a) => a.permissionCode).join(", ")}`,
-    };
-  }
-
-  // Enforce hierarchy: caller can only modify permissions for roles below their level
-  // Look up roleDefinitionIds for the role names in the assignments
-  const targetRoleNames = [...new Set(assignments.map((a) => a.role))];
-  const targetRoleDefs = await prisma.roleDefinition.findMany({
-    where: {
-      name: { in: targetRoleNames },
-      OR: [{ isSystem: true }, { salonId: authResult.salonId }],
-    },
-    select: { id: true, name: true },
-  });
-  const roleNameToId = new Map(targetRoleDefs.map((rd) => [rd.name, rd.id]));
-
-  if (!authResult.isSuperAdmin) {
-    const { getHierarchyLevels } = await import("@/lib/permissions");
-    const hierarchy = await getHierarchyLevels(authResult.salonId);
-    const callerLevel = hierarchy[authResult.roleId] ?? 0;
-
-    for (const roleName of targetRoleNames) {
-      const roleDefId = roleNameToId.get(roleName);
-      if (!roleDefId) continue;
-      const targetLevel = hierarchy[roleDefId] ?? 0;
-      if (targetLevel >= callerLevel) {
-        return {
-          success: false,
-          error: `You cannot modify permissions for the "${roleName}" role`,
-        };
-      }
-    }
-  }
-
-  try {
-    // Get permission ID lookup
-    const allPermissions = await prisma.permission.findMany({
-      select: { id: true, code: true },
-    });
-    const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
-
-    // Separate grants and revocations
-    const toGrant = assignments.filter((a) => a.granted);
-    const toRevoke = assignments.filter((a) => !a.granted);
-
-    await prisma.$transaction(async (tx) => {
-      // Process revocations
-      for (const revoke of toRevoke) {
-        const permId = permIdMap.get(revoke.permissionCode);
-        const roleDefId = roleNameToId.get(revoke.role);
-        if (!permId || !roleDefId) continue;
-        await tx.rolePermission.deleteMany({
-          where: {
-            salonId: authResult.salonId,
-            roleDefinitionId: roleDefId,
-            permissionId: permId,
-          },
-        });
-      }
-
-      // Process grants (upsert to avoid duplicates)
-      for (const grant of toGrant) {
-        const permId = permIdMap.get(grant.permissionCode);
-        const roleDefId = roleNameToId.get(grant.role);
-        if (!permId || !roleDefId) continue;
-        await tx.rolePermission.upsert({
-          where: {
-            salonId_roleDefinitionId_permissionId: {
-              salonId: authResult.salonId,
-              roleDefinitionId: roleDefId,
-              permissionId: permId,
-            },
-          },
-          update: {},
-          create: {
-            salonId: authResult.salonId,
-            roleDefinitionId: roleDefId,
-            permissionId: permId,
-          },
-        });
-      }
-    });
-
-    // Invalidate cache
-    await invalidatePermissionCache(authResult.salonId);
-
-    // Audit log
-    await logAudit({
-      action: "PERMISSIONS_UPDATED",
-      entityType: "Permission",
-      entityId: authResult.salonId,
-      userId: authResult.userId,
-      userRole: authResult.role,
-      salonId: authResult.salonId,
-      details: {
-        changes: assignments.length,
-        grants: toGrant.length,
-        revocations: toRevoke.length,
-      },
-    });
-
-    return { success: true, data: null };
-  } catch (error) {
-    console.error("Error updating permissions:", error);
-    return { success: false, error: "Failed to update permissions" };
-  }
-}
-
-/**
- * Reset all permissions for the current salon to defaults.
- */
-export async function resetPermissionsToDefaults(): Promise<ActionResult<null>> {
-  const authResult = await checkAuth("permissions:manage");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  try {
-    const allPermissions = await prisma.permission.findMany({
-      select: { id: true, code: true },
-    });
-    const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
-
-    // Resolve role names to roleDefinitionIds
-    const allRoleNames = [...new Set(Object.values(DEFAULT_PERMISSION_ROLES).flat())];
-    const roleDefs = await prisma.roleDefinition.findMany({
-      where: {
-        name: { in: allRoleNames },
-        OR: [{ isSystem: true }, { salonId: authResult.salonId }],
-      },
-      select: { id: true, name: true },
-    });
-    const roleNameToIdMap = new Map(roleDefs.map((rd) => [rd.name, rd.id]));
-
-    await prisma.$transaction(async (tx) => {
-      // Delete all current assignments for this salon
-      await tx.rolePermission.deleteMany({
-        where: { salonId: authResult.salonId },
-      });
-
-      // Re-create defaults
-      const data: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
-      for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
-        const permId = permIdMap.get(code);
-        if (!permId) continue;
-        for (const roleName of roles) {
-          const roleDefId = roleNameToIdMap.get(roleName);
-          if (!roleDefId) continue;
-          data.push({ salonId: authResult.salonId, roleDefinitionId: roleDefId, permissionId: permId });
-        }
-      }
-      await tx.rolePermission.createMany({ data });
-    });
-
-    // Invalidate cache
-    await invalidatePermissionCache(authResult.salonId);
-
-    // Audit log
-    await logAudit({
-      action: "PERMISSIONS_RESET",
-      entityType: "Permission",
-      entityId: authResult.salonId,
-      userId: authResult.userId,
-      userRole: authResult.role,
-      salonId: authResult.salonId,
-    });
-
-    return { success: true, data: null };
-  } catch (error) {
-    console.error("Error resetting permissions:", error);
-    return { success: false, error: "Failed to reset permissions" };
-  }
-}
-
-/**
  * Update permissions for a single role (grant/revoke specific permissions).
  */
 export async function updateRolePermissions(input: {
@@ -334,25 +128,14 @@ export async function updateRolePermissions(input: {
 
   const { roleName, grants, revokes } = parsed.data;
 
-  // Enforce owner lockout protection
-  if (roleName === OWNER_ROLE_NAME) {
-    const lockedRevokes = revokes.filter((code) => OWNER_LOCKED_PERMISSIONS.includes(code));
-    if (lockedRevokes.length > 0) {
-      return {
-        success: false,
-        error: `Cannot remove critical permissions from Owner: ${lockedRevokes.join(", ")}`,
-      };
-    }
-  }
-
   try {
-    // Validate role exists and get its ID
+    // Validate role exists and get its ID (roleName is actually the slug here)
     const roleDef = await prisma.roleDefinition.findFirst({
       where: {
-        name: roleName,
+        slug: roleName,
         OR: [{ isSystem: true }, { salonId: authResult.salonId }],
       },
-      select: { id: true, name: true },
+      select: { id: true, slug: true },
     });
     if (!roleDef) {
       return { success: false, error: `Role "${roleName}" not found` };
@@ -382,6 +165,51 @@ export async function updateRolePermissions(input: {
     const invalidCodes = [...grants, ...revokes].filter((code) => !permIdMap.has(code));
     if (invalidCodes.length > 0) {
       return { success: false, error: `Unknown permission codes: ${invalidCodes.join(", ")}` };
+    }
+
+    // View-dependency check (defense-in-depth — mirrors client validateViewDependencies).
+    // Compute the final granted set after applying grants/revokes, then ensure that
+    // for every module group that has a :view permission, view is granted whenever
+    // any non-view permission for that module is granted.
+    const currentRolePermissions = await prisma.rolePermission.findMany({
+      where: {
+        salonId: authResult.salonId,
+        roleDefinitionId: roleDef.id,
+      },
+      select: { permission: { select: { code: true } } },
+    });
+    const finalCodes = new Set(currentRolePermissions.map((rp) => rp.permission.code));
+    for (const code of revokes) finalCodes.delete(code);
+    for (const code of grants) finalCodes.add(code);
+
+    const allCodes = allPermissions.map((p) => p.code);
+    const viewPrefixes = new Set<string>();
+    for (const code of allCodes) {
+      if (code.endsWith(":view")) {
+        viewPrefixes.add(code.slice(0, -":view".length));
+      }
+    }
+
+    const violations: string[] = [];
+    for (const prefix of viewPrefixes) {
+      const viewCode = `${prefix}:view`;
+      if (finalCodes.has(viewCode)) continue;
+      const hasNonView = allCodes.some(
+        (code) =>
+          code.startsWith(`${prefix}:`) &&
+          code !== viewCode &&
+          finalCodes.has(code)
+      );
+      if (hasNonView) {
+        violations.push(prefix);
+      }
+    }
+
+    if (violations.length > 0) {
+      return {
+        success: false,
+        error: `View permission is required for: ${violations.join(", ")}`,
+      };
     }
 
     await prisma.$transaction(async (tx) => {
@@ -455,10 +283,10 @@ export async function resetRolePermissionsToDefaults(roleName: string): Promise<
   }
 
   try {
-    // Resolve role name to roleDefinitionId
+    // Resolve role slug to roleDefinitionId (roleName param is actually a slug)
     const roleDef = await prisma.roleDefinition.findFirst({
       where: {
-        name: roleName,
+        slug: roleName,
         OR: [{ isSystem: true }, { salonId: authResult.salonId }],
       },
       select: { id: true },
@@ -571,7 +399,7 @@ export async function getUserPermissionOverrides(
         roleDefinitionId: true,
         isActive: true,
         user: { select: { id: true, firstName: true, lastName: true } },
-        roleDefinition: { select: { name: true, id: true } },
+        roleDefinition: { select: { slug: true, id: true } },
       },
     });
 
@@ -579,7 +407,7 @@ export async function getUserPermissionOverrides(
       return { success: false, error: "User not found in this salon" };
     }
 
-    const targetUser = { ...membership.user, role: membership.roleDefinition.name };
+    const targetUser = { ...membership.user, role: membership.roleDefinition.slug };
 
     // Get all permissions
     const permissions = await prisma.permission.findMany({
@@ -680,24 +508,61 @@ export async function updateUserPermissions(
       return { success: false, error: "You cannot modify permissions for this user" };
     }
 
-    // Enforce owner lockout: cannot REVOKE critical permissions from OWNER users
-    if (membership.roleDefinition.name === OWNER_ROLE_NAME) {
-      const ownerRevocations = overrides.filter(
-        (o) => o.overrideType === "REVOKE" && OWNER_LOCKED_PERMISSIONS.includes(o.permissionCode)
-      );
-      if (ownerRevocations.length > 0) {
-        return {
-          success: false,
-          error: `Cannot revoke critical permissions from Owner: ${ownerRevocations.map((o) => o.permissionCode).join(", ")}`,
-        };
-      }
-    }
-
     // Get permission ID lookup
     const allPermissions = await prisma.permission.findMany({
       select: { id: true, code: true },
     });
     const permIdMap = new Map(allPermissions.map((p) => [p.code, p.id]));
+
+    // Validate all permission codes exist
+    const invalidCodes = overrides
+      .map((o) => o.permissionCode)
+      .filter((code) => !permIdMap.has(code));
+    if (invalidCodes.length > 0) {
+      return { success: false, error: `Unknown permission codes: ${invalidCodes.join(", ")}` };
+    }
+
+    // View-dependency check (defense-in-depth — mirrors client validateViewDependencies).
+    // Compute the effective permission set for this user (role permissions + new overrides),
+    // then ensure that for every module group that has a :view permission, view is effectively
+    // granted whenever any non-view permission for that module is effectively granted.
+    const { getPermissionSet } = await import("@/lib/permissions");
+    const rolePerms = await getPermissionSet(authResult.salonId, membership.roleDefinitionId);
+    const effectiveSet = new Set(rolePerms);
+    for (const o of overrides) {
+      if (o.overrideType === "GRANT") effectiveSet.add(o.permissionCode);
+      else if (o.overrideType === "REVOKE") effectiveSet.delete(o.permissionCode);
+    }
+
+    const allCodes = allPermissions.map((p) => p.code);
+    const viewPrefixes = new Set<string>();
+    for (const code of allCodes) {
+      if (code.endsWith(":view")) {
+        viewPrefixes.add(code.slice(0, -":view".length));
+      }
+    }
+
+    const violations: string[] = [];
+    for (const prefix of viewPrefixes) {
+      const viewCode = `${prefix}:view`;
+      if (effectiveSet.has(viewCode)) continue;
+      const hasNonView = allCodes.some(
+        (code) =>
+          code.startsWith(`${prefix}:`) &&
+          code !== viewCode &&
+          effectiveSet.has(code)
+      );
+      if (hasNonView) {
+        violations.push(prefix);
+      }
+    }
+
+    if (violations.length > 0) {
+      return {
+        success: false,
+        error: `View permission is required for: ${violations.join(", ")}`,
+      };
+    }
 
     await prisma.$transaction(async (tx) => {
       // Delete all existing overrides for this user+salon

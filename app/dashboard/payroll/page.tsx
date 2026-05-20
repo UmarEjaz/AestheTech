@@ -10,6 +10,7 @@ import { PayrollSearch } from "@/components/payroll/payroll-search";
 import { getPayrollRuns, getPayrollSummary } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { PayrollRunStatus } from "@prisma/client";
 
 interface PageProps {
@@ -30,18 +31,20 @@ export default async function PayrollPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["payroll:view"]);
   }
 
-  const canManage = await hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRoleId, "payroll:delete", isSuperAdmin, salonId, session.user.id);
+  const [canCreate, canCancel, canDelete] = await Promise.all([
+    hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:delete", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   const page = parseInt(params.page || "1", 10);
   const status = params.status as PayrollRunStatus | undefined;
@@ -97,7 +100,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
                 Salary Config
               </Link>
             </Button>
-            {canManage && (
+            {canCreate && (
               <Button asChild>
                 <Link href="/dashboard/payroll/new">
                   <Plus className="mr-2 h-4 w-4" />
@@ -122,7 +125,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
           page={page}
           totalPages={totalPages}
           total={total}
-          canManage={canManage}
+          canCancel={canCancel}
           canDelete={canDelete}
           currencyCode={currencyCode}
           timezone={timezone}

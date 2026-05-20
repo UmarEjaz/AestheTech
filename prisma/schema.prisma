@@ -47,7 +47,7 @@ enum ShiftType {
 }
 
 enum LoyaltyTier {
-  SILVER
+  MEMBER
   GOLD
   PLATINUM
 }
@@ -171,7 +171,7 @@ model User {
 
   // Relations
   salon           Salon?                       @relation(fields: [salonId], references: [id], onDelete: SetNull)
-  roleDefinition  RoleDefinition?              @relation(fields: [roleDefinitionId], references: [id])
+  roleDefinition  RoleDefinition?              @relation(fields: [roleDefinitionId], references: [id], onDelete: SetNull)
   userSalons      UserSalon[]
   appointments    Appointment[]                @relation("StaffAppointments")
   schedules       Schedule[]
@@ -188,6 +188,7 @@ model User {
   userPermissions    UserPermission[]
 
   @@index([salonId])
+  @@index([roleDefinitionId])
   @@map("users")
 }
 
@@ -203,7 +204,7 @@ model UserSalon {
 
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id])
+  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id], onDelete: Restrict)
 
   @@unique([userId, salonId])
   @@index([userId])
@@ -305,15 +306,16 @@ model Product {
 
 // ServiceCategory model — org-wide (stored with org root salonId)
 model ServiceCategory {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   salonId   String // org root salon ID — shared across all branches
   name      String
   icon      String? // Lucide icon name
   color     String? // Hex color for UI display
-  isDefault Boolean  @default(false) // True for system-seeded defaults
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isDefault Boolean   @default(false) // True for system-seeded defaults
+  isActive  Boolean   @default(true)
+  deletedAt DateTime? // Set when soft-deleted; null means visible
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Relations
   salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
@@ -321,20 +323,22 @@ model ServiceCategory {
 
   @@unique([salonId, name])
   @@index([salonId])
+  @@index([salonId, deletedAt])
   @@map("service_categories")
 }
 
 // ProductCategory model — org-wide (stored with org root salonId)
 model ProductCategory {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   salonId   String // org root salon ID — shared across all branches
   name      String
   icon      String? // Lucide icon name
   color     String? // Hex color for UI display
-  isDefault Boolean  @default(false) // True for system-seeded defaults
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isDefault Boolean   @default(false) // True for system-seeded defaults
+  isActive  Boolean   @default(true)
+  deletedAt DateTime? // Set when soft-deleted; null means visible
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Relations
   salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
@@ -342,6 +346,7 @@ model ProductCategory {
 
   @@unique([salonId, name])
   @@index([salonId])
+  @@index([salonId, deletedAt])
   @@map("product_categories")
 }
 
@@ -533,7 +538,7 @@ model LoyaltyPoints {
   salonId   String
   clientId  String      @unique
   balance   Int         @default(0)
-  tier      LoyaltyTier @default(SILVER)
+  tier      LoyaltyTier @default(MEMBER)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -685,15 +690,16 @@ model AuditLog {
 
 // ExpenseCategory model — org-wide (stored with org root salonId)
 model ExpenseCategory {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   salonId   String // org root salon ID — shared across all branches
   name      String
   icon      String? // Lucide icon name
   color     String? // Hex color for UI display
-  isDefault Boolean  @default(false) // True for system-seeded defaults
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isDefault Boolean   @default(false) // True for system-seeded defaults
+  isActive  Boolean   @default(true)
+  deletedAt DateTime? // Set when soft-deleted; null means visible
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Relations
   salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
@@ -701,6 +707,7 @@ model ExpenseCategory {
 
   @@unique([salonId, name])
   @@index([salonId])
+  @@index([salonId, deletedAt])
   @@map("expense_categories")
 }
 
@@ -835,7 +842,7 @@ model Settings {
   platinumThreshold Int @default(1000)
 
   // Tier benefit multipliers
-  silverMultiplier   Decimal @default(1.0) @db.Decimal(4, 2)
+  memberMultiplier   Decimal @default(1.0) @db.Decimal(4, 2)
   goldMultiplier     Decimal @default(1.5) @db.Decimal(4, 2)
   platinumMultiplier Decimal @default(2.0) @db.Decimal(4, 2)
 
@@ -885,7 +892,7 @@ model RolePermission {
   createdAt        DateTime @default(now())
 
   salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id])
+  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id], onDelete: Cascade)
   permission     Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@unique([salonId, roleDefinitionId, permissionId])
@@ -917,9 +924,8 @@ model UserPermission {
 // Role definitions — system roles (global) + custom roles (salon-scoped)
 model RoleDefinition {
   id             String   @id @default(cuid())
-  name           String              // e.g., "OWNER", "ADMIN", "Senior Stylist"
-  slug           String              // URL-safe version: "owner", "admin", "senior-stylist"
-  label          String              // Display name: "Owner", "Admin", "Senior Stylist"
+  name           String              // Display name: "Owner", "Admin", "Senior Stylist" (what users see and type)
+  slug           String              // Internal identifier: "owner", "admin", "senior-stylist" (used for system-role matching, URLs, lookups)
   description    String?             // e.g., "Full access to all features"
   color          String   @default("#6B7280") // Hex color for badges
   hierarchyLevel Int                 // OWNER=100, ADMIN=75, STAFF=50, RECEPTIONIST=25

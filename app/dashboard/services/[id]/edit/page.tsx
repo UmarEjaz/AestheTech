@@ -5,9 +5,11 @@ import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceForm } from "@/components/services/service-form";
-import { getService, getAllCategories } from "@/lib/actions/service";
+import { getService } from "@/lib/actions/service";
+import { getActiveServiceCategories } from "@/lib/actions/service-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -22,9 +24,8 @@ export default async function EditServicePage({ params }: PageProps) {
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
@@ -36,13 +37,17 @@ export default async function EditServicePage({ params }: PageProps) {
     ]);
 
     if (!canView || !canUpdate || !canViewCategories) {
-      redirect("/dashboard/access-denied");
+      const missing: string[] = [];
+      if (!canView) missing.push("services:view");
+      if (!canUpdate) missing.push("services:update");
+      if (!canViewCategories) missing.push("service-categories:view");
+      redirectAccessDenied(missing);
     }
   }
 
   const [serviceResult, categoriesResult, settingsResult] = await Promise.all([
     getService(id),
-    getAllCategories(),
+    getActiveServiceCategories(),
     getSettings(),
   ]);
 
@@ -61,6 +66,7 @@ export default async function EditServicePage({ params }: PageProps) {
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/services">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to services</span>
             </Link>
           </Button>
           <div>

@@ -73,7 +73,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
       }),
       prisma.service.count({ where }),
       prisma.serviceCategory.findMany({
-        where: { salonId: orgRootId, isActive: true },
+        where: { salonId: orgRootId, isActive: true, deletedAt: null },
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       }),
@@ -131,6 +131,17 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
 
   const { description, categoryId, cost, ...rest } = validationResult.data;
 
+  if (categoryId) {
+    const { getOrgRootSalonId } = await import("./branch");
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+    const validCategory = await prisma.serviceCategory.findFirst({
+      where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
+    });
+    if (!validCategory) {
+      return { success: false, error: "Invalid category" };
+    }
+  }
+
   const service = await prisma.service.create({
     data: {
       ...rest,
@@ -168,6 +179,17 @@ export async function updateService(
   }
 
   const { id, description, categoryId, cost, ...rest } = validationResult.data;
+
+  if (categoryId) {
+    const { getOrgRootSalonId } = await import("./branch");
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+    const validCategory = await prisma.serviceCategory.findFirst({
+      where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
+    });
+    if (!validCategory) {
+      return { success: false, error: "Invalid category" };
+    }
+  }
 
   const existingService = await prisma.service.findFirst({
     where: { id, salonId: authResult.salonId },
@@ -280,25 +302,3 @@ export async function restoreService(id: string): Promise<ActionResult> {
   return { success: true, data: undefined };
 }
 
-export async function getAllCategories(): Promise<ActionResult<{ id: string; name: string }[]>> {
-  const authResult = await checkAuth("service-categories:view");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  try {
-    const { getOrgRootSalonId } = await import("./branch");
-    const orgRootId = await getOrgRootSalonId(authResult.salonId);
-
-    const categories = await prisma.serviceCategory.findMany({
-      where: { salonId: orgRootId, isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    });
-
-    return { success: true, data: categories };
-  } catch (error) {
-    console.error("Error fetching service categories:", error);
-    return { success: false, error: "Failed to fetch categories" };
-  }
-}

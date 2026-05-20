@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
+import { hasPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import {
   createExpenseSchema,
@@ -92,10 +93,10 @@ export async function getExpenses(
   const { query, categoryId, startDate, endDate, isRecurring, page = 1, limit = 20 } = validation.data;
 
   try {
-    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -159,10 +160,10 @@ export async function getExpense(id: string): Promise<ActionResult<ExpenseListIt
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
 
     const expense = await prisma.expense.findFirst({
       where: { id, salonId: { in: salonIds } },
@@ -202,7 +203,7 @@ export async function createExpense(
     // Verify category belongs to this org
     const orgRootId = await getOrgRootSalonId(authResult.salonId);
     const category = await prisma.expenseCategory.findFirst({
-      where: { id: categoryId, salonId: orgRootId, isActive: true },
+      where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
     });
 
     if (!category) {
@@ -261,10 +262,10 @@ export async function updateExpense(
 
   try {
     // Verify expense belongs to the user's accessible salons
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    const salonIds = canViewAllBranches
+      ? await getOrganizationSalonIds(authResult.salonId)
+      : [authResult.salonId];
     const existing = await prisma.expense.findFirst({
       where: { id, salonId: { in: salonIds } },
       include: { category: { select: { name: true } } },
@@ -278,7 +279,7 @@ export async function updateExpense(
     if (categoryId) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
       const category = await prisma.expenseCategory.findFirst({
-        where: { id: categoryId, salonId: orgRootId, isActive: true },
+        where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
       });
       if (!category) {
         return { success: false, error: "Invalid expense category" };

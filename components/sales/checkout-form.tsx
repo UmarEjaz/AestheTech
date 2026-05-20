@@ -536,7 +536,7 @@ export function CheckoutForm({
                         <Star className="h-3 w-3 mr-1" />
                         {selectedClient.loyaltyPoints.balance} pts
                       </Badge>
-                      {selectedClient.loyaltyPoints.tier !== "SILVER" && (
+                      {selectedClient.loyaltyPoints.tier !== "MEMBER" && (
                         <Badge variant="outline" className="text-xs">
                           {selectedClient.loyaltyPoints.tier}
                         </Badge>
@@ -784,6 +784,7 @@ export function CheckoutForm({
                           onClick={() => updateQuantity(item.id, -1)}
                         >
                           <Minus className="h-3 w-3" />
+                          <span className="sr-only">Decrease quantity</span>
                         </Button>
                         <span className="w-6 text-center text-sm">{item.quantity}</span>
                         <Button
@@ -793,6 +794,7 @@ export function CheckoutForm({
                           onClick={() => updateQuantity(item.id, 1)}
                         >
                           <Plus className="h-3 w-3" />
+                          <span className="sr-only">Increase quantity</span>
                         </Button>
                         <Button
                           variant="ghost"
@@ -801,6 +803,7 @@ export function CheckoutForm({
                           onClick={() => removeItem(item.id)}
                         >
                           <Trash2 className="h-3 w-3" />
+                          <span className="sr-only">Remove item</span>
                         </Button>
                       </div>
                     </div>
@@ -1015,6 +1018,7 @@ export function CheckoutForm({
                           onClick={() => removeSplitPayment(payment.id)}
                         >
                           <Trash2 className="h-3 w-3" />
+                          <span className="sr-only">Remove payment line</span>
                         </Button>
                       </div>
                     </div>
@@ -1066,6 +1070,7 @@ export function CheckoutForm({
                     onClick={addSplitPayment}
                   >
                     <Plus className="h-4 w-4" />
+                    <span className="sr-only">Add payment line</span>
                   </Button>
                 </div>
               )}

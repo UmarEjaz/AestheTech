@@ -27,6 +27,7 @@ import {
 import { getSale } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
@@ -45,15 +46,14 @@ export default async function SaleDetailPage({
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
   if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["sales:view"]);
   }
 
   const { id } = await params;
@@ -154,6 +154,7 @@ export default async function SaleDetailPage({
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/sales">
                 <ArrowLeft className="h-5 w-5" />
+                <span className="sr-only">Back to sales</span>
               </Link>
             </Button>
             <div>

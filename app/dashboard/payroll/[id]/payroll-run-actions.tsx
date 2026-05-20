@@ -23,11 +23,12 @@ import { PayrollRunStatus } from "@prisma/client";
 interface PayrollRunActionsProps {
   runId: string;
   status: PayrollRunStatus;
-  canManage: boolean;
+  canUpdate: boolean;
+  canCancel: boolean;
   canPay: boolean;
 }
 
-export function PayrollRunActions({ runId, status, canManage, canPay }: PayrollRunActionsProps) {
+export function PayrollRunActions({ runId, status, canUpdate, canCancel, canPay }: PayrollRunActionsProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
@@ -95,37 +96,37 @@ export function PayrollRunActions({ runId, status, canManage, canPay }: PayrollR
   return (
     <>
       <div className="flex gap-2">
-        {status === "DRAFT" && canManage && (
-          <>
-            <Button onClick={() => setShowFinalizeDialog(true)} disabled={isLoading}>
-              <CheckCircle className="mr-2 h-4 w-4" />
-              Finalize
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowCancelDialog(true)}
-              disabled={isLoading}
-            >
-              <XCircle className="mr-2 h-4 w-4" />
-              Cancel
-            </Button>
-          </>
+        {status === "DRAFT" && canUpdate && (
+          <Button onClick={() => setShowFinalizeDialog(true)} disabled={isLoading}>
+            <CheckCircle className="mr-2 h-4 w-4" />
+            Finalize
+          </Button>
+        )}
+        {status === "DRAFT" && canCancel && (
+          <Button
+            variant="outline"
+            onClick={() => setShowCancelDialog(true)}
+            disabled={isLoading}
+          >
+            <XCircle className="mr-2 h-4 w-4" />
+            Cancel
+          </Button>
         )}
         {status === "FINALIZED" && canPay && (
-          <>
-            <Button onClick={() => setShowPayDialog(true)} disabled={isLoading}>
-              <DollarSign className="mr-2 h-4 w-4" />
-              Mark as Paid
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowCancelDialog(true)}
-              disabled={isLoading}
-            >
-              <XCircle className="mr-2 h-4 w-4" />
-              Cancel
-            </Button>
-          </>
+          <Button onClick={() => setShowPayDialog(true)} disabled={isLoading}>
+            <DollarSign className="mr-2 h-4 w-4" />
+            Mark as Paid
+          </Button>
+        )}
+        {status === "FINALIZED" && canCancel && (
+          <Button
+            variant="outline"
+            onClick={() => setShowCancelDialog(true)}
+            disabled={isLoading}
+          >
+            <XCircle className="mr-2 h-4 w-4" />
+            Cancel
+          </Button>
         )}
       </div>
 

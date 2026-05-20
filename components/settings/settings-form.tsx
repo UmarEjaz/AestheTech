@@ -56,7 +56,7 @@ const settingsSchema = z.object({
   loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
   goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
   platinumThreshold: z.coerce.number().int().min(2, "Must be at least 2"),
-  silverMultiplier: z.coerce.number().min(0.1).max(10),
+  memberMultiplier: z.coerce.number().min(0.1).max(10),
   goldMultiplier: z.coerce.number().min(0.1).max(10),
   platinumMultiplier: z.coerce.number().min(0.1).max(10),
   pointsPerDollar: z.coerce.number().int().min(1, "Must be at least 1"),
@@ -67,8 +67,8 @@ const settingsSchema = z.object({
 }).refine((data) => data.platinumThreshold > data.goldThreshold, {
   message: "Platinum threshold must be greater than Gold threshold",
   path: ["platinumThreshold"],
-}).refine((data) => data.silverMultiplier <= data.goldMultiplier && data.goldMultiplier <= data.platinumMultiplier, {
-  message: "Multipliers must be in ascending order (Silver <= Gold <= Platinum)",
+}).refine((data) => data.memberMultiplier <= data.goldMultiplier && data.goldMultiplier <= data.platinumMultiplier, {
+  message: "Multipliers must be in ascending order (Member <= Gold <= Platinum)",
   path: ["platinumMultiplier"],
 });
 
@@ -87,7 +87,7 @@ type SettingsFormData = {
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
   platinumThreshold: number;
-  silverMultiplier: number;
+  memberMultiplier: number;
   goldMultiplier: number;
   platinumMultiplier: number;
   pointsPerDollar: number;
@@ -164,7 +164,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       loyaltyPointsPerDollar: settings.loyaltyPointsPerDollar,
       goldThreshold: settings.goldThreshold,
       platinumThreshold: settings.platinumThreshold,
-      silverMultiplier: settings.silverMultiplier,
+      memberMultiplier: settings.memberMultiplier,
       goldMultiplier: settings.goldMultiplier,
       platinumMultiplier: settings.platinumMultiplier,
       pointsPerDollar: settings.pointsPerDollar,
@@ -568,18 +568,18 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="silverMultiplier">Silver Multiplier</Label>
+                <Label htmlFor="memberMultiplier">Member Multiplier</Label>
                 <Input
-                  id="silverMultiplier"
+                  id="memberMultiplier"
                   type="number"
                   step="0.1"
                   min="0.1"
                   max="10"
-                  {...register("silverMultiplier")}
+                  {...register("memberMultiplier")}
                   disabled={!canManage}
                 />
-                {errors.silverMultiplier && (
-                  <p className="text-sm text-destructive">{errors.silverMultiplier.message}</p>
+                {errors.memberMultiplier && (
+                  <p className="text-sm text-destructive">{errors.memberMultiplier.message}</p>
                 )}
               </div>
               <div className="space-y-2">

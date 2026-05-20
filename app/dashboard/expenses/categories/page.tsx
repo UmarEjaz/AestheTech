@@ -4,9 +4,16 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
-import { CategoryManager } from "@/components/expenses/category-manager";
-import { getExpenseCategories } from "@/lib/actions/expense-category";
+import { CategoryManager } from "@/components/categories/category-manager";
+import {
+  getAllExpenseCategories,
+  createExpenseCategory,
+  updateExpenseCategory,
+  toggleExpenseCategory,
+  deleteExpenseCategory,
+} from "@/lib/actions/expense-category";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function ExpenseCategoriesPage() {
   const session = await auth();
@@ -15,19 +22,28 @@ export default async function ExpenseCategoriesPage() {
     redirect("/login");
   }
 
-  const userRole = session.user.salonRole;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  const canManage =
-    isSuperAdmin ||
-    (userRole != null && await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id));
+  const salonId = session.user.salonId ?? null;
 
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+  const canView =
+    isSuperAdmin ||
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id));
+  if (!canView) {
+    redirectAccessDenied(["expense-categories:view"]);
   }
 
-  const result = await getExpenseCategories();
+  const canCreate =
+    isSuperAdmin ||
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:create", isSuperAdmin, salonId, session.user.id));
+  const canUpdate =
+    isSuperAdmin ||
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:update", isSuperAdmin, salonId, session.user.id));
+  const canDelete =
+    isSuperAdmin ||
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:delete", isSuperAdmin, salonId, session.user.id));
+
+  const result = await getAllExpenseCategories();
   const categories = result.success ? result.data : [];
 
   return (
@@ -47,7 +63,17 @@ export default async function ExpenseCategoriesPage() {
           </div>
         </div>
 
-        <CategoryManager categories={categories} />
+        <CategoryManager
+          title="Expense Categories"
+          countLabel="Expenses"
+          categories={categories}
+          namePlaceholder="e.g. Office Supplies"
+          iconPlaceholder="e.g. Package"
+          onCreate={canCreate ? createExpenseCategory : undefined}
+          onUpdate={canUpdate ? updateExpenseCategory : undefined}
+          onToggle={canUpdate ? toggleExpenseCategory : undefined}
+          onDelete={canDelete ? deleteExpenseCategory : undefined}
+        />
       </div>
     </DashboardLayout>
   );

@@ -9,6 +9,7 @@ import { getExpense } from "@/lib/actions/expense";
 import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -21,19 +22,20 @@ export default async function EditExpensePage({ params }: PageProps) {
     redirect("/login");
   }
 
-  const userRole = session.user.salonRole;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!isSuperAdmin) {
-    const [canView, canUpdate, canViewCategories] = await Promise.all([
+    const [canView, canUpdate] = await Promise.all([
       hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id),
       hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id),
     ]);
 
-    if (!canView || !canUpdate || !canViewCategories) {
-      redirect("/dashboard/access-denied");
+    if (!canView || !canUpdate) {
+      const missing: string[] = [];
+      if (!canView) missing.push("expenses:view");
+      if (!canUpdate) missing.push("expenses:update");
+      redirectAccessDenied(missing);
     }
   }
 

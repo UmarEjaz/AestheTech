@@ -8,7 +8,6 @@ import {
   Mail,
   Phone,
   Calendar,
-  Shield,
   Edit,
   UserCheck,
   UserX,
@@ -30,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { getUserById } from "@/lib/actions/user";
 import { hasPermission, canManageRole } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { PasswordResetDialog } from "@/components/staff/password-reset-dialog";
 import { UserPermissionsEditor } from "@/components/staff/user-permissions-editor";
 import { getUserPermissionOverrides } from "@/lib/actions/permission";
@@ -58,15 +58,14 @@ export default async function StaffDetailPage({
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
   if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["staff:view"]);
   }
 
   const hasEditPermission = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
@@ -100,6 +99,7 @@ export default async function StaffDetailPage({
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/staff">
                 <ArrowLeft className="h-5 w-5" />
+                <span className="sr-only">Back to staff</span>
               </Link>
             </Button>
             <Avatar className="h-16 w-16">
@@ -133,7 +133,6 @@ export default async function StaffDetailPage({
                     borderColor: `${user.roleColor}40`,
                   }}
                 >
-                  <Shield className="h-3 w-3 mr-1" />
                   {user.roleLabel || user.role}
                 </Badge>
                 {user.isServiceProvider && (

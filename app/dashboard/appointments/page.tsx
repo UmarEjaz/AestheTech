@@ -9,6 +9,7 @@ import { getAppointmentsForCalendar } from "@/lib/actions/appointment";
 import { getSettings } from "@/lib/actions/settings";
 import { getWeekRange } from "@/lib/utils/timezone";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function AppointmentsPage() {
   const session = await auth();
@@ -18,13 +19,17 @@ export default async function AppointmentsPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = session.user.salonRole ?? null;
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const canManage = await hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id);
+  const [canCreate, canUpdate, canCancel, canDelete] = await Promise.all([
+    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "appointments:delete", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   // Get settings first to determine timezone, then compute week range
   const settingsResult = await getSettings();
@@ -52,7 +57,7 @@ export default async function AppointmentsPage() {
               Manage and schedule appointments
             </p>
           </div>
-          {canManage && (
+          {canCreate && (
             <Button asChild>
               <Link href="/dashboard/appointments/new">
                 <Plus className="mr-2 h-4 w-4" />
@@ -66,7 +71,10 @@ export default async function AppointmentsPage() {
         <div className="rounded-lg border bg-card p-4">
           <AppointmentCalendar
             initialAppointments={appointments}
-            canManage={canManage}
+            canCreate={canCreate}
+            canUpdate={canUpdate}
+            canCancel={canCancel}
+            canDelete={canDelete}
             businessHoursStart={settings.businessHoursStart}
             businessHoursEnd={settings.businessHoursEnd}
             timezone={settings.timezone}

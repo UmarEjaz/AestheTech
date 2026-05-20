@@ -43,12 +43,12 @@ async function loadPermissionsFromDB(salonId: string, roleDefinitionId: string):
       // Resolve roleDefinitionId → role name for fallback lookup
       const roleDef = await prisma.roleDefinition.findUnique({
         where: { id: roleDefinitionId },
-        select: { name: true },
+        select: { slug: true },
       });
       if (!roleDef) return new Set();
 
       const defaults = Object.entries(DEFAULT_PERMISSION_ROLES)
-        .filter(([, roles]) => roles.includes(roleDef.name))
+        .filter(([, roles]) => roles.includes(roleDef.slug))
         .map(([code]) => code);
       return new Set(defaults);
     }
@@ -65,8 +65,10 @@ async function loadPermissionsFromDB(salonId: string, roleDefinitionId: string):
 
 /**
  * Dedup wrapper — ensures only one DB/Redis call per salon+role per request.
+ * Returns the raw set of granted permission codes (no implicit-view inference applied).
+ * Use this when you need the literal stored permissions; use hasPermission() for access checks.
  */
-function getPermissionSet(salonId: string, roleDefinitionId: string): Promise<Set<string>> {
+export function getPermissionSet(salonId: string, roleDefinitionId: string): Promise<Set<string>> {
   const key = `${salonId}:${roleDefinitionId}`;
   if (!requestCache.has(key)) {
     const promise = loadPermissionsFromDB(salonId, roleDefinitionId);
@@ -221,18 +223,43 @@ export async function hasPermission(
     try {
       const roleDef = await prisma.roleDefinition.findUnique({
         where: { id: roleId },
-        select: { name: true },
+        select: { slug: true },
       });
       if (!roleDef) return false;
       const defaults = DEFAULT_PERMISSION_ROLES[permission];
-      return defaults ? defaults.includes(roleDef.name) : false;
+      if (defaults && defaults.includes(roleDef.slug)) return true;
+
+      // Implicit-view: if checking X:view and not directly granted, treat as granted
+      // when any X:create/X:update/X:delete is granted by default for this role.
+      // Rationale: "you can edit it, of course you can see it."
+      if (permission.endsWith(":view")) {
+        const prefix = permission.slice(0, -":view".length);
+        for (const op of [`${prefix}:create`, `${prefix}:update`, `${prefix}:delete`] as Permission[]) {
+          const ds = DEFAULT_PERMISSION_ROLES[op];
+          if (ds && ds.includes(roleDef.slug)) return true;
+        }
+      }
+      return false;
     } catch {
       return false;
     }
   }
 
   const permSet = await getPermissionSet(salonId, roleId);
-  return permSet.has(permission);
+  if (permSet.has(permission)) return true;
+
+  // Implicit-view: if checking X:view and not directly granted, treat as granted
+  // when the user effectively has any X:create/X:update/X:delete (via role or override).
+  // The recursive call cannot loop because the recursive permission doesn't end in :view.
+  if (permission.endsWith(":view")) {
+    const prefix = permission.slice(0, -":view".length);
+    for (const op of [`${prefix}:create`, `${prefix}:update`, `${prefix}:delete`] as Permission[]) {
+      if (await hasPermission(roleId, op, isSuperAdmin, salonId, userId)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -272,12 +299,12 @@ export async function hasAnyPermission(
     try {
       const roleDef = await prisma.roleDefinition.findUnique({
         where: { id: roleId },
-        select: { name: true },
+        select: { slug: true },
       });
       if (!roleDef) return false;
       return perms.some((p) => {
         const defaults = DEFAULT_PERMISSION_ROLES[p];
-        return defaults ? defaults.includes(roleDef.name) : false;
+        return defaults ? defaults.includes(roleDef.slug) : false;
       });
     } catch {
       return false;
@@ -319,12 +346,12 @@ export async function hasAllPermissions(
     try {
       const roleDef = await prisma.roleDefinition.findUnique({
         where: { id: roleId },
-        select: { name: true },
+        select: { slug: true },
       });
       if (!roleDef) return false;
       return perms.every((p) => {
         const defaults = DEFAULT_PERMISSION_ROLES[p];
-        return defaults ? defaults.includes(roleDef.name) : false;
+        return defaults ? defaults.includes(roleDef.slug) : false;
       });
     } catch {
       return false;
@@ -354,12 +381,12 @@ export async function getPermissionsForRole(
     try {
       const roleDef = await prisma.roleDefinition.findUnique({
         where: { id: roleId },
-        select: { name: true },
+        select: { slug: true },
       });
       if (!roleDef) return [];
       permSet = new Set(
         Object.entries(DEFAULT_PERMISSION_ROLES)
-          .filter(([, roles]) => roles.includes(roleDef.name))
+          .filter(([, roles]) => roles.includes(roleDef.slug))
           .map(([code]) => code)
       );
     } catch {
