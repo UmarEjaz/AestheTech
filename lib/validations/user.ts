@@ -3,14 +3,17 @@ import { z } from "zod";
 export const userSchema = z.object({
   firstName: z
     .string()
+    .trim()
     .min(1, "First name is required")
     .max(50, "First name must be less than 50 characters"),
   lastName: z
     .string()
+    .trim()
     .min(1, "Last name is required")
     .max(50, "Last name must be less than 50 characters"),
   email: z
     .string()
+    .trim()
     .min(1, "Email is required")
     .email("Invalid email address"),
   password: z
@@ -24,6 +27,7 @@ export const userSchema = z.object({
   confirmPassword: z.string().min(1, "Please confirm password"),
   phone: z
     .string()
+    .trim()
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()
@@ -39,18 +43,22 @@ export const userUpdateSchema = z.object({
   id: z.string().min(1, "User ID is required"),
   firstName: z
     .string()
+    .trim()
     .min(1, "First name is required")
     .max(50, "First name must be less than 50 characters"),
   lastName: z
     .string()
+    .trim()
     .min(1, "Last name is required")
     .max(50, "Last name must be less than 50 characters"),
   email: z
     .string()
+    .trim()
     .min(1, "Email is required")
     .email("Invalid email address"),
   phone: z
     .string()
+    .trim()
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()

@@ -4,39 +4,45 @@ import { z } from "zod";
 export const clientSchema = z.object({
   firstName: z
     .string()
+    .trim()
     .min(1, "First name is required")
     .max(50, "First name must be less than 50 characters"),
   lastName: z
     .string()
+    .trim()
     .min(1, "Last name is required")
     .max(50, "Last name must be less than 50 characters"),
   email: z
     .string()
+    .trim()
     .email("Invalid email address")
     .optional()
     .or(z.literal("")),
   phone: z
     .string()
+    .trim()
     .min(10, "Phone number must be at least 10 digits")
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\d\s\-+()]+$/, "Invalid phone number format"),
   birthday: z.string().optional().or(z.literal("")),
-  address: z.string().max(200, "Address must be less than 200 characters").optional().or(z.literal("")),
-  notes: z.string().max(1000, "Notes must be less than 1000 characters").optional().or(z.literal("")),
-  preferences: z.string().max(500, "Preferences must be less than 500 characters").optional().or(z.literal("")),
-  allergies: z.string().max(500, "Allergies must be less than 500 characters").optional().or(z.literal("")),
-  tags: z.array(z.string()).default([]),
-  photoUrl: z.string().regex(/^\/uploads\/clients\/[A-Za-z0-9._-]+$/, "Invalid photo URL").optional().or(z.literal("")),
+  address: z.string().trim().max(200, "Address must be less than 200 characters").optional().or(z.literal("")),
+  notes: z.string().trim().max(1000, "Notes must be less than 1000 characters").optional().or(z.literal("")),
+  preferences: z.string().trim().max(500, "Preferences must be less than 500 characters").optional().or(z.literal("")),
+  allergies: z.string().trim().max(500, "Allergies must be less than 500 characters").optional().or(z.literal("")),
+  tags: z.array(z.string().trim().min(1, "Tag cannot be empty")).default([]),
+  photoUrl: z.string().regex(/^\/uploads\/clients\/[A-Za-z0-9._-]+$/, "Invalid photo URL format").optional().or(z.literal("")),
 });
 
 // Schema for walk-in client creation (minimal details)
 export const walkInClientSchema = z.object({
   firstName: z
     .string()
+    .trim()
     .min(1, "First name is required")
     .max(50, "First name must be less than 50 characters"),
   phone: z
     .string()
+    .trim()
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()
@@ -49,7 +55,7 @@ export const clientUpdateSchema = clientSchema.partial().extend({
 
 export const clientSearchSchema = z.object({
   query: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  tags: z.array(z.string().trim().min(1, "Tag cannot be empty")).optional(),
   isActive: z.boolean().optional(),
   isWalkIn: z.boolean().optional(),
   page: z.number().int().positive().optional(),

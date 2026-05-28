@@ -525,7 +525,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label className="text-muted-foreground">Silver</Label>
+                <Label className="text-muted-foreground">Member</Label>
                 <Input value="0" disabled className="bg-muted" />
                 <p className="text-xs text-muted-foreground">Always starts at 0</p>
               </div>

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateOnly } from "@/lib/utils/timezone";
-import { Edit, MoreVertical, ToggleLeft, ToggleRight } from "lucide-react";
+import { Edit, MoreVertical, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,8 +20,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { SalaryConfigListItem, toggleSalaryConfigActive } from "@/lib/actions/salary-config";
+import {
+  SalaryConfigListItem,
+  toggleSalaryConfigActive,
+  deleteSalaryConfig,
+} from "@/lib/actions/salary-config";
 import { formatCurrency } from "@/lib/utils/currency";
 
 interface SalaryConfigListProps {
@@ -40,6 +54,8 @@ export function SalaryConfigList({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<SalaryConfigListItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleToggle = async (id: string) => {
     setPendingIds((prev) => new Set(prev).add(id));
@@ -58,6 +74,25 @@ export function SalaryConfigList({
         next.delete(id);
         return next;
       });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      const result = await deleteSalaryConfig(deleteTarget.id);
+      if (result.success) {
+        toast.success("Salary configuration deleted");
+        setDeleteTarget(null);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    } catch {
+      toast.error("Failed to delete salary configuration");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -123,33 +158,42 @@ export function SalaryConfigList({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       {canUpdate && (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            startTransition(() => {
-                              router.push(`/dashboard/payroll/salary-config/${config.id}/edit`);
-                            })
-                          }
-                        >
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
+                        <>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              startTransition(() => {
+                                router.push(`/dashboard/payroll/salary-config/${config.id}/edit`);
+                              })
+                            }
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleToggle(config.id)}
+                            disabled={pendingIds.has(config.id)}
+                          >
+                            {config.isActive ? (
+                              <>
+                                <ToggleLeft className="mr-2 h-4 w-4" />
+                                Deactivate
+                              </>
+                            ) : (
+                              <>
+                                <ToggleRight className="mr-2 h-4 w-4" />
+                                Reactivate
+                              </>
+                            )}
+                          </DropdownMenuItem>
+                        </>
                       )}
                       {canDelete && (
                         <DropdownMenuItem
-                          onClick={() => handleToggle(config.id)}
-                          disabled={pendingIds.has(config.id)}
+                          onClick={() => setDeleteTarget(config)}
+                          className="text-destructive focus:text-destructive"
                         >
-                          {config.isActive ? (
-                            <>
-                              <ToggleLeft className="mr-2 h-4 w-4" />
-                              Deactivate
-                            </>
-                          ) : (
-                            <>
-                              <ToggleRight className="mr-2 h-4 w-4" />
-                              Reactivate
-                            </>
-                          )}
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
                         </DropdownMenuItem>
                       )}
                     </DropdownMenuContent>
@@ -160,6 +204,40 @@ export function SalaryConfigList({
           ))}
         </TableBody>
       </Table>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete salary configuration?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget && (
+                <>
+                  This will permanently delete the salary configuration for{" "}
+                  <strong>
+                    {deleteTarget.user.firstName} {deleteTarget.user.lastName}
+                  </strong>{" "}
+                  ({formatCurrency(Number(deleteTarget.baseRate), currencyCode)}
+                  {deleteTarget.payType === "HOURLY" ? "/hr" : ""}). Historical payroll
+                  amounts are preserved — only the audit link to this config is lost.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleDelete();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

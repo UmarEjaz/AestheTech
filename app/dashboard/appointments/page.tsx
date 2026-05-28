@@ -24,12 +24,17 @@ export default async function AppointmentsPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
-  const [canCreate, canUpdate, canCancel, canDelete] = await Promise.all([
+  const [canView, canCreate, canUpdate, canCancel, canDelete] = await Promise.all([
+    hasPermission(userRoleId, "appointments:view", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "appointments:delete", isSuperAdmin, salonId, session.user.id),
   ]);
+
+  if (!canView) {
+    redirectAccessDenied(["appointments:view"]);
+  }
 
   // Get settings first to determine timezone, then compute week range
   const settingsResult = await getSettings();
@@ -44,7 +49,25 @@ export default async function AppointmentsPage() {
     endDate: weekEnd,
   });
 
-  const appointments = appointmentsResult.success ? appointmentsResult.data : [];
+  if (!appointmentsResult.success) {
+    return (
+      <DashboardLayout>
+        <div className="space-y-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Appointments</h1>
+              <p className="text-muted-foreground">Manage and schedule appointments</p>
+            </div>
+          </div>
+          <div className="rounded-md border p-4 text-sm text-destructive">
+            {appointmentsResult.error}
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const appointments = appointmentsResult.data;
 
   return (
     <DashboardLayout>

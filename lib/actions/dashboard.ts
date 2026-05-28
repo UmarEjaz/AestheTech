@@ -488,20 +488,24 @@ export async function getDashboardStats(params?: {
 
 // Reports data
 export interface ReportData {
-  revenueByDay: { date: string; revenue: number; salesCount: number; expenses: number; cost?: number; profit?: number }[];
-  revenueByItem: { item: string; revenue: number; percentage: number; cost?: number; profit?: number; margin?: number }[];
-  revenueByStaff: { staff: string; revenue: number; appointments: number; cost?: number; profit?: number }[];
+  // Money-bearing arrays are optional. Server omits them when the caller lacks
+  // `reports:financial`. UI must check `capabilities.includes("reports:financial")`
+  // and either hide those sections or render an "access denied" placeholder —
+  // never fall back to `?? 0`/`?? []` which would silently lie ("revenue is $0").
+  revenueByDay?: { date: string; revenue: number; salesCount: number; expenses: number; cost?: number; profit?: number }[];
+  revenueByItem?: { item: string; revenue: number; percentage: number; cost?: number; profit?: number; margin?: number }[];
+  revenueByStaff?: { staff: string; revenue: number; appointments: number; cost?: number; profit?: number }[];
   profitByClient?: { client: string; revenue: number; cost: number; profit: number; margin: number; salesCount: number }[];
   appointmentsByStatus: { status: string; count: number }[];
   clientGrowth: { date: string; newClients: number; totalClients: number }[];
   peakHours: { hour: number; count: number }[];
-  expensesByCategory: { category: string; color: string; amount: number }[];
+  expensesByCategory?: { category: string; color: string; amount: number }[];
   totals: {
-    revenue: number;
+    revenue?: number;
     sales: number;
     appointments: number;
     newClients: number;
-    expenses: number;
+    expenses?: number;
     cost?: number;
     grossProfit?: number;
     profitMargin?: number;
@@ -529,6 +533,17 @@ export async function getReportData(params: {
   const { startDate, endDate, branchFilter = "current" } = params;
   const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
+  // `reports:financial` gates monetary fields (revenue, expenses, profit, etc.).
+  // A user with `reports:view` but not `reports:financial` still sees operational
+  // sections (appointments, client growth, peak hours) but with money fields redacted.
+  const canViewFinancial = await hasPermission(
+    authResult.roleId,
+    "reports:financial",
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+
   try {
     // Determine which salon IDs to query (only users with data:all-branches can view across all branches)
     let salonIds: string[];
@@ -545,13 +560,15 @@ export async function getReportData(params: {
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
     const canViewProfit = await hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
-    // Check cache — use org root ID for org-wide queries so invalidation works correctly
+    // Check cache — use org root ID for org-wide queries so invalidation works correctly.
+    // `fin=${canViewFinancial}` separates cache entries for users with vs. without financial
+    // access so a financial-view user doesn't get served a redacted cached payload (or vice versa).
     let cacheKey: string;
     if (branchFilter === "all" && canViewAllBranches) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:${startDate.toISOString()}:${endDate.toISOString()}`;
+      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:fin=${canViewFinancial}:${startDate.toISOString()}:${endDate.toISOString()}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:${startDate.toISOString()}:${endDate.toISOString()}`;
+      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:fin=${canViewFinancial}:${startDate.toISOString()}:${endDate.toISOString()}`;
     }
     const cached = await cacheGet<ReportData>(cacheKey);
     if (cached) {
@@ -851,18 +868,33 @@ export async function getReportData(params: {
       hasMissingCosts = saleItemsData.some((item) => item.costAtSale == null);
     }
 
+    // Redact monetary fields for users without `reports:financial`. Money-bearing fields
+    // are OMITTED (undefined), not zeroed — zeroing would lie to the UI ("$0 revenue" is
+    // a lie; "no access to revenue" is the truth). Non-financial operational sections
+    // (appointments-by-status, client growth, peak hours, counts) still ship so the page
+    // isn't empty for view-only roles.
+    const capabilities: string[] = [];
+    if (canViewProfit) capabilities.push("profit:view");
+    if (canViewFinancial) capabilities.push("reports:financial");
+
+    const redactedTotals: ReportData["totals"] = canViewFinancial
+      ? totals
+      : {
+          sales: totals.sales,
+          appointments: totals.appointments,
+          newClients: totals.newClients,
+        };
+
     const data: ReportData = {
-      revenueByDay,
-      revenueByItem,
-      revenueByStaff,
-      ...(profitByClient && { profitByClient }),
+      ...(canViewFinancial && { revenueByDay, revenueByItem, revenueByStaff }),
+      ...(canViewFinancial && profitByClient && { profitByClient }),
       appointmentsByStatus,
       clientGrowth,
       peakHours,
-      expensesByCategory,
-      totals,
-      ...(canViewProfit && { hasMissingCosts }),
-      capabilities: canViewProfit ? ["profit:view"] : [],
+      ...(canViewFinancial && { expensesByCategory }),
+      totals: redactedTotals,
+      ...(canViewFinancial && canViewProfit && { hasMissingCosts }),
+      capabilities,
       currencyCode,
     };
 

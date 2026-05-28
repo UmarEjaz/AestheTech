@@ -264,6 +264,9 @@ export async function hasPermission(
 
 /**
  * Check if a role has any of the specified permissions.
+ *
+ * Delegates each permission to `hasPermission` so the same implicit-`:view` inference
+ * (granted via `:create`/`:update`/`:delete`) applies consistently to bulk checks.
  */
 export async function hasAnyPermission(
   roleId: string | null,
@@ -274,49 +277,19 @@ export async function hasAnyPermission(
 ): Promise<boolean> {
   if (isSuperAdmin) return true;
   if (!roleId) return false;
-
-  // Check user overrides first
-  if (salonId && userId) {
-    const overrides = await getUserOverrides(salonId, userId);
-    for (const p of perms) {
-      const override = overrides.get(p);
-      if (override === "GRANT") return true;
-    }
-    // If any were explicitly revoked, we need to check the rest against role perms
-    if (overrides.size > 0) {
-      const permSet = await getPermissionSet(salonId, roleId);
-      return perms.some((p) => {
-        const ov = overrides.get(p);
-        if (ov === "GRANT") return true;
-        if (ov === "REVOKE") return false;
-        return permSet.has(p);
-      });
+  for (const p of perms) {
+    if (await hasPermission(roleId, p, isSuperAdmin, salonId, userId)) {
+      return true;
     }
   }
-
-  // Load once, check all
-  if (!salonId) {
-    try {
-      const roleDef = await prisma.roleDefinition.findUnique({
-        where: { id: roleId },
-        select: { slug: true },
-      });
-      if (!roleDef) return false;
-      return perms.some((p) => {
-        const defaults = DEFAULT_PERMISSION_ROLES[p];
-        return defaults ? defaults.includes(roleDef.slug) : false;
-      });
-    } catch {
-      return false;
-    }
-  }
-
-  const permSet = await getPermissionSet(salonId, roleId);
-  return perms.some((p) => permSet.has(p));
+  return false;
 }
 
 /**
  * Check if a role has all of the specified permissions.
+ *
+ * Delegates each permission to `hasPermission` so the same implicit-`:view` inference
+ * (granted via `:create`/`:update`/`:delete`) applies consistently to bulk checks.
  */
 export async function hasAllPermissions(
   roleId: string | null,
@@ -327,39 +300,12 @@ export async function hasAllPermissions(
 ): Promise<boolean> {
   if (isSuperAdmin) return true;
   if (!roleId) return false;
-
-  // Check with user overrides
-  if (salonId && userId) {
-    const overrides = await getUserOverrides(salonId, userId);
-    if (overrides.size > 0) {
-      const permSet = await getPermissionSet(salonId, roleId);
-      return perms.every((p) => {
-        const ov = overrides.get(p);
-        if (ov === "GRANT") return true;
-        if (ov === "REVOKE") return false;
-        return permSet.has(p);
-      });
-    }
-  }
-
-  if (!salonId) {
-    try {
-      const roleDef = await prisma.roleDefinition.findUnique({
-        where: { id: roleId },
-        select: { slug: true },
-      });
-      if (!roleDef) return false;
-      return perms.every((p) => {
-        const defaults = DEFAULT_PERMISSION_ROLES[p];
-        return defaults ? defaults.includes(roleDef.slug) : false;
-      });
-    } catch {
+  for (const p of perms) {
+    if (!(await hasPermission(roleId, p, isSuperAdmin, salonId, userId))) {
       return false;
     }
   }
-
-  const permSet = await getPermissionSet(salonId, roleId);
-  return perms.every((p) => permSet.has(p));
+  return true;
 }
 
 /**

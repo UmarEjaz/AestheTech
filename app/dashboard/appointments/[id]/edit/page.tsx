@@ -55,7 +55,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   // - Clients/services: org-scoped against the appointment's organization
   // - Staff: scoped to the appointment's branch (so the currently assigned staff appears)
   const orgSalonIds = await getOrganizationSalonIds(appointment.salonId);
-  const [clients, services, staff] = await Promise.all([
+  const [clients, services, staffRows] = await Promise.all([
     prisma.client.findMany({
       where: { salonId: { in: orgSalonIds }, isActive: true },
       select: {
@@ -77,20 +77,22 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       },
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({
+    // Resolve providers via branch membership (UserSalon) so staff assigned to
+    // this branch are included even when it isn't their home branch.
+    prisma.userSalon.findMany({
       where: {
         salonId: appointment.salonId,
         isActive: true,
-        isServiceProvider: true,
+        user: { isActive: true, isServiceProvider: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
       },
-      orderBy: { firstName: "asc" },
+      distinct: ["userId"],
+      orderBy: { user: { firstName: "asc" } },
     }),
   ]);
+  const staff = staffRows.map((row) => row.user);
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

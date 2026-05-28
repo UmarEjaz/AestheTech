@@ -111,7 +111,7 @@ export async function getPermissionMatrix(): Promise<ActionResult<PermissionMatr
  * Update permissions for a single role (grant/revoke specific permissions).
  */
 export async function updateRolePermissions(input: {
-  roleName: string;
+  roleDefinitionId: string;
   grants: string[];
   revokes: string[];
 }): Promise<ActionResult<null>> {
@@ -126,19 +126,20 @@ export async function updateRolePermissions(input: {
     return { success: false, error: parsed.error.issues[0]?.message || "Invalid input" };
   }
 
-  const { roleName, grants, revokes } = parsed.data;
+  const { roleDefinitionId, grants, revokes } = parsed.data;
 
   try {
-    // Validate role exists and get its ID (roleName is actually the slug here)
+    // Look up by ID and scope-check at the same time: caller may only target system roles
+    // or roles owned by their salon.
     const roleDef = await prisma.roleDefinition.findFirst({
       where: {
-        slug: roleName,
+        id: roleDefinitionId,
         OR: [{ isSystem: true }, { salonId: authResult.salonId }],
       },
-      select: { id: true, slug: true },
+      select: { id: true, slug: true, name: true },
     });
     if (!roleDef) {
-      return { success: false, error: `Role "${roleName}" not found` };
+      return { success: false, error: "Role not found" };
     }
 
     // Enforce hierarchy: caller can only modify permissions for roles below their level
@@ -150,7 +151,7 @@ export async function updateRolePermissions(input: {
       if (targetLevel >= callerLevel) {
         return {
           success: false,
-          error: `You cannot modify permissions for the "${roleName}" role`,
+          error: `You cannot modify permissions for the "${roleDef.name}" role`,
         };
       }
     }
@@ -167,21 +168,8 @@ export async function updateRolePermissions(input: {
       return { success: false, error: `Unknown permission codes: ${invalidCodes.join(", ")}` };
     }
 
-    // View-dependency check (defense-in-depth — mirrors client validateViewDependencies).
-    // Compute the final granted set after applying grants/revokes, then ensure that
-    // for every module group that has a :view permission, view is granted whenever
-    // any non-view permission for that module is granted.
-    const currentRolePermissions = await prisma.rolePermission.findMany({
-      where: {
-        salonId: authResult.salonId,
-        roleDefinitionId: roleDef.id,
-      },
-      select: { permission: { select: { code: true } } },
-    });
-    const finalCodes = new Set(currentRolePermissions.map((rp) => rp.permission.code));
-    for (const code of revokes) finalCodes.delete(code);
-    for (const code of grants) finalCodes.add(code);
-
+    // Precompute the per-module view prefixes once. Used inside the transaction below
+    // to validate that no non-`:view` permission ends up granted without its `:view`.
     const allCodes = allPermissions.map((p) => p.code);
     const viewPrefixes = new Set<string>();
     for (const code of allCodes) {
@@ -190,63 +178,111 @@ export async function updateRolePermissions(input: {
       }
     }
 
-    const violations: string[] = [];
-    for (const prefix of viewPrefixes) {
-      const viewCode = `${prefix}:view`;
-      if (finalCodes.has(viewCode)) continue;
-      const hasNonView = allCodes.some(
-        (code) =>
-          code.startsWith(`${prefix}:`) &&
-          code !== viewCode &&
-          finalCodes.has(code)
-      );
-      if (hasNonView) {
-        violations.push(prefix);
-      }
-    }
-
-    if (violations.length > 0) {
-      return {
-        success: false,
-        error: `View permission is required for: ${violations.join(", ")}`,
-      };
-    }
-
-    await prisma.$transaction(async (tx) => {
-      // Process revocations
-      for (const code of revokes) {
-        const permId = permIdMap.get(code);
-        if (!permId) continue;
-        await tx.rolePermission.deleteMany({
+    // Wrap everything in a single transaction:
+    //   1. If this role has no persisted permission rows yet, materialize the fallback
+    //      defaults into the DB. Without this, the first revoke of a default permission
+    //      would be a no-op (nothing to delete) and the view-check would run on an empty
+    //      set instead of the inherited defaults.
+    //   2. Apply revokes and grants.
+    //   3. Read back the resulting set and validate view dependencies. If anything fails,
+    //      throw — the transaction rolls back so no partial state survives.
+    let viewViolations: string[] = [];
+    try {
+      await prisma.$transaction(async (tx) => {
+        const currentCount = await tx.rolePermission.count({
           where: {
             salonId: authResult.salonId,
             roleDefinitionId: roleDef.id,
-            permissionId: permId,
           },
         });
-      }
 
-      // Process grants (upsert to avoid duplicates)
-      for (const code of grants) {
-        const permId = permIdMap.get(code);
-        if (!permId) continue;
-        await tx.rolePermission.upsert({
-          where: {
-            salonId_roleDefinitionId_permissionId: {
+        if (currentCount === 0) {
+          // Materialize the fallback defaults from DEFAULT_PERMISSION_ROLES (keyed by slug).
+          const defaultRows = Object.entries(DEFAULT_PERMISSION_ROLES)
+            .filter(([, roles]) => roles.includes(roleDef.slug))
+            .map(([code]) => permIdMap.get(code))
+            .filter((permId): permId is string => Boolean(permId))
+            .map((permId) => ({
+              salonId: authResult.salonId,
+              roleDefinitionId: roleDef.id,
+              permissionId: permId,
+            }));
+          if (defaultRows.length > 0) {
+            await tx.rolePermission.createMany({ data: defaultRows, skipDuplicates: true });
+          }
+        }
+
+        // Revocations
+        for (const code of revokes) {
+          const permId = permIdMap.get(code);
+          if (!permId) continue;
+          await tx.rolePermission.deleteMany({
+            where: {
               salonId: authResult.salonId,
               roleDefinitionId: roleDef.id,
               permissionId: permId,
             },
-          },
-          update: {},
-          create: {
+          });
+        }
+
+        // Grants (upsert to tolerate already-present rows from the materialization step)
+        for (const code of grants) {
+          const permId = permIdMap.get(code);
+          if (!permId) continue;
+          await tx.rolePermission.upsert({
+            where: {
+              salonId_roleDefinitionId_permissionId: {
+                salonId: authResult.salonId,
+                roleDefinitionId: roleDef.id,
+                permissionId: permId,
+              },
+            },
+            update: {},
+            create: {
+              salonId: authResult.salonId,
+              roleDefinitionId: roleDef.id,
+              permissionId: permId,
+            },
+          });
+        }
+
+        // View-dependency check on the materialized post-edit set
+        const finalRows = await tx.rolePermission.findMany({
+          where: {
             salonId: authResult.salonId,
             roleDefinitionId: roleDef.id,
-            permissionId: permId,
           },
+          select: { permission: { select: { code: true } } },
         });
+        const finalCodes = new Set(finalRows.map((rp) => rp.permission.code));
+
+        const violations: string[] = [];
+        for (const prefix of viewPrefixes) {
+          const viewCode = `${prefix}:view`;
+          if (finalCodes.has(viewCode)) continue;
+          const hasNonView = allCodes.some(
+            (code) =>
+              code.startsWith(`${prefix}:`) &&
+              code !== viewCode &&
+              finalCodes.has(code)
+          );
+          if (hasNonView) violations.push(prefix);
+        }
+        if (violations.length > 0) {
+          viewViolations = violations;
+          // Abort the transaction — everything (materialize + revokes + grants) rolls back.
+          throw new Error("VIEW_VIOLATION");
+        }
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === "VIEW_VIOLATION") {
+        return {
+          success: false,
+          error: `View permission is required for: ${viewViolations.join(", ")}`,
+        };
       }
-    });
+      throw err;
+    }
 
     // Invalidate cache
     await invalidatePermissionCache(authResult.salonId);
@@ -260,7 +296,8 @@ export async function updateRolePermissions(input: {
       userRole: authResult.role,
       salonId: authResult.salonId,
       details: {
-        targetRole: roleName,
+        targetRoleId: roleDef.id,
+        targetRoleSlug: roleDef.slug,
         grants: grants.length,
         revocations: revokes.length,
       },
@@ -276,23 +313,24 @@ export async function updateRolePermissions(input: {
 /**
  * Reset permissions to defaults for a single role at the current salon.
  */
-export async function resetRolePermissionsToDefaults(roleName: string): Promise<ActionResult<null>> {
+export async function resetRolePermissionsToDefaults(roleDefinitionId: string): Promise<ActionResult<null>> {
   const authResult = await checkAuth("permissions:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
-    // Resolve role slug to roleDefinitionId (roleName param is actually a slug)
+    // Look up by ID and scope-check: caller may only target system roles or roles owned
+    // by their salon. The slug is still needed to filter DEFAULT_PERMISSION_ROLES below.
     const roleDef = await prisma.roleDefinition.findFirst({
       where: {
-        slug: roleName,
+        id: roleDefinitionId,
         OR: [{ isSystem: true }, { salonId: authResult.salonId }],
       },
-      select: { id: true },
+      select: { id: true, slug: true, name: true },
     });
     if (!roleDef) {
-      return { success: false, error: `Role "${roleName}" not found` };
+      return { success: false, error: "Role not found" };
     }
 
     // Hierarchy check
@@ -304,7 +342,7 @@ export async function resetRolePermissionsToDefaults(roleName: string): Promise<
       if (targetLevel >= callerLevel) {
         return {
           success: false,
-          error: `You cannot modify permissions for the "${roleName}" role`,
+          error: `You cannot modify permissions for the "${roleDef.name}" role`,
         };
       }
     }
@@ -320,10 +358,11 @@ export async function resetRolePermissionsToDefaults(roleName: string): Promise<
         where: { salonId: authResult.salonId, roleDefinitionId: roleDef.id },
       });
 
-      // Re-create defaults for this role
+      // Re-create defaults for this role. DEFAULT_PERMISSION_ROLES is keyed by slug,
+      // so we still need roleDef.slug here even though the public API now takes an ID.
       const data: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
       for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
-        if (!roles.includes(roleName)) continue;
+        if (!roles.includes(roleDef.slug)) continue;
         const permId = permIdMap.get(code);
         if (!permId) continue;
         data.push({ salonId: authResult.salonId, roleDefinitionId: roleDef.id, permissionId: permId });
@@ -342,7 +381,7 @@ export async function resetRolePermissionsToDefaults(roleName: string): Promise<
       userId: authResult.userId,
       userRole: authResult.role,
       salonId: authResult.salonId,
-      details: { targetRole: roleName },
+      details: { targetRoleId: roleDef.id, targetRoleSlug: roleDef.slug },
     });
 
     return { success: true, data: null };

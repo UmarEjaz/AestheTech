@@ -94,61 +94,75 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
   const skip = (safePage - 1) * safeLimit;
 
   try {
+    // Resolve staff via branch membership (UserSalon). `User.salonId` is volatile (it's
+    // the user's last-used branch), so it can't be used to determine who works here.
+    // Pulling the role from UserSalon also gives this user's role AT THIS BRANCH.
     const where = {
       salonId: authResult.salonId,
+      isActive: true,
       ...(role && { roleDefinitionId: role }),
-      ...(isActive !== undefined && { isActive }),
-      ...(query && {
-        OR: [
-          { firstName: { contains: query, mode: "insensitive" as const } },
-          { lastName: { contains: query, mode: "insensitive" as const } },
-          { email: { contains: query, mode: "insensitive" as const } },
-          { phone: { contains: query } },
-        ],
-      }),
+      ...(query || isActive !== undefined
+        ? {
+            user: {
+              ...(isActive !== undefined && { isActive }),
+              ...(query && {
+                OR: [
+                  { firstName: { contains: query, mode: "insensitive" as const } },
+                  { lastName: { contains: query, mode: "insensitive" as const } },
+                  { email: { contains: query, mode: "insensitive" as const } },
+                  { phone: { contains: query } },
+                ],
+              }),
+            },
+          }
+        : {}),
     };
 
-    const [users, total] = await Promise.all([
-      prisma.user.findMany({
+    const [userSalons, total] = await Promise.all([
+      prisma.userSalon.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: { user: { createdAt: "desc" } },
         skip,
         take: safeLimit,
         select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phone: true,
           roleDefinitionId: true,
           roleDefinition: { select: { slug: true, name: true, color: true } },
-          isActive: true,
-          createdAt: true,
-          updatedAt: true,
-          _count: {
+          user: {
             select: {
-              appointments: { where: { salonId: authResult.salonId } },
-              sales: { where: { salonId: authResult.salonId } },
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              isActive: true,
+              createdAt: true,
+              updatedAt: true,
+              _count: {
+                select: {
+                  appointments: { where: { salonId: authResult.salonId } },
+                  sales: { where: { salonId: authResult.salonId } },
+                },
+              },
             },
           },
         },
       }),
-      prisma.user.count({ where }),
+      prisma.userSalon.count({ where }),
     ]);
 
-    const mappedUsers: UserListItem[] = users.map((u) => ({
-      id: u.id,
-      firstName: u.firstName,
-      lastName: u.lastName,
-      email: u.email,
-      phone: u.phone,
-      role: u.roleDefinition?.slug ?? "",
-      roleName: u.roleDefinition?.name ?? "",
-      roleColor: u.roleDefinition?.color ?? "#6B7280",
-      isActive: u.isActive,
-      createdAt: u.createdAt,
-      updatedAt: u.updatedAt,
-      _count: u._count,
+    const mappedUsers: UserListItem[] = userSalons.map((us) => ({
+      id: us.user.id,
+      firstName: us.user.firstName,
+      lastName: us.user.lastName,
+      email: us.user.email,
+      phone: us.user.phone,
+      role: us.roleDefinition?.slug ?? "",
+      roleName: us.roleDefinition?.name ?? "",
+      roleColor: us.roleDefinition?.color ?? "#6B7280",
+      isActive: us.user.isActive,
+      createdAt: us.user.createdAt,
+      updatedAt: us.user.updatedAt,
+      _count: us.user._count,
     }));
 
     return {

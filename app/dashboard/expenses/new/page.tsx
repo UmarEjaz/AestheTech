@@ -21,16 +21,11 @@ export default async function NewExpensePage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!isSuperAdmin) {
-    const [canView, canCreate] = await Promise.all([
-      hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id),
-    ]);
-
-    if (!canView || !canCreate) {
-      const missing: string[] = [];
-      if (!canView) missing.push("expenses:view");
-      if (!canCreate) missing.push("expenses:create");
-      redirectAccessDenied(missing);
+    // hasPermission applies :view inference, so :create implicitly grants :view —
+    // no need to check :view explicitly.
+    const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id);
+    if (!canCreate) {
+      redirectAccessDenied(["expenses:create"]);
     }
   }
 

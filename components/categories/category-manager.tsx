@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus, Edit, Loader2, Power, Trash2 } from "lucide-react";
@@ -85,7 +84,6 @@ export function CategoryManager({
   namePlaceholder = "e.g. Hair Care",
   iconPlaceholder = "e.g. Scissors",
 }: CategoryManagerProps) {
-  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,7 +124,6 @@ export function CategoryManager({
         if (result.success) {
           toast.success("Category updated");
           setIsOpen(false);
-          router.refresh();
         } else {
           toast.error(result.error);
         }
@@ -136,7 +133,6 @@ export function CategoryManager({
         if (result.success) {
           toast.success("Category created");
           setIsOpen(false);
-          router.refresh();
         } else {
           toast.error(result.error);
         }
@@ -155,7 +151,6 @@ export function CategoryManager({
       const result = await onToggle(id);
       if (result.success) {
         toast.success(result.data.isActive ? "Category restored" : "Category deactivated");
-        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -174,7 +169,6 @@ export function CategoryManager({
       const result = await onDelete(id);
       if (result.success) {
         toast.success("Category deleted");
-        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -236,6 +230,9 @@ export function CategoryManager({
                 <div className="space-y-2">
                   <Label htmlFor="color">Color</Label>
                   <div className="flex gap-2">
+                    {/* Both inputs are fully controlled via watch/setValue so the picker
+                        and the hex text always stay in sync. Mixing register() with a
+                        controlled sibling on the same field would silently desync them. */}
                     <Input
                       id="color"
                       type="color"
@@ -244,7 +241,8 @@ export function CategoryManager({
                       className="w-12 h-10 p-1 cursor-pointer"
                     />
                     <Input
-                      {...register("color")}
+                      value={watch("color") || ""}
+                      onChange={(e) => setValue("color", e.target.value, { shouldValidate: true })}
                       placeholder="#6366F1"
                       className="flex-1"
                     />

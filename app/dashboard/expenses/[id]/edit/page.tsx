@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ExpenseForm } from "@/components/expenses/expense-form";
 import { getExpense } from "@/lib/actions/expense";
-import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
+import { getAllExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
@@ -26,16 +26,11 @@ export default async function EditExpensePage({ params }: PageProps) {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!isSuperAdmin) {
-    const [canView, canUpdate] = await Promise.all([
-      hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id),
-    ]);
-
-    if (!canView || !canUpdate) {
-      const missing: string[] = [];
-      if (!canView) missing.push("expenses:view");
-      if (!canUpdate) missing.push("expenses:update");
-      redirectAccessDenied(missing);
+    // hasPermission applies :view inference, so :update implicitly grants :view —
+    // no need to check :view explicitly.
+    const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
+    if (!canUpdate) {
+      redirectAccessDenied(["expenses:update"]);
     }
   }
 
@@ -43,7 +38,7 @@ export default async function EditExpensePage({ params }: PageProps) {
 
   const [expenseResult, categoriesResult, settingsResult] = await Promise.all([
     getExpense(id),
-    getActiveExpenseCategories(),
+    getAllExpenseCategories(),
     getSettings(),
   ]);
 
@@ -66,7 +61,15 @@ export default async function EditExpensePage({ params }: PageProps) {
     );
   }
 
-  const categories = categoriesResult.data;
+  // Pass id/name/icon/color/isActive so the form can pin the expense's current category
+  // at the top and hide other inactive ones. See ExpenseForm for the dropdown rendering.
+  const categories = categoriesResult.data.map((c) => ({
+    id: c.id,
+    name: c.name,
+    icon: c.icon,
+    color: c.color,
+    isActive: c.isActive,
+  }));
   const currencyCode = settingsResult.data.currencyCode;
 
   const expense = expenseResult.data;

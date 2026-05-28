@@ -41,7 +41,7 @@ export const appointmentSchema = z.object({
   serviceId: z.string().min(1, "Service is required"),
   staffId: z.string().min(1, "Staff member is required"),
   startTime: z.coerce.date({ message: "Start time is required" }),
-  notes: z.string().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
+  notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
 });
 
 // Schema for updating appointment status
@@ -93,7 +93,7 @@ export const recurringAppointmentSchema = z.object({
   // Optional settings
   lockedPrice: z.number().min(0).optional(), // Lock price at creation
   bufferMinutes: z.number().min(0).max(120).optional(), // Buffer between appointments
-  notes: z.string().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
+  notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
 
   // Conflict resolution - user selections from ConflictResolutionUI
   selectedAlternatives: z.array(z.object({
@@ -211,7 +211,7 @@ export const recurringAppointmentSchema = z.object({
 export const updateRecurringSeriesSchema = z.object({
   staffId: z.string().min(1, "Staff member is required").optional(),
   timeOfDay: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Time must be in HH:mm format").optional(),
-  notes: z.string().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
+  notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
   bufferMinutes: z.number().min(0).max(120).optional(),
 });
 
@@ -219,7 +219,7 @@ export const updateRecurringSeriesSchema = z.object({
 export const exceptionDateSchema = z.object({
   seriesId: z.string().min(1, "Series ID is required"),
   date: z.coerce.date({ message: "Date is required" }),
-  reason: z.string().max(200, "Reason must be at most 200 characters").optional().or(z.literal("")),
+  reason: z.string().trim().max(200, "Reason must be at most 200 characters").optional().or(z.literal("")),
 });
 
 // Schema for pause/resume series

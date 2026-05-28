@@ -3,10 +3,12 @@ import { z } from "zod";
 export const serviceSchema = z.object({
   name: z
     .string()
+    .trim()
     .min(1, "Service name is required")
     .max(100, "Service name must be less than 100 characters"),
   description: z
     .string()
+    .trim()
     .max(500, "Description must be less than 500 characters")
     .optional()
     .or(z.literal("")),

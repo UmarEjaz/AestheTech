@@ -188,13 +188,9 @@ export async function getPayrollRun(id: string): Promise<ActionResult<PayrollRun
   }
 
   try {
-    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-    const salonIds = canViewAllBranches
-      ? await getOrganizationSalonIds(authResult.salonId)
-      : [authResult.salonId];
-
+    // Operational lookups are branch-scoped. To view another branch's run, switch first.
     const run = await prisma.payrollRun.findFirst({
-      where: { id, salonId: { in: salonIds } },
+      where: { id, salonId: authResult.salonId },
       select: {
         ...payrollRunListSelect,
         entries: {
@@ -391,10 +387,11 @@ export async function createPayrollRun(
       });
 
       // Group by userId, take first (most recent due to desc order) per user
-      const configByUser = new Map<string, { payType: string; baseRate: number }>();
+      const configByUser = new Map<string, { id: string; payType: string; baseRate: number }>();
       for (const config of allConfigs) {
         if (!configByUser.has(config.userId)) {
           configByUser.set(config.userId, {
+            id: config.id,
             payType: config.payType,
             baseRate: Number(config.baseRate),
           });
@@ -402,10 +399,10 @@ export async function createPayrollRun(
       }
 
       // Only include monthly staff; skip hourly (hours not tracked) and staff without configs
-      const entries: { userId: string; basePay: number }[] = [];
+      const entries: { userId: string; basePay: number; salaryConfigId: string }[] = [];
       for (const [userId, config] of configByUser) {
         if (config.payType !== "HOURLY") {
-          entries.push({ userId, basePay: config.baseRate });
+          entries.push({ userId, basePay: config.baseRate, salaryConfigId: config.id });
         }
       }
 
@@ -432,6 +429,7 @@ export async function createPayrollRun(
           entries: {
             create: entries.map((e) => ({
               userId: e.userId,
+              salaryConfigId: e.salaryConfigId,
               basePay: e.basePay,
               bonus: 0,
               deductions: 0,
@@ -500,13 +498,8 @@ export async function updatePayrollEntry(
           throw new Error("Payroll entry not found");
         }
 
-        // Verify access
-        const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-        const salonIds = canViewAllBranches
-          ? await getOrganizationSalonIds(authResult.salonId)
-          : [authResult.salonId];
-
-        if (!salonIds.includes(entry.payrollRun.salonId)) {
+        // Mutations are always scoped to the caller's current branch.
+        if (entry.payrollRun.salonId !== authResult.salonId) {
           throw new Error("Payroll entry not found");
         }
 
@@ -579,11 +572,6 @@ export async function finalizePayrollRun(id: string): Promise<ActionResult<void>
   }
 
   try {
-    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-    const salonIds = canViewAllBranches
-      ? await getOrganizationSalonIds(authResult.salonId)
-      : [authResult.salonId];
-
     const run = await prisma.$transaction(async (tx) => {
       // Step 1: Find by ID only to determine the specific error
       const found = await tx.payrollRun.findUnique({ where: { id } });
@@ -592,8 +580,9 @@ export async function finalizePayrollRun(id: string): Promise<ActionResult<void>
         throw new Error("Payroll run not found");
       }
 
-      if (!salonIds.includes(found.salonId)) {
-        throw new Error("Branch no longer accessible");
+      // Mutations are always scoped to the caller's current branch.
+      if (found.salonId !== authResult.salonId) {
+        throw new Error("Payroll run not found");
       }
 
       if (found.status !== "DRAFT") {
@@ -647,12 +636,7 @@ export async function markPayrollRunPaid(
   }
 
   try {
-    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
     await prisma.$transaction(async (tx) => {
-      const salonIds = canViewAllBranches
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
-
       // Step 1: Find by ID only to determine the specific error
       const run = await tx.payrollRun.findUnique({
         where: { id },
@@ -667,8 +651,9 @@ export async function markPayrollRunPaid(
         throw new Error("Payroll run not found");
       }
 
-      if (!salonIds.includes(run.salonId)) {
-        throw new Error("Branch no longer accessible");
+      // Mutations are always scoped to the caller's current branch.
+      if (run.salonId !== authResult.salonId) {
+        throw new Error("Payroll run not found");
       }
 
       if (run.status !== "FINALIZED") {
@@ -764,11 +749,6 @@ export async function cancelPayrollRun(id: string): Promise<ActionResult<void>> 
   }
 
   try {
-    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-    const salonIds = canViewAllBranches
-      ? await getOrganizationSalonIds(authResult.salonId)
-      : [authResult.salonId];
-
     await prisma.$transaction(async (tx) => {
       // Step 1: Find by ID only to determine the specific error
       const run = await tx.payrollRun.findUnique({ where: { id } });
@@ -777,8 +757,9 @@ export async function cancelPayrollRun(id: string): Promise<ActionResult<void>> 
         throw new Error("Payroll run not found");
       }
 
-      if (!salonIds.includes(run.salonId)) {
-        throw new Error("Branch no longer accessible");
+      // Mutations are always scoped to the caller's current branch.
+      if (run.salonId !== authResult.salonId) {
+        throw new Error("Payroll run not found");
       }
 
       if (run.status !== "DRAFT" && run.status !== "FINALIZED") {
@@ -829,8 +810,6 @@ export async function deletePayrollRun(id: string): Promise<ActionResult<void>> 
   }
 
   try {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-
     await prisma.$transaction(async (tx) => {
       // Step 1: Find by ID only to determine the specific error
       const run = await tx.payrollRun.findUnique({ where: { id } });
@@ -839,8 +818,9 @@ export async function deletePayrollRun(id: string): Promise<ActionResult<void>> 
         throw new Error("Payroll run not found");
       }
 
-      if (!orgSalonIds.includes(run.salonId)) {
-        throw new Error("Branch no longer accessible");
+      // Mutations are always scoped to the caller's current branch.
+      if (run.salonId !== authResult.salonId) {
+        throw new Error("Payroll run not found");
       }
 
       if (run.status !== "DRAFT" && run.status !== "CANCELLED") {

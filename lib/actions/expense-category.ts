@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { checkAuth } from "@/lib/auth-helpers";
+import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
+import { hasAnyPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import { expenseCategorySchema, ExpenseCategoryInput } from "@/lib/validations/expense";
 import { getOrgRootSalonId } from "./branch";
@@ -58,8 +59,21 @@ async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
  * Get all expense categories for the organization.
  */
 export async function getAllExpenseCategories(): Promise<ActionResult<ExpenseCategoryItem[]>> {
-  const authResult = await checkAuth("expense-categories:view");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage expenses (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  // The category-management page still requires the explicit `expense-categories:view`.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["expense-categories:view", "expenses:create", "expenses:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -94,8 +108,20 @@ export async function getAllExpenseCategories(): Promise<ActionResult<ExpenseCat
 export async function getActiveExpenseCategories(): Promise<
   ActionResult<{ id: string; name: string; icon: string | null; color: string | null }[]>
 > {
-  const authResult = await checkAuth("expenses:view");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage expenses (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["expense-categories:view", "expenses:create", "expenses:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -156,6 +182,7 @@ export async function createExpenseCategory(
     });
 
     revalidatePath("/dashboard/expenses");
+    revalidatePath("/dashboard/expenses/categories");
     return { success: true, data: { id: category.id } };
   } catch (error) {
     if (
@@ -227,6 +254,7 @@ export async function updateExpenseCategory(
     });
 
     revalidatePath("/dashboard/expenses");
+    revalidatePath("/dashboard/expenses/categories");
     return { success: true, data: { id } };
   } catch (error) {
     if (
@@ -262,13 +290,20 @@ export async function toggleExpenseCategory(
       return { success: false, error: "Category not found" };
     }
 
-    const updated = await prisma.expenseCategory.update({
-      where: { id },
+    // Race-safe write: filter the update with the same predicate as the existence check
+    // so a concurrent soft-delete or org reassignment between the check and the update
+    // fails closed (count === 0) instead of flipping a stale row.
+    const result = await prisma.expenseCategory.updateMany({
+      where: { id, salonId: orgRootId, deletedAt: null },
       data: { isActive: !existing.isActive },
     });
 
+    if (result.count === 0) {
+      return { success: false, error: "Category not found" };
+    }
+
     await logAudit({
-      action: updated.isActive ? "EXPENSE_CATEGORY_RESTORED" : "EXPENSE_CATEGORY_DEACTIVATED",
+      action: !existing.isActive ? "EXPENSE_CATEGORY_RESTORED" : "EXPENSE_CATEGORY_DEACTIVATED",
       entityType: "ExpenseCategory",
       entityId: id,
       userId: authResult.userId,
@@ -277,7 +312,8 @@ export async function toggleExpenseCategory(
     });
 
     revalidatePath("/dashboard/expenses");
-    return { success: true, data: { isActive: updated.isActive } };
+    revalidatePath("/dashboard/expenses/categories");
+    return { success: true, data: { isActive: !existing.isActive } };
   } catch (error) {
     console.error("Error toggling expense category:", error);
     return { success: false, error: "Failed to update expense category" };
@@ -332,15 +368,25 @@ export async function deleteExpenseCategory(
       createdAt: existing.createdAt,
     };
 
+    // Race-safe write: filter the mutation with the same predicate as the existence
+    // check so a concurrent change between the check and the write fails closed.
     let hardDeleted: boolean;
     if (otherReferencesCount > 0) {
-      await prisma.expenseCategory.update({
-        where: { id },
+      const result = await prisma.expenseCategory.updateMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
         data: { deletedAt: new Date() },
       });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
       hardDeleted = false;
     } else {
-      await prisma.expenseCategory.delete({ where: { id } });
+      const result = await prisma.expenseCategory.deleteMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
+      });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
       hardDeleted = true;
     }
 

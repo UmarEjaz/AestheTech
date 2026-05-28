@@ -51,7 +51,6 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
       } else {
         const result = await createRole({
           name,
-          label: name,
           description,
           color,
           hierarchyLevel,

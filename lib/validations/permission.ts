@@ -13,7 +13,9 @@ export const userPermissionUpdateSchema = z.object({
 export type UserPermissionUpdateInput = z.infer<typeof userPermissionUpdateSchema>;
 
 export const rolePermissionUpdateSchema = z.object({
-  roleName: z.string().min(1, "Role name is required"),
+  // Use the role's database ID, not its slug. Slugs aren't globally unique (system + custom
+  // share namespaces), so ID is the only unambiguous reference.
+  roleDefinitionId: z.string().min(1, "Role ID is required"),
   grants: z.array(z.string().min(1, "Permission code is required")).max(200, "Too many grants in a single request"),
   revokes: z.array(z.string().min(1, "Permission code is required")).max(200, "Too many revocations in a single request"),
 });

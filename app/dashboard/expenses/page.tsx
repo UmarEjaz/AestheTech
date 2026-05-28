@@ -53,17 +53,14 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const endDate = params.endDate || undefined;
 
   const [result, categoriesResult, settingsResult, summaryResult] = await Promise.all([
-    getExpenses(
-      {
-        query: query || undefined,
-        categoryId: categoryId || undefined,
-        startDate: startDate ? new Date(startDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
-        page,
-        limit: 20,
-      },
-      "current"
-    ),
+    getExpenses({
+      query: query || undefined,
+      categoryId: categoryId || undefined,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      page,
+      limit: 20,
+    }),
     getActiveExpenseCategories(),
     getSettings(),
     getIncomeExpenseSummary(),

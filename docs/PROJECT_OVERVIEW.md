@@ -169,7 +169,7 @@ AestheTech is a comprehensive Salon Management Application designed to revolutio
 - Points balance display on invoices
 - Birthday bonus points
 - Referral bonus points (future phase)
-- Loyalty tiers (Silver, Gold, Platinum) with benefits
+- Loyalty tiers (Member, Gold, Platinum) with benefits
 
 **User Stories**:
 - As a client, I earn points automatically with every purchase

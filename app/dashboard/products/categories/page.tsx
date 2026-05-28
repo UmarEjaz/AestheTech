@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/categories/category-manager";
+import { CategoryErrorState } from "@/components/categories/category-error-state";
 import {
   getAllProductCategories,
   createProductCategory,
@@ -36,7 +37,20 @@ export default async function ProductCategoriesPage() {
   const canDelete = isSuperAdmin || await hasPermission(userRoleId, "product-categories:delete", isSuperAdmin, salonId, session.user.id);
 
   const result = await getAllProductCategories();
-  const categories = result.success ? result.data : [];
+  if (!result.success) {
+    return (
+      <DashboardLayout isSuperAdmin={isSuperAdmin}>
+        <CategoryErrorState
+          title="Product Categories"
+          description="Manage product categories for your organization"
+          backHref="/dashboard/products"
+          backLabel="Back to products"
+          error={result.error}
+        />
+      </DashboardLayout>
+    );
+  }
+  const categories = result.data;
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

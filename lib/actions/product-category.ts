@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { checkAuth } from "@/lib/auth-helpers";
+import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
+import { hasAnyPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import { productCategorySchema, ProductCategoryInput } from "@/lib/validations/product-category";
 import { getOrgRootSalonId } from "./branch";
@@ -54,8 +55,21 @@ async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
  * Get all product categories for the organization.
  */
 export async function getAllProductCategories(): Promise<ActionResult<ProductCategoryItem[]>> {
-  const authResult = await checkAuth("product-categories:view");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage products (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  // The category-management page still requires the explicit `product-categories:view`.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["product-categories:view", "products:create", "products:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -90,8 +104,20 @@ export async function getAllProductCategories(): Promise<ActionResult<ProductCat
 export async function getActiveProductCategories(): Promise<
   ActionResult<{ id: string; name: string; icon: string | null; color: string | null }[]>
 > {
-  const authResult = await checkAuth("product-categories:view");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage products (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["product-categories:view", "products:create", "products:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -152,6 +178,7 @@ export async function createProductCategory(
     });
 
     revalidatePath("/dashboard/products");
+    revalidatePath("/dashboard/products/categories");
     return { success: true, data: { id: category.id } };
   } catch (error) {
     if (
@@ -223,6 +250,7 @@ export async function updateProductCategory(
     });
 
     revalidatePath("/dashboard/products");
+    revalidatePath("/dashboard/products/categories");
     return { success: true, data: { id } };
   } catch (error) {
     if (
@@ -258,13 +286,20 @@ export async function toggleProductCategory(
       return { success: false, error: "Category not found" };
     }
 
-    const updated = await prisma.productCategory.update({
-      where: { id },
+    // Race-safe write: filter the update with the same predicate as the existence check
+    // so a concurrent soft-delete or org reassignment between the check and the update
+    // fails closed (count === 0) instead of flipping a stale row.
+    const result = await prisma.productCategory.updateMany({
+      where: { id, salonId: orgRootId, deletedAt: null },
       data: { isActive: !existing.isActive },
     });
 
+    if (result.count === 0) {
+      return { success: false, error: "Category not found" };
+    }
+
     await logAudit({
-      action: updated.isActive ? "PRODUCT_CATEGORY_RESTORED" : "PRODUCT_CATEGORY_DEACTIVATED",
+      action: !existing.isActive ? "PRODUCT_CATEGORY_RESTORED" : "PRODUCT_CATEGORY_DEACTIVATED",
       entityType: "ProductCategory",
       entityId: id,
       userId: authResult.userId,
@@ -273,7 +308,8 @@ export async function toggleProductCategory(
     });
 
     revalidatePath("/dashboard/products");
-    return { success: true, data: { isActive: updated.isActive } };
+    revalidatePath("/dashboard/products/categories");
+    return { success: true, data: { isActive: !existing.isActive } };
   } catch (error) {
     console.error("Error toggling product category:", error);
     return { success: false, error: "Failed to update product category" };
@@ -328,15 +364,25 @@ export async function deleteProductCategory(
       createdAt: existing.createdAt,
     };
 
+    // Race-safe write: filter the mutation with the same predicate as the existence
+    // check so a concurrent change between the check and the write fails closed.
     let hardDeleted: boolean;
     if (otherReferencesCount > 0) {
-      await prisma.productCategory.update({
-        where: { id },
+      const result = await prisma.productCategory.updateMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
         data: { deletedAt: new Date() },
       });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
       hardDeleted = false;
     } else {
-      await prisma.productCategory.delete({ where: { id } });
+      const result = await prisma.productCategory.deleteMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
+      });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
       hardDeleted = true;
     }
 

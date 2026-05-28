@@ -57,7 +57,6 @@ import {
   deleteSchedule,
   createSchedule,
   updateSchedule,
-  toggleScheduleAvailability,
   copySchedule,
   setWeekSchedule,
 } from "@/lib/actions/schedule";
@@ -133,6 +132,9 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [shiftType, setShiftType] = useState<ShiftType>(ShiftType.REGULAR);
+  // Pending availability for the edit dialog — committed on Save, discarded on close.
+  // Avoids the old behaviour where "Mark Off" mutated the server immediately.
+  const [pendingIsAvailable, setPendingIsAvailable] = useState(true);
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
@@ -143,10 +145,12 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
       setStartTime(schedule.startTime);
       setEndTime(schedule.endTime);
       setShiftType(schedule.shiftType);
+      setPendingIsAvailable(schedule.isAvailable);
     } else {
       setStartTime("09:00");
       setEndTime("17:00");
       setShiftType(ShiftType.REGULAR);
+      setPendingIsAvailable(true);
     }
     setEditingSchedule({ staffId, dayOfWeek, schedule });
   };
@@ -162,7 +166,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
         startTime,
         endTime,
         shiftType,
-        isAvailable: true,
+        isAvailable: pendingIsAvailable,
       };
 
       let result;
@@ -197,15 +201,6 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
     }
   };
 
-  const handleToggleAvailability = async (id: string) => {
-    const result = await toggleScheduleAvailability(id);
-    if (result.success) {
-      toast.success("Availability toggled");
-      router.refresh();
-    } else {
-      toast.error(result.error);
-    }
-  };
 
   const handleCopySchedule = async () => {
     if (!copyDialog || !copyToStaffId) return;
@@ -228,8 +223,10 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
 
   const openWeekDialog = (staff: StaffWithSchedules) => {
     const days: DayEntry[] = DAY_NAMES.map((_, dayIndex) => {
+      // Skip shifts marked off (isAvailable: false) so re-saving the week doesn't
+      // silently un-mark-off days the admin previously hid via the single-shift dialog.
       const shifts = staff.schedules
-        .filter((s) => s.dayOfWeek === dayIndex)
+        .filter((s) => s.dayOfWeek === dayIndex && s.isAvailable)
         .sort((a, b) => a.startTime.localeCompare(b.startTime))
         .map<ShiftEntry>((s) => ({
           startTime: s.startTime,
@@ -326,7 +323,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
 
   // Per-day client-side overlap detection. Returns an array of error messages indexed by day.
   const dayOverlapErrors: (string | null)[] = weekDays.map((day) => {
-    if (!day.enabled || day.shifts.length < 2) return null;
+    if (!day.enabled) return null;
     for (let i = 0; i < day.shifts.length; i++) {
       const a = day.shifts[i];
       const aStart = toMinutes(a.startTime);
@@ -334,6 +331,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
       if (aEnd <= aStart) {
         return "End time must be after start time";
       }
+      if (day.shifts.length < 2) continue;
       for (let j = i + 1; j < day.shifts.length; j++) {
         const b = day.shifts[j];
         const bStart = toMinutes(b.startTime);
@@ -607,15 +605,23 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                 </SelectContent>
               </Select>
             </div>
+            {editingSchedule?.schedule &&
+              pendingIsAvailable !== editingSchedule.schedule.isAvailable && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                  {pendingIsAvailable
+                    ? "This shift will be marked available when you save."
+                    : "This shift will be marked off when you save."}
+                </div>
+              )}
           </div>
           <DialogFooter className="flex gap-2">
             {editingSchedule?.schedule && (
               <>
                 <Button
                   variant="outline"
-                  onClick={() => handleToggleAvailability(editingSchedule.schedule!.id)}
+                  onClick={() => setPendingIsAvailable((prev) => !prev)}
                 >
-                  {editingSchedule.schedule.isAvailable ? (
+                  {pendingIsAvailable ? (
                     <>
                       <X className="h-4 w-4 mr-1" /> Mark Off
                     </>

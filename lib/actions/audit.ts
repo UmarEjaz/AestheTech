@@ -69,7 +69,7 @@ export async function getAuditLogs(
 ): Promise<ActionResult<{ logs: AuditLogEntry[]; total: number; page: number; pageSize: number }>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
-  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole && !session.user.isSuperAdmin) return { success: false, error: "Unauthorized" };
 
   const roleId = session.user.salonRoleId ?? null;
   const salonId = session.user.salonId;
@@ -142,7 +142,7 @@ export async function getAuditLogs(
 export async function getAuditActions(branchFilter: "current" | "all" = "current"): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
-  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole && !session.user.isSuperAdmin) return { success: false, error: "Unauthorized" };
 
   const roleId = session.user.salonRoleId ?? null;
   const salonId = session.user.salonId;
@@ -181,7 +181,7 @@ export async function getAuditActions(branchFilter: "current" | "all" = "current
 export async function getAuditEntityTypes(branchFilter: "current" | "all" = "current"): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
-  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole && !session.user.isSuperAdmin) return { success: false, error: "Unauthorized" };
 
   const roleId = session.user.salonRoleId ?? null;
   const salonId = session.user.salonId;

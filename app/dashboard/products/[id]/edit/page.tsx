@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/products/product-form";
 import { getProduct } from "@/lib/actions/product";
-import { getActiveProductCategories } from "@/lib/actions/product-category";
+import { getAllProductCategories } from "@/lib/actions/product-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
@@ -30,24 +30,19 @@ export default async function EditProductPage({ params }: PageProps) {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!isSuperAdmin) {
-    const [canView, canUpdate, canViewCategories] = await Promise.all([
-      hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id),
-    ]);
-
-    if (!canView || !canUpdate || !canViewCategories) {
-      const missing: string[] = [];
-      if (!canView) missing.push("products:view");
-      if (!canUpdate) missing.push("products:update");
-      if (!canViewCategories) missing.push("product-categories:view");
-      redirectAccessDenied(missing);
+    // Category dropdown is just form data — the category-fetch server action
+    // guards itself, so don't require the category-management view permission here.
+    // hasPermission applies :view inference, so :update implicitly grants :view —
+    // no need to check :view explicitly.
+    const canUpdate = await hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, session.user.id);
+    if (!canUpdate) {
+      redirectAccessDenied(["products:update"]);
     }
   }
 
   const [productResult, categoriesResult, settingsResult] = await Promise.all([
     getProduct(id),
-    getActiveProductCategories(),
+    getAllProductCategories(),
     getSettings(),
   ]);
 
@@ -56,7 +51,11 @@ export default async function EditProductPage({ params }: PageProps) {
   }
 
   const product = productResult.data;
-  const categories = categoriesResult.success ? categoriesResult.data : [];
+  // Pass id/name/isActive so the form can pin the product's current category at the top
+  // and hide other inactive ones. See ProductForm for the dropdown rendering rule.
+  const categories = categoriesResult.success
+    ? categoriesResult.data.map((c) => ({ id: c.id, name: c.name, isActive: c.isActive }))
+    : [];
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (

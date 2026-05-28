@@ -34,7 +34,7 @@ export default async function SalaryConfigPage() {
   ]);
 
   const [result, settingsResult] = await Promise.all([
-    getSalaryConfigs("current"),
+    getSalaryConfigs(),
     getSettings(),
   ]);
 

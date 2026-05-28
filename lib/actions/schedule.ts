@@ -392,42 +392,51 @@ export async function getStaffWithSchedules(): Promise<ActionResult<{
   }
 
   try {
-    const users = await prisma.user.findMany({
+    // Resolve staff via branch membership (UserSalon). `User.salonId` is volatile (it's
+    // the user's last-used branch), so it can't be used to determine who works here.
+    // Pulling the role from UserSalon also gives us this user's role AT THIS BRANCH
+    // (which can differ from their primary `User.roleDefinitionId`).
+    const userSalons = await prisma.userSalon.findMany({
       where: {
         salonId: authResult.salonId,
         isActive: true,
+        user: { isActive: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        roleDefinitionId: true,
-        roleDefinition: { select: { name: true, slug: true } },
-        schedules: {
-          where: { salonId: authResult.salonId },
+        user: {
           select: {
             id: true,
-            dayOfWeek: true,
-            startTime: true,
-            endTime: true,
-            shiftType: true,
-            isAvailable: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            schedules: {
+              where: { salonId: authResult.salonId },
+              select: {
+                id: true,
+                dayOfWeek: true,
+                startTime: true,
+                endTime: true,
+                shiftType: true,
+                isAvailable: true,
+              },
+              orderBy: { dayOfWeek: "asc" },
+            },
           },
-          orderBy: { dayOfWeek: "asc" },
         },
+        roleDefinition: { select: { name: true, slug: true } },
       },
-      orderBy: { firstName: "asc" },
+      distinct: ["userId"],
+      orderBy: { user: { firstName: "asc" } },
     });
 
-    const staff = users.map((u) => ({
-      id: u.id,
-      firstName: u.firstName,
-      lastName: u.lastName,
-      email: u.email,
-      role: u.roleDefinition?.slug ?? "",
-      roleLabel: u.roleDefinition?.name ?? undefined,
-      schedules: u.schedules,
+    const staff = userSalons.map((us) => ({
+      id: us.user.id,
+      firstName: us.user.firstName,
+      lastName: us.user.lastName,
+      email: us.user.email,
+      role: us.roleDefinition?.slug ?? "",
+      roleLabel: us.roleDefinition?.name ?? undefined,
+      schedules: us.user.schedules,
     }));
 
     return { success: true, data: staff };

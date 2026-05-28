@@ -12,7 +12,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
-import { getOrganizationSalonIds } from "./branch";
+import { getOrganizationSalonIds, getOrgRootSalonId } from "./branch";
 
 const productListInclude = Prisma.validator<Prisma.ProductInclude>()({
   category: {
@@ -147,6 +147,19 @@ export async function createProduct(data: ProductFormData): Promise<ActionResult
   const { description, categoryId, sku, cost, ...rest } = validationResult.data;
 
   try {
+    // Verify the categoryId belongs to this caller's organization (and is active/not deleted).
+    // Mirrors the guard in createExpense/updateService — prevents a forged categoryId from
+    // attaching a product to a category owned by a different organization.
+    if (categoryId) {
+      const orgRootId = await getOrgRootSalonId(authResult.salonId);
+      const validCategory = await prisma.productCategory.findFirst({
+        where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
+      });
+      if (!validCategory) {
+        return { success: false, error: "Invalid product category" };
+      }
+    }
+
     const product = await prisma.product.create({
       data: {
         ...rest,
@@ -203,6 +216,17 @@ export async function updateProduct(
 
     if (!existingProduct) {
       return { success: false, error: "Product not found" };
+    }
+
+    // If categoryId is being changed to a non-empty value, verify it belongs to this org.
+    if (categoryId) {
+      const orgRootId = await getOrgRootSalonId(authResult.salonId);
+      const validCategory = await prisma.productCategory.findFirst({
+        where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
+      });
+      if (!validCategory) {
+        return { success: false, error: "Invalid product category" };
+      }
     }
 
     await prisma.product.update({

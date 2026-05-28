@@ -26,8 +26,27 @@ export default async function BranchesPage() {
   }
 
   const result = await getBranches();
-  const branches = result.success ? result.data : [];
   const canManage = await hasPermission(userRoleId, "branches:create", isSuperAdmin, salonId, session.user.id);
+
+  if (!result.success) {
+    return (
+      <DashboardLayout isSuperAdmin={isSuperAdmin}>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">Branches</h1>
+              <p className="text-muted-foreground">Manage your salon locations</p>
+            </div>
+          </div>
+          <div className="rounded-md border p-4 text-sm text-destructive">
+            {result.error}
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const branches = result.data;
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

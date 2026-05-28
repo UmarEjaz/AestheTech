@@ -26,7 +26,10 @@ export default async function RolesPage() {
     hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id),
   ]);
 
-  if (!canManageRoles) {
+  // Unified page: either permission lets the user open it. The client component
+  // hides role-identity controls (create/edit/delete role) when `canManageRoles`
+  // is false, and hides permission edits when `canManagePermissions` is false.
+  if (!canManageRoles && !canManagePermissions) {
     redirectAccessDenied(["roles:manage"]);
   }
 
@@ -54,7 +57,12 @@ export default async function RolesPage() {
 
   return (
     <DashboardLayout>
-      <RolesPageClient roles={rolesResult.data} initialPermData={initialPermData} canManagePermissions={canManagePermissions} />
+      <RolesPageClient
+        roles={rolesResult.data}
+        initialPermData={initialPermData}
+        canManageRoles={canManageRoles}
+        canManagePermissions={canManagePermissions}
+      />
     </DashboardLayout>
   );
 }

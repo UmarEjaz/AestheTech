@@ -180,7 +180,7 @@ export function UserPermissionsEditor({ data }: UserPermissionsEditorProps) {
       <CardContent className="space-y-6">
         <div className="flex items-center gap-2 pb-4 border-b text-sm text-muted-foreground">
           <Info className="h-4 w-4 shrink-0" />
-          <p>View permission is required when granting Create, Update, or Delete for any module.</p>
+          <p>View permission is required whenever you grant any other permission for the same module (Create, Update, Delete, Cancel, Refund, etc.).</p>
         </div>
         {Array.from(modules.entries()).map(([module, perms]) => (
           <div key={module} className="space-y-2">

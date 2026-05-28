@@ -242,14 +242,21 @@ export async function createAppointment(
       return { success: false, error: "Client not found or inactive" };
     }
 
-    // Verify staff exists, is active, and belongs to this salon
-    const staff = await prisma.user.findFirst({
-      where: { id: staffId, salonId: authResult.salonId },
-      select: { isActive: true },
+    // Verify staff is assigned to this branch (via UserSalon), active, and flagged as a
+    // service provider. Defense-in-depth — the dropdown already filters service providers,
+    // but a scripted client could submit any staffId without this guard.
+    const staffMembership = await prisma.userSalon.findFirst({
+      where: {
+        userId: staffId,
+        salonId: authResult.salonId,
+        isActive: true,
+        user: { isActive: true, isServiceProvider: true },
+      },
+      select: { id: true },
     });
 
-    if (!staff || !staff.isActive) {
-      return { success: false, error: "Staff member not found or inactive" };
+    if (!staffMembership) {
+      return { success: false, error: "Staff member not found, inactive, or not a service provider in this branch" };
     }
 
     const appointment = await prisma.appointment.create({
@@ -723,18 +730,23 @@ export async function getStaffForAppointments(): Promise<ActionResult<{
   }
 
   try {
-    const staff = await prisma.user.findMany({
+    // Resolve staff via branch membership (UserSalon). User.salonId is volatile (it's the
+    // user's last-used branch) so it can't be used to determine who works at this branch.
+    // Restricts to service providers — function is "for appointments" so non-providers
+    // should never be returned.
+    const staffRows = await prisma.userSalon.findMany({
       where: {
         salonId: authResult.salonId,
         isActive: true,
+        user: { isActive: true, isServiceProvider: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
       },
-      orderBy: { firstName: "asc" },
+      distinct: ["userId"],
+      orderBy: { user: { firstName: "asc" } },
     });
+    const staff = staffRows.map((row) => row.user);
 
     return { success: true, data: staff };
   } catch (error) {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/categories/category-manager";
+import { CategoryErrorState } from "@/components/categories/category-error-state";
 import {
   getAllExpenseCategories,
   createExpenseCategory,
@@ -44,7 +45,20 @@ export default async function ExpenseCategoriesPage() {
     (userRoleId != null && await hasPermission(userRoleId, "expense-categories:delete", isSuperAdmin, salonId, session.user.id));
 
   const result = await getAllExpenseCategories();
-  const categories = result.success ? result.data : [];
+  if (!result.success) {
+    return (
+      <DashboardLayout isSuperAdmin={isSuperAdmin}>
+        <CategoryErrorState
+          title="Expense Categories"
+          description="Manage expense categories for your organization"
+          backHref="/dashboard/expenses"
+          backLabel="Back to expenses"
+          error={result.error}
+        />
+      </DashboardLayout>
+    );
+  }
+  const categories = result.data;
 
   return (
     <DashboardLayout isSuperAdmin={isSuperAdmin}>

@@ -108,6 +108,10 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
   const [isLoading, setIsLoading] = useState(false);
 
   const canViewProfit = data.capabilities?.includes("profit:view");
+  // `reports:financial` gates monetary data. When false the server omits revenue /
+  // expenses / cost / profit fields entirely (rather than zeroing — zero would lie).
+  // Every financial section/card on this page is conditionally rendered on this flag.
+  const canViewFinancial = data.capabilities?.includes("reports:financial");
 
   const handleDateRangeChange = async (range: "week" | "month" | "custom") => {
     setDateRange(range);
@@ -227,20 +231,22 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
 
       {/* Summary Cards */}
       <div className={`grid gap-4 md:grid-cols-2 lg:grid-cols-3 ${canViewProfit ? "xl:grid-cols-6" : ""}`}>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{fmtCurrency(data.totals.revenue)}</div>
-            <p className="text-xs text-muted-foreground">
-              {data.totals.sales} sales
-            </p>
-          </CardContent>
-        </Card>
+        {canViewFinancial && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{fmtCurrency(data.totals.revenue ?? 0)}</div>
+              <p className="text-xs text-muted-foreground">
+                {data.totals.sales} sales
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
-        {canViewProfit && (
+        {canViewFinancial && canViewProfit && (
           <>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -272,22 +278,24 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </>
         )}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Expenses</CardTitle>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-              {fmtCurrency(data.totals.expenses)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Operating expenses
-            </p>
-          </CardContent>
-        </Card>
+        {canViewFinancial && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Expenses</CardTitle>
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                {fmtCurrency(data.totals.expenses ?? 0)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Operating expenses
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
-        {canViewProfit && (
+        {canViewFinancial && canViewProfit && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
@@ -335,7 +343,8 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </Alert>
       )}
 
-      {/* Revenue/Profit Chart */}
+      {/* Revenue/Profit Chart — financial section, omitted entirely when caller lacks reports:financial */}
+      {canViewFinancial && (
       <Card>
         <CardHeader>
           <CardTitle>{canViewProfit ? "Revenue, Cost, Profit & Expenses" : "Revenue & Expenses"}</CardTitle>
@@ -343,9 +352,9 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
-            {data.revenueByDay.length > 0 ? (
+            {(data.revenueByDay ?? []).length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.revenueByDay}>
+                <AreaChart data={data.revenueByDay ?? []}>
                   <defs>
                     <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
@@ -443,8 +452,10 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </div>
         </CardContent>
       </Card>
+      )}
 
-      {/* Two Column Layout */}
+      {/* Two Column Layout — financial sections (revenue + expenses charts) */}
+      {canViewFinancial && (
       <div className="grid gap-4 md:grid-cols-2">
         {/* Revenue by Item */}
         <Card>
@@ -454,11 +465,11 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
-              {data.revenueByItem.length > 0 ? (
+              {(data.revenueByItem ?? []).length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={data.revenueByItem}
+                      data={data.revenueByItem ?? []}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
@@ -468,7 +479,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                       dataKey="revenue"
                       nameKey="item"
                     >
-                      {data.revenueByItem.map((_, index) => (
+                      {(data.revenueByItem ?? []).map((_, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
@@ -493,9 +504,9 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
             </CardHeader>
             <CardContent>
               <div className="h-[300px]">
-                {data.revenueByItem.length > 0 ? (
+                {(data.revenueByItem ?? []).length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.revenueByItem} layout="vertical">
+                    <BarChart data={data.revenueByItem ?? []} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                       <XAxis type="number" tickFormatter={(value) => fmtCurrency(value)} />
                       <YAxis dataKey="item" type="category" width={120} className="text-xs" />
@@ -527,13 +538,17 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           <AppointmentStatusCard appointmentsByStatus={data.appointmentsByStatus} />
         )}
       </div>
+      )}
 
-      {/* Appointments by Status (shown separately for owners since profitability chart takes its grid slot) */}
-      {canViewProfit && (
+      {/* Appointments by Status — standalone in two cases:
+          1. canViewFinancial + canViewProfit: financial grid is showing Profitability instead, so AppointmentStatusCard needs its own spot.
+          2. !canViewFinancial: the financial grid is hidden entirely, so this is the only place AppointmentStatusCard renders. */}
+      {(canViewProfit || !canViewFinancial) && (
         <AppointmentStatusCard appointmentsByStatus={data.appointmentsByStatus} />
       )}
 
-      {/* Expenses by Category */}
+      {/* Expenses by Category — financial section */}
+      {canViewFinancial && (
       <Card>
         <CardHeader>
           <CardTitle>Expenses by Category</CardTitle>
@@ -541,16 +556,16 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
-            {data.expensesByCategory.length > 0 ? (
+            {(data.expensesByCategory ?? []).length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={data.expensesByCategory}
+                    data={data.expensesByCategory ?? []}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
                     label={({ name, payload }) => {
-                      const total = data.totals.expenses;
+                      const total = data.totals.expenses ?? 0;
                       const pct = total > 0 ? Math.round((payload.amount / total) * 100) : 0;
                       return `${name} (${pct}%)`;
                     }}
@@ -559,7 +574,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
                     dataKey="amount"
                     nameKey="category"
                   >
-                    {data.expensesByCategory.map((entry, index) => (
+                    {(data.expensesByCategory ?? []).map((entry, index) => (
                       <Cell key={`cell-exp-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -574,6 +589,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Client Profitability (owner only) */}
       {canViewProfit && data.profitByClient && data.profitByClient.length > 0 && (
@@ -609,7 +625,8 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </Card>
       )}
 
-      {/* Staff Performance */}
+      {/* Staff Performance — financial section (shows revenue/profit per staff) */}
+      {canViewFinancial && (
       <Card>
         <CardHeader>
           <CardTitle>Staff Performance</CardTitle>
@@ -617,9 +634,9 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
-            {data.revenueByStaff.length > 0 ? (
+            {(data.revenueByStaff ?? []).length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.revenueByStaff}>
+                <BarChart data={data.revenueByStaff ?? []}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="staff" className="text-xs" />
                   <YAxis tickFormatter={(value) => fmtCurrency(value)} />
@@ -647,6 +664,7 @@ export function ReportsCharts({ initialData, onDateRangeChange, timezone }: Repo
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Peak Hours */}
       <Card>

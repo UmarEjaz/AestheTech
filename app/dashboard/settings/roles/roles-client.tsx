@@ -31,6 +31,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { RoleForm } from "@/components/settings/role-form";
 import { deleteRole, getRoleBySlug, type RoleInfo } from "@/lib/actions/role";
@@ -45,6 +51,28 @@ type PermissionInfo = {
   sortOrder: number;
 };
 
+// Sibling modules that share a card. The parent module's position in the
+// modules Map determines where the combined card appears.
+const MODULE_PAIRS: { parent: string; child: string; title: string }[] = [
+  { parent: "products", child: "product-categories", title: "Products" },
+  { parent: "services", child: "service-categories", title: "Services" },
+  { parent: "expenses", child: "expense-categories", title: "Expenses" },
+];
+
+// Small singleton modules bundled into one card. The bundle appears at the
+// position of the first member encountered in iteration order. Order of
+// members within the bundle is determined by this array.
+const SINGLETON_BUNDLE: { modules: string[]; title: string } = {
+  modules: ["audit", "data", "profit", "reports"],
+  title: "Visibility & Insights",
+};
+
+type DisplayGroup = {
+  key: string;
+  title: string;
+  sections: { label: string | null; perms: PermissionInfo[] }[];
+};
+
 type PermissionData = {
   role: RoleInfo;
   permissions: PermissionInfo[];
@@ -55,10 +83,11 @@ type PermissionData = {
 interface RolesPageClientProps {
   roles: RoleInfo[];
   initialPermData: PermissionData | null;
+  canManageRoles: boolean;
   canManagePermissions: boolean;
 }
 
-export function RolesPageClient({ roles, initialPermData, canManagePermissions }: RolesPageClientProps) {
+export function RolesPageClient({ roles, initialPermData, canManageRoles, canManagePermissions }: RolesPageClientProps) {
   // Role selection
   const [selectedSlug, setSelectedSlug] = useState(
     initialPermData?.role.slug ?? ""
@@ -97,6 +126,72 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
     }
     return map;
   }, [permData]);
+
+  // Build display groups: merge sibling pairs (Products + Product Categories,
+  // etc.) into pair cards, and bundle small singleton modules (Audit Log, Data
+  // Access, Profit Analytics, Reports) into one card. Pair cards leave the
+  // parent section unlabeled; bundle cards label every section. Both card
+  // types occupy the position of their first member in iteration order.
+  const displayGroups = useMemo<DisplayGroup[]>(() => {
+    const groups: DisplayGroup[] = [];
+
+    // Pre-compute which modules are consumed by merged cards.
+    const pairedChildren = new Set<string>();
+    for (const pair of MODULE_PAIRS) {
+      if (modules.has(pair.parent) && modules.has(pair.child)) {
+        pairedChildren.add(pair.child);
+      }
+    }
+    const bundledModules = new Set<string>(
+      SINGLETON_BUNDLE.modules.filter((m) => modules.has(m))
+    );
+    let bundleEmitted = false;
+
+    for (const [module, perms] of modules.entries()) {
+      if (pairedChildren.has(module)) continue;
+
+      // Singleton bundle — emit once, at the first encountered member.
+      if (bundledModules.has(module)) {
+        if (bundleEmitted) continue;
+        bundleEmitted = true;
+        const sections = SINGLETON_BUNDLE.modules
+          .map((m) => {
+            const memberPerms = modules.get(m);
+            if (!memberPerms) return null;
+            return { label: MODULE_LABELS[m] || m, perms: memberPerms };
+          })
+          .filter((s): s is { label: string; perms: PermissionInfo[] } => s !== null);
+        groups.push({
+          key: "bundle:singletons",
+          title: SINGLETON_BUNDLE.title,
+          sections,
+        });
+        continue;
+      }
+
+      const pair = MODULE_PAIRS.find((p) => p.parent === module);
+      const childPerms = pair ? modules.get(pair.child) : undefined;
+      if (pair && childPerms) {
+        groups.push({
+          key: `pair:${module}`,
+          title: pair.title,
+          sections: [
+            // Parent section has no sub-label — the card title already names it.
+            { label: null, perms },
+            { label: MODULE_LABELS[pair.child] || pair.child, perms: childPerms },
+          ],
+        });
+      } else {
+        groups.push({
+          key: module,
+          title: MODULE_LABELS[module] || module,
+          sections: [{ label: null, perms }],
+        });
+      }
+    }
+
+    return groups;
+  }, [modules]);
 
   const isPermDisabled = useCallback(
     (code: string) => {
@@ -216,7 +311,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
     setIsSaving(true);
     try {
       const result = await updateRolePermissions({
-        roleName: selectedRole.slug,
+        roleDefinitionId: selectedRole.id,
         grants: changes.grants,
         revokes: changes.revokes,
       });
@@ -237,7 +332,7 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
     if (!selectedRole) return;
     setIsResetting(true);
     try {
-      const result = await resetRolePermissionsToDefaults(selectedRole.slug);
+      const result = await resetRolePermissionsToDefaults(selectedRole.id);
       if (result.success) {
         toast.success("Permissions reset to defaults");
         const reloadResult = await getRoleBySlug(selectedSlug);
@@ -311,15 +406,17 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
             </p>
           </div>
         </div>
-        <Button
-          onClick={() => {
-            setEditingRole(undefined);
-            setShowForm(true);
-          }}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Create Custom Role
-        </Button>
+        {canManageRoles && (
+          <Button
+            onClick={() => {
+              setEditingRole(undefined);
+              setShowForm(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create Custom Role
+          </Button>
+        )}
       </div>
 
       {/* Mobile role selector */}
@@ -359,13 +456,17 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                 tabIndex={0}
                 onClick={() => handleSelectRole(role.slug)}
                 onKeyDown={(e) => {
+                  // Ignore key events that bubbled from inner Edit/Delete buttons —
+                  // otherwise activating those buttons via keyboard would also re-select
+                  // the row before the button's own action runs.
+                  if (e.currentTarget !== e.target) return;
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     handleSelectRole(role.slug);
                   }
                 }}
                 className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3.5 border-b last:border-b-0 text-left transition-colors group cursor-pointer",
+                  "w-full flex items-center gap-3 px-4 py-2.5 border-b last:border-b-0 text-left transition-colors group cursor-pointer",
                   selectedSlug === role.slug
                     ? "bg-primary/5 border-l-[3px] border-l-primary"
                     : "hover:bg-muted/50"
@@ -375,56 +476,74 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                   className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                   style={{ backgroundColor: role.color }}
                 />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-semibold truncate">
-                      {role.name}
-                    </span>
-                    {!role.isSystem && (
-                      <Badge
-                        variant="default"
-                        className="text-[10px] px-1.5 py-0 h-4 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
-                      >
-                        Custom
-                      </Badge>
+                <TooltipProvider delayDuration={200}>
+                  <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-sm font-semibold truncate">
+                          {role.name}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        {role.description || "No description"}
+                      </TooltipContent>
+                    </Tooltip>
+                    {role.isSystem && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Lock className="h-3 w-3 text-muted-foreground shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs">
+                          System role — cannot be renamed or deleted.
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                    {role.description || "No description"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1">
-                  {!role.isSystem && (
-                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={(e) => handleEdit(e, role)}
-                        title="Edit role"
-                      >
-                        <Edit className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 hover:bg-red-100 dark:hover:bg-red-900/20 hover:text-red-600"
-                        onClick={(e) => handleDeleteClick(e, role.id)}
-                        disabled={(role.userCount ?? 0) > 0}
-                        title={
-                          (role.userCount ?? 0) > 0
-                            ? `${role.userCount} user(s) assigned`
-                            : "Delete role"
-                        }
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  )}
-                  <span className="text-[11px] text-muted-foreground tabular-nums ml-1">
-                    {role.userCount ?? 0}
-                  </span>
-                </div>
+                  <div className="flex items-center gap-1">
+                    {!role.isSystem && canManageRoles && (
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={(e) => handleEdit(e, role)}
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit role</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            {/* Span wrapper so the tooltip still fires when the button is disabled
+                                (disabled buttons don't dispatch hover events). */}
+                            <span className="inline-flex">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 hover:bg-red-100 dark:hover:bg-red-900/20 hover:text-red-600"
+                                onClick={(e) => handleDeleteClick(e, role.id)}
+                                disabled={(role.userCount ?? 0) > 0}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {(role.userCount ?? 0) > 0
+                              ? `${role.userCount} user(s) assigned. Reassign them to a different role before deleting.`
+                              : "Delete role"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    )}
+                    <span className="text-[11px] text-muted-foreground tabular-nums ml-1">
+                      {role.userCount ?? 0}
+                    </span>
+                  </div>
+                </TooltipProvider>
               </div>
             ))}
           </div>
@@ -497,55 +616,103 @@ export function RolesPageClient({ roles, initialPermData, canManagePermissions }
                   <p>View permission is required when granting Create, Update, or Delete for any module.</p>
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-6">
-                {Array.from(modules.entries()).map(([module, perms]) => {
-                  const grantedCount = perms.filter((p) =>
-                    granted.has(p.code)
-                  ).length;
+              {/* CSS columns (masonry) layout — modules pack vertically into each
+                  column with no empty gaps. `break-inside-avoid` keeps each module
+                  intact within a single column. Sibling pairs (Products + Product
+                  Categories, etc.) are merged into a single card with two
+                  subsections. */}
+              <div className="columns-1 md:columns-2 xl:columns-3 gap-x-8">
+                {displayGroups.map((group) => {
+                  // Pair cards: header count = parent only (first section unlabeled).
+                  // Bundle cards: header count = combined total (all sections labeled).
+                  // Solo cards: header count = the single section.
+                  const isMerged = group.sections.length > 1;
+                  const isBundled = isMerged && group.sections[0].label !== null;
+                  const totalPerms = isBundled
+                    ? group.sections.reduce((s, sec) => s + sec.perms.length, 0)
+                    : group.sections[0].perms.length;
+                  const totalGranted = isBundled
+                    ? group.sections.reduce(
+                        (s, sec) =>
+                          s + sec.perms.filter((p) => granted.has(p.code)).length,
+                        0
+                      )
+                    : group.sections[0].perms.filter((p) => granted.has(p.code))
+                        .length;
                   return (
-                    <div key={module}>
+                    <div
+                      key={group.key}
+                      className={cn(
+                        "break-inside-avoid mb-6",
+                        isMerged && "border-l-2 border-primary/70 pl-3"
+                      )}
+                    >
                       <div className="flex items-center gap-2 mb-2">
-                        <h3 className="text-sm font-bold">
-                          {MODULE_LABELS[module] || module}
-                        </h3>
+                        <h3 className="text-sm font-bold">{group.title}</h3>
                         <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full tabular-nums">
-                          {grantedCount}/{perms.length}
+                          {totalGranted}/{totalPerms}
                         </span>
                       </div>
-                      <div className="space-y-1">
-                        {perms.map((perm) => {
-                          const isOn = granted.has(perm.code);
-                          const disabled =
-                            isPermDisabled(perm.code) ||
-                            isSaving ||
-                            isResetting;
-                          return (
-                            <div
-                              key={perm.code}
-                              className="flex items-center gap-2.5 py-1"
-                            >
-                              <Switch
-                                checked={isOn}
-                                onCheckedChange={() => handleToggle(perm.code)}
-                                disabled={disabled}
-                                className="scale-[0.85]"
-                                aria-label={perm.label}
-                              />
-                              <span
-                                className={cn(
-                                  "text-[13px]",
-                                  isOn
-                                    ? "font-medium text-foreground"
-                                    : "text-muted-foreground",
-                                  disabled && "opacity-60"
-                                )}
-                              >
-                                {perm.label}
-                              </span>
+                      {group.sections.map((section, idx) => {
+                        const sectionGranted = section.perms.filter((p) =>
+                          granted.has(p.code)
+                        ).length;
+                        return (
+                          <div
+                            key={section.label ?? "solo"}
+                            className={cn(
+                              idx > 0 && "mt-3 pt-3 border-t border-dashed border-border/60"
+                            )}
+                          >
+                            {section.label && (
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                                  {section.label}
+                                </h4>
+                                <span className="text-[10px] text-muted-foreground tabular-nums">
+                                  {sectionGranted}/{section.perms.length}
+                                </span>
+                              </div>
+                            )}
+                            <div className="space-y-1">
+                              {section.perms.map((perm) => {
+                                const isOn = granted.has(perm.code);
+                                const disabled =
+                                  isPermDisabled(perm.code) ||
+                                  isSaving ||
+                                  isResetting;
+                                return (
+                                  <div
+                                    key={perm.code}
+                                    className="flex items-center gap-2.5 py-1"
+                                  >
+                                    <Switch
+                                      checked={isOn}
+                                      onCheckedChange={() =>
+                                        handleToggle(perm.code)
+                                      }
+                                      disabled={disabled}
+                                      className="scale-[0.85]"
+                                      aria-label={perm.label}
+                                    />
+                                    <span
+                                      className={cn(
+                                        "text-[13px]",
+                                        isOn
+                                          ? "font-medium text-foreground"
+                                          : "text-muted-foreground",
+                                        disabled && "opacity-60"
+                                      )}
+                                    >
+                                      {perm.label}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
-                          );
-                        })}
-                      </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}

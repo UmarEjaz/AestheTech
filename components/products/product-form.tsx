@@ -36,11 +36,21 @@ interface ProductFormProps {
     isActive: boolean;
   };
   mode: "create" | "edit";
-  categories: { id: string; name: string }[];
+  categories: { id: string; name: string; isActive?: boolean }[];
   currencyCode?: string;
 }
 
 export function ProductForm({ product, mode, categories, currencyCode = "USD" }: ProductFormProps) {
+  // Refined dropdown order: pin the product's current category at the top (labelled),
+  // then show other active categories alphabetically. Other inactive categories are hidden.
+  const originalCategoryId = product?.categoryId ?? null;
+  const originalCategory = originalCategoryId
+    ? categories.find((c) => c.id === originalCategoryId) ?? null
+    : null;
+  const otherCategories = categories
+    .filter((c) => c.id !== originalCategoryId && c.isActive !== false)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -119,16 +129,18 @@ export function ProductForm({ product, mode, categories, currencyCode = "USD" }:
                 control={control}
                 name="categoryId"
                 render={({ field }) => (
-                  <Select
-                    value={field.value || ""}
-                    onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)}
-                  >
+                  <Select value={field.value || ""} onValueChange={field.onChange}>
                     <SelectTrigger id="categoryId">
                       <SelectValue placeholder="Select a category" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none__">No category</SelectItem>
-                      {categories.map((cat) => (
+                      {originalCategory && (
+                        <SelectItem key={originalCategory.id} value={originalCategory.id}>
+                          {originalCategory.name}
+                          {originalCategory.isActive === false ? " (current, inactive)" : " (current)"}
+                        </SelectItem>
+                      )}
+                      {otherCategories.map((cat) => (
                         <SelectItem key={cat.id} value={cat.id}>
                           {cat.name}
                         </SelectItem>

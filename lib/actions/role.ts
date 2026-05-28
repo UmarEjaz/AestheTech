@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
 import { invalidateRoleCache, invalidatePermissionCache } from "@/lib/redis";
 import { logAudit } from "@/lib/actions/audit";
-import { isSystemRole, SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
+import { SYSTEM_ROLE_DEFINITIONS, SYSTEM_ROLES } from "@/lib/roles";
 import { getOrganizationSalonIds } from "@/lib/actions/branch";
 import {
   createRoleSchema,
@@ -134,13 +135,14 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
     return { success: false, error: parsed.error.issues[0]?.message || "Invalid input" };
   }
 
-  const { name, label, description, color, hierarchyLevel } = parsed.data;
+  const { name, description, color, hierarchyLevel } = parsed.data;
 
-  // Cannot create a system role name
+  // Single source of truth: the slug is derived from the same value that gets stored
+  // as the display name. No second input field can drift away from the slug.
   const slug = slugify(name);
 
-  if (isSystemRole(slug)) {
-    return { success: false, error: `"${name}" matches a built-in role. Try "Senior ${name}", "Branch ${name}", or another distinct name.` };
+  if (slug === SYSTEM_ROLES.OWNER) {
+    return { success: false, error: `"${name}" is reserved for the system Owner role.` };
   }
 
   // Hierarchy level must be below the caller's own level
@@ -175,9 +177,21 @@ export async function createRole(input: CreateRoleInput): Promise<ActionResult<R
       return { success: false, error: "This name conflicts with a system role" };
     }
 
+    // Belt-and-suspenders: reject case-insensitive duplicates of the display name in the
+    // same salon. Catches whitespace/casing variants the slugifier might not normalize.
+    const nameClash = await prisma.roleDefinition.findFirst({
+      where: {
+        salonId: authResult.salonId,
+        name: { equals: name, mode: "insensitive" },
+      },
+    });
+    if (nameClash) {
+      return { success: false, error: "A role with this display name already exists in this salon" };
+    }
+
     const role = await prisma.roleDefinition.create({
       data: {
-        name: label,  // The label field from input is the display name
+        name,
         slug,
         description: description || null,
         color,
@@ -275,8 +289,8 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
     if (isRenaming) {
       newSlug = slugify(updateData.name!);
 
-      if (isSystemRole(newSlug)) {
-        return { success: false, error: `"${updateData.name}" matches a built-in role. Try "Senior ${updateData.name}", "Branch ${updateData.name}", or another distinct name.` };
+      if (newSlug === SYSTEM_ROLES.OWNER) {
+        return { success: false, error: `"${updateData.name}" is reserved for the system Owner role.` };
       }
 
       // Check for duplicate slug in this salon
@@ -285,6 +299,19 @@ export async function updateRole(input: UpdateRoleInput): Promise<ActionResult<n
       });
       if (duplicate) {
         return { success: false, error: "A role with this name already exists" };
+      }
+
+      // Belt-and-suspenders: reject case-insensitive duplicates of the display name in
+      // the same salon (other than the role itself).
+      const nameClash = await prisma.roleDefinition.findFirst({
+        where: {
+          salonId: authResult.salonId,
+          name: { equals: updateData.name!, mode: "insensitive" },
+          id: { not: id },
+        },
+      });
+      if (nameClash) {
+        return { success: false, error: "A role with this display name already exists in this salon" };
       }
     }
 
@@ -365,12 +392,15 @@ export async function deleteRole(id: string): Promise<ActionResult<null>> {
       };
     }
 
-    // Delete any role-permission assignments for this role
-    await prisma.rolePermission.deleteMany({
-      where: { salonId: authResult.salonId, roleDefinitionId: existing.id },
+    // Delete role-permission assignments and the role itself atomically. Without the
+    // transaction, a failure between the two operations would leave the role row in place
+    // with no permissions — an orphaned half-state.
+    await prisma.$transaction(async (tx) => {
+      await tx.rolePermission.deleteMany({
+        where: { salonId: authResult.salonId, roleDefinitionId: existing.id },
+      });
+      await tx.roleDefinition.delete({ where: { id } });
     });
-
-    await prisma.roleDefinition.delete({ where: { id } });
 
     await invalidateRoleCache(authResult.salonId);
     await invalidatePermissionCache(authResult.salonId);
@@ -419,7 +449,7 @@ export async function getRoleBySlug(slug: string): Promise<
 
   try {
     // Look up role: system roles have salonId=null, custom roles have salonId=current
-    const roleDef = await prisma.roleDefinition.findFirst({
+    let roleDef = await prisma.roleDefinition.findFirst({
       where: {
         slug,
         OR: [{ salonId: null, isSystem: true }, { salonId: authResult.salonId }],
@@ -427,54 +457,26 @@ export async function getRoleBySlug(slug: string): Promise<
       },
     });
 
-    // Fallback to system defaults if no DB record
+    // Self-heal: if a known system role is missing from the DB (incomplete seed),
+    // create it on demand so downstream callers receive a real DB ID instead of a slug stand-in.
     if (!roleDef) {
       const systemDef = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === slug);
       if (!systemDef) {
         return { success: false, error: "Role not found" };
       }
-
-      // Get all permissions
-      const permissions = await prisma.permission.findMany({
-        orderBy: [{ module: "asc" }, { sortOrder: "asc" }],
-      });
-
-      // Use default permission mapping
-      const { DEFAULT_PERMISSION_ROLES } = await import("@/lib/permissions-defaults");
-      const grantedPermissions = Object.entries(DEFAULT_PERMISSION_ROLES)
-        .filter(([, roles]) => roles.includes(systemDef.name))
-        .map(([code]) => code);
-
-      const { getHierarchyLevels } = await import("@/lib/permissions");
-      const hierarchy = await getHierarchyLevels(authResult.salonId);
-      const callerHierarchyLevel = authResult.isSuperAdmin
-        ? 999
-        : (hierarchy[authResult.roleId] ?? 0);
-
-      return {
-        success: true,
-        data: {
-          role: {
-            id: systemDef.slug,
-            name: systemDef.name,
-            slug: systemDef.slug,
-            description: systemDef.description,
-            color: systemDef.color,
-            hierarchyLevel: systemDef.hierarchyLevel,
-            isSystem: systemDef.isSystem,
-            salonId: null,
-          },
-          permissions: permissions.map((p) => ({
-            code: p.code,
-            module: p.module,
-            label: p.label,
-            description: p.description,
-            sortOrder: p.sortOrder,
-          })),
-          grantedPermissions,
-          callerHierarchyLevel,
+      roleDef = await prisma.roleDefinition.upsert({
+        where: { salonId_slug: { salonId: null as unknown as string, slug: systemDef.slug } },
+        update: {},
+        create: {
+          name: systemDef.name,
+          slug: systemDef.slug,
+          description: systemDef.description,
+          color: systemDef.color,
+          hierarchyLevel: systemDef.hierarchyLevel,
+          isSystem: true,
+          salonId: null,
         },
-      };
+      });
     }
 
     // Get all permissions
@@ -545,26 +547,63 @@ export async function getRoleBySlug(slug: string): Promise<
 }
 
 /**
- * Seed system role definitions (called during migration/seed).
+ * Seed the Owner system role globally (salonId=null, isSystem=true).
+ * Owner is the only permanently-locked role — it cannot be edited, deleted, or
+ * deactivated. Every other default role (Admin, Staff, Receptionist) is seeded
+ * per-salon as a regular customizable role via `seedDefaultSalonRoles`.
  */
 export async function seedSystemRoles(): Promise<void> {
-  for (const def of SYSTEM_ROLE_DEFINITIONS) {
-    await prisma.roleDefinition.upsert({
-      where: { salonId_slug: { salonId: null as unknown as string, slug: def.slug } },
-      update: {
-        name: def.name,
-        description: def.description,
-        color: def.color,
-        hierarchyLevel: def.hierarchyLevel,
-      },
+  const ownerDef = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === SYSTEM_ROLES.OWNER);
+  if (!ownerDef) {
+    throw new Error(`Owner role definition missing from SYSTEM_ROLE_DEFINITIONS`);
+  }
+  await prisma.roleDefinition.upsert({
+    where: { salonId_slug: { salonId: null as unknown as string, slug: ownerDef.slug } },
+    update: {
+      name: ownerDef.name,
+      description: ownerDef.description,
+      color: ownerDef.color,
+      hierarchyLevel: ownerDef.hierarchyLevel,
+    },
+    create: {
+      name: ownerDef.name,
+      slug: ownerDef.slug,
+      description: ownerDef.description,
+      color: ownerDef.color,
+      hierarchyLevel: ownerDef.hierarchyLevel,
+      isSystem: true,
+      salonId: null,
+    },
+  });
+}
+
+/**
+ * Seed per-salon copies of Admin, Staff, and Receptionist as regular (non-system) roles.
+ * Called whenever a new salon/branch is created. These roles are fully editable and
+ * deletable by salon admins — they're just convenient starter templates.
+ *
+ * Uses upsert + a transaction client so callers can pass in a Prisma transaction.
+ */
+export async function seedDefaultSalonRoles(
+  salonId: string,
+  tx?: Prisma.TransactionClient
+): Promise<void> {
+  const client = tx ?? prisma;
+  const defaultRoleSlugs = [SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST];
+  for (const slug of defaultRoleSlugs) {
+    const def = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === slug);
+    if (!def) continue;
+    await client.roleDefinition.upsert({
+      where: { salonId_slug: { salonId, slug: def.slug } },
+      update: {},
       create: {
         name: def.name,
         slug: def.slug,
         description: def.description,
         color: def.color,
         hierarchyLevel: def.hierarchyLevel,
-        isSystem: true,
-        salonId: null,
+        isSystem: false,
+        salonId,
       },
     });
   }

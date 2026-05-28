@@ -32,6 +32,9 @@ export default async function ServicesPage({ searchParams }: PageProps) {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["services:view"]);
+  }
   const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([
     hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id),

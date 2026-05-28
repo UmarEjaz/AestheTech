@@ -226,7 +226,7 @@
 - [x] Design loyalty settings page
 - [x] Configure points earning rules (per $ spent)
 - [x] Configure points earning per service
-- [x] Create loyalty tier system (Silver, Gold, Platinum)
+- [x] Create loyalty tier system (Member, Gold, Platinum)
 - [x] Define tier benefits and thresholds
 - [x] Create loyalty points API route
 - [x] Implement automatic points earning on sale

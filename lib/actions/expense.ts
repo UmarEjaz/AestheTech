@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
-import { hasPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import {
   createExpenseSchema,
@@ -14,7 +13,7 @@ import {
   UpdateExpenseInput,
   ExpenseSearchParams,
 } from "@/lib/validations/expense";
-import { getOrgRootSalonId, getOrganizationSalonIds } from "./branch";
+import { getOrgRootSalonId } from "./branch";
 import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { invalidateDashboardCache } from "@/lib/redis";
@@ -70,8 +69,7 @@ const expenseSelect = {
  * Owners see all branches when branchFilter is "all".
  */
 export async function getExpenses(
-  params: ExpenseSearchParams = {},
-  branchFilter: "current" | "all" = "current"
+  params: ExpenseSearchParams = {}
 ): Promise<
   ActionResult<{
     expenses: ExpenseListItem[];
@@ -93,17 +91,9 @@ export async function getExpenses(
   const { query, categoryId, startDate, endDate, isRecurring, page = 1, limit = 20 } = validation.data;
 
   try {
-    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-
-    let salonIds: string[];
-    if (branchFilter === "all" && canViewAllBranches) {
-      salonIds = await getOrganizationSalonIds(authResult.salonId);
-    } else {
-      salonIds = [authResult.salonId];
-    }
-
+    // Operational lists are branch-scoped. Cross-branch visibility lives in reports/dashboards.
     const where: Prisma.ExpenseWhereInput = {
-      salonId: { in: salonIds },
+      salonId: authResult.salonId,
     };
 
     if (categoryId) {
@@ -160,13 +150,9 @@ export async function getExpense(id: string): Promise<ActionResult<ExpenseListIt
   }
 
   try {
-    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-    const salonIds = canViewAllBranches
-      ? await getOrganizationSalonIds(authResult.salonId)
-      : [authResult.salonId];
-
+    // Operational lookups are branch-scoped.
     const expense = await prisma.expense.findFirst({
-      where: { id, salonId: { in: salonIds } },
+      where: { id, salonId: authResult.salonId },
       select: expenseSelect,
     });
 
@@ -261,13 +247,11 @@ export async function updateExpense(
   const { id, categoryId, amount, description, date, receiptUrl, isRecurring } = validation.data;
 
   try {
-    // Verify expense belongs to the user's accessible salons
-    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-    const salonIds = canViewAllBranches
-      ? await getOrganizationSalonIds(authResult.salonId)
-      : [authResult.salonId];
+    // Editing scope is always the caller's current branch. `data:all-branches` is a
+    // VIEW permission and must not widen update authority — to edit a different branch's
+    // expense, the admin must switch to that branch (their role there decides).
     const existing = await prisma.expense.findFirst({
-      where: { id, salonId: { in: salonIds } },
+      where: { id, salonId: authResult.salonId },
       include: { category: { select: { name: true } } },
     });
 
@@ -331,9 +315,9 @@ export async function deleteExpense(id: string): Promise<ActionResult<void>> {
   }
 
   try {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    // Mutations are always scoped to the caller's current branch.
     const existing = await prisma.expense.findFirst({
-      where: { id, salonId: { in: orgSalonIds } },
+      where: { id, salonId: authResult.salonId },
       include: { category: { select: { name: true } } },
     });
 

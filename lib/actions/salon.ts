@@ -171,33 +171,38 @@ export async function createSalon(data: {
       return { success: false, error: "A salon with this slug already exists" };
     }
 
-    const salon = await prisma.salon.create({
-      data: {
-        name: data.name,
-        slug: data.slug,
-        email: data.email || null,
-        phone: data.phone || null,
-        address: data.address || null,
-        subscriptionPlan: data.subscriptionPlan || null,
-        subscriptionStatus: "TRIAL",
-        settings: {
-          create: {
-            salonName: data.name,
-            salonEmail: data.email || null,
-            salonPhone: data.phone || null,
-            salonAddress: data.address || null,
+    // Create salon + settings + per-salon roles + permissions atomically so a failure
+    // at any step rolls back everything. Prevents a half-built salon with rows but
+    // no permissions seeded.
+    const { seedDefaultSalonRoles } = await import("@/lib/actions/role");
+    const { seedPermissionsForSalon } = await import("@/lib/seed-permissions");
+    const salon = await prisma.$transaction(async (tx) => {
+      const newSalon = await tx.salon.create({
+        data: {
+          name: data.name,
+          slug: data.slug,
+          email: data.email || null,
+          phone: data.phone || null,
+          address: data.address || null,
+          subscriptionPlan: data.subscriptionPlan || null,
+          subscriptionStatus: "TRIAL",
+          settings: {
+            create: {
+              salonName: data.name,
+              salonEmail: data.email || null,
+              salonPhone: data.phone || null,
+              salonAddress: data.address || null,
+            },
           },
         },
-      },
-    });
+      });
 
-    // Seed default permissions for the new salon
-    try {
-      const { seedPermissionsForSalon } = await import("@/lib/seed-permissions");
-      await seedPermissionsForSalon(salon.id);
-    } catch (seedError) {
-      console.error("Warning: Failed to seed permissions for new salon — defaults will apply:", seedError);
-    }
+      // Owner stays global; only Admin/Staff/Receptionist are created per-salon.
+      await seedDefaultSalonRoles(newSalon.id, tx);
+      await seedPermissionsForSalon(newSalon.id, tx);
+
+      return newSalon;
+    });
 
     await logAudit({
       action: "SALON_CREATED",

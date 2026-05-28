@@ -530,7 +530,7 @@ model LoyaltyPoints {
   id        String       @id @default(cuid())
   clientId  String       @unique
   balance   Int          @default(0)
-  tier      LoyaltyTier  @default(SILVER)
+  tier      LoyaltyTier  @default(MEMBER)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -541,7 +541,7 @@ model LoyaltyPoints {
 }
 
 enum LoyaltyTier {
-  SILVER
+  MEMBER
   GOLD
   PLATINUM
 }

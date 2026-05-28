@@ -40,7 +40,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
 
   // Fetch clients, services, and staff for the form (org-scoped)
   const orgSalonIds = await getOrganizationSalonIds(salonId);
-  const [clients, services, staff] = await Promise.all([
+  const [clients, services, staffRows] = await Promise.all([
     prisma.client.findMany({
       where: { salonId: { in: orgSalonIds }, isActive: true },
       select: {
@@ -62,20 +62,22 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       },
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({
+    // Resolve providers via branch membership (UserSalon) so staff assigned to this
+    // branch are included regardless of their volatile `User.salonId` value.
+    prisma.userSalon.findMany({
       where: {
         salonId,
         isActive: true,
-        isServiceProvider: true,
+        user: { isActive: true, isServiceProvider: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
       },
-      orderBy: { firstName: "asc" },
+      distinct: ["userId"],
+      orderBy: { user: { firstName: "asc" } },
     }),
   ]);
+  const staff = staffRows.map((row) => row.user);
 
   // Parse initial date from URL if provided
   const initialDate = params.startTime ? new Date(params.startTime) : undefined;

@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { checkAuth } from "@/lib/auth-helpers";
+import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
+import { hasAnyPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import { serviceCategorySchema, ServiceCategoryInput } from "@/lib/validations/service-category";
 import { getOrgRootSalonId } from "./branch";
@@ -55,8 +56,21 @@ export async function ensureDefaultCategories(orgRootSalonId: string): Promise<v
  * Get all service categories for the organization.
  */
 export async function getAllServiceCategories(): Promise<ActionResult<ServiceCategoryItem[]>> {
-  const authResult = await checkAuth("service-categories:view");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage services (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  // The category-management page still requires the explicit `service-categories:view`.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["service-categories:view", "services:create", "services:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -91,8 +105,20 @@ export async function getAllServiceCategories(): Promise<ActionResult<ServiceCat
 export async function getActiveServiceCategories(): Promise<
   ActionResult<{ id: string; name: string; icon: string | null; color: string | null }[]>
 > {
-  const authResult = await checkAuth("service-categories:view");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage services (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["service-categories:view", "services:create", "services:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -153,6 +179,7 @@ export async function createServiceCategory(
     });
 
     revalidatePath("/dashboard/services");
+    revalidatePath("/dashboard/services/categories");
     return { success: true, data: { id: category.id } };
   } catch (error) {
     if (
@@ -224,6 +251,7 @@ export async function updateServiceCategory(
     });
 
     revalidatePath("/dashboard/services");
+    revalidatePath("/dashboard/services/categories");
     return { success: true, data: { id } };
   } catch (error) {
     if (
@@ -259,13 +287,20 @@ export async function toggleServiceCategory(
       return { success: false, error: "Category not found" };
     }
 
-    const updated = await prisma.serviceCategory.update({
-      where: { id },
+    // Race-safe write: filter the update with the same predicate as the existence check
+    // so a concurrent soft-delete or org reassignment between the check and the update
+    // fails closed (count === 0) instead of flipping a stale row.
+    const result = await prisma.serviceCategory.updateMany({
+      where: { id, salonId: orgRootId, deletedAt: null },
       data: { isActive: !existing.isActive },
     });
 
+    if (result.count === 0) {
+      return { success: false, error: "Category not found" };
+    }
+
     await logAudit({
-      action: updated.isActive ? "SERVICE_CATEGORY_RESTORED" : "SERVICE_CATEGORY_DEACTIVATED",
+      action: !existing.isActive ? "SERVICE_CATEGORY_RESTORED" : "SERVICE_CATEGORY_DEACTIVATED",
       entityType: "ServiceCategory",
       entityId: id,
       userId: authResult.userId,
@@ -274,7 +309,8 @@ export async function toggleServiceCategory(
     });
 
     revalidatePath("/dashboard/services");
-    return { success: true, data: { isActive: updated.isActive } };
+    revalidatePath("/dashboard/services/categories");
+    return { success: true, data: { isActive: !existing.isActive } };
   } catch (error) {
     console.error("Error toggling service category:", error);
     return { success: false, error: "Failed to update service category" };
@@ -332,15 +368,25 @@ export async function deleteServiceCategory(
       createdAt: existing.createdAt,
     };
 
+    // Race-safe write: filter the mutation with the same predicate as the existence
+    // check so a concurrent change between the check and the write fails closed.
     let hardDeleted: boolean;
     if (otherReferencesCount > 0) {
-      await prisma.serviceCategory.update({
-        where: { id },
+      const result = await prisma.serviceCategory.updateMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
         data: { deletedAt: new Date() },
       });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
       hardDeleted = false;
     } else {
-      await prisma.serviceCategory.delete({ where: { id } });
+      const result = await prisma.serviceCategory.deleteMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
+      });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
       hardDeleted = true;
     }
 

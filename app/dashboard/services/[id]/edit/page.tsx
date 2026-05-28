@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceForm } from "@/components/services/service-form";
 import { getService } from "@/lib/actions/service";
-import { getActiveServiceCategories } from "@/lib/actions/service-category";
+import { getAllServiceCategories } from "@/lib/actions/service-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
@@ -30,24 +30,19 @@ export default async function EditServicePage({ params }: PageProps) {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!isSuperAdmin) {
-    const [canView, canUpdate, canViewCategories] = await Promise.all([
-      hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id),
-    ]);
-
-    if (!canView || !canUpdate || !canViewCategories) {
-      const missing: string[] = [];
-      if (!canView) missing.push("services:view");
-      if (!canUpdate) missing.push("services:update");
-      if (!canViewCategories) missing.push("service-categories:view");
-      redirectAccessDenied(missing);
+    // Category dropdown is just form data — the category-fetch server action
+    // guards itself, so don't require the category-management view permission here.
+    // hasPermission applies :view inference, so :update implicitly grants :view —
+    // no need to check :view explicitly.
+    const canUpdate = await hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id);
+    if (!canUpdate) {
+      redirectAccessDenied(["services:update"]);
     }
   }
 
   const [serviceResult, categoriesResult, settingsResult] = await Promise.all([
     getService(id),
-    getActiveServiceCategories(),
+    getAllServiceCategories(),
     getSettings(),
   ]);
 
@@ -56,7 +51,11 @@ export default async function EditServicePage({ params }: PageProps) {
   }
 
   const service = serviceResult.data;
-  const categories = categoriesResult.success ? categoriesResult.data : [];
+  // Pass id/name/isActive so the form can pin the service's current category at the top
+  // and hide other inactive ones. See ServiceForm for the dropdown rendering rule.
+  const categories = categoriesResult.success
+    ? categoriesResult.data.map((c) => ({ id: c.id, name: c.name, isActive: c.isActive }))
+    : [];
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (

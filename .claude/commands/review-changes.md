@@ -1,4 +1,4 @@
-Review all uncommitted changes before commit. Follow this process EXACTLY and THOROUGHLY.
+   Ask me before making any changes.                                                                                                                Review all uncommitted changes before commit. Follow this process EXACTLY and THOROUGHLY.
 
 ## Step 1: Run Automated Checks
 Run these commands and report any errors:

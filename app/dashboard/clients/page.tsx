@@ -20,6 +20,9 @@ export default async function ClientsPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "clients:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["clients:view"]);
+  }
   const canCreate = await hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, session.user.id);
   const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
   const canDelete = await hasPermission(userRoleId, "clients:delete", isSuperAdmin, salonId, session.user.id);

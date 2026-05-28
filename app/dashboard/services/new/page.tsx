@@ -24,18 +24,13 @@ export default async function NewServicePage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
   if (!isSuperAdmin) {
-    const [canView, canCreate, canViewCategories] = await Promise.all([
-      hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id),
-      hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id),
-    ]);
-
-    if (!canView || !canCreate || !canViewCategories) {
-      const missing: string[] = [];
-      if (!canView) missing.push("services:view");
-      if (!canCreate) missing.push("services:create");
-      if (!canViewCategories) missing.push("service-categories:view");
-      redirectAccessDenied(missing);
+    // Category dropdown is just form data — the category-fetch server action
+    // guards itself, so don't require the category-management view permission here.
+    // hasPermission applies :view inference, so :create implicitly grants :view —
+    // no need to check :view explicitly.
+    const canCreate = await hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id);
+    if (!canCreate) {
+      redirectAccessDenied(["services:create"]);
     }
   }
 

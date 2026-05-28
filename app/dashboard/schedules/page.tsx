@@ -20,6 +20,9 @@ export default async function SchedulesPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["schedules:view"]);
+  }
   const [canCreate, canUpdate] = await Promise.all([
     hasPermission(userRoleId, "schedules:create", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "schedules:update", isSuperAdmin, salonId, session.user.id),

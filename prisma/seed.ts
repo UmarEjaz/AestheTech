@@ -56,30 +56,54 @@ async function main() {
   console.log("Cleared existing data");
 
   // ============================================
-  // ROLE DEFINITIONS — Seed 4 system roles
+  // ROLE DEFINITIONS
   // ============================================
-  const roleDefMap = new Map<string, string>(); // slug → id
-  for (const def of SYSTEM_ROLE_DEFINITIONS) {
-    const rd = await prisma.roleDefinition.create({
-      data: {
-        name: def.name,
-        slug: def.slug,
-        description: def.description,
-        color: def.color,
-        hierarchyLevel: def.hierarchyLevel,
-        isSystem: true,
-        salonId: null,
-      },
-    });
-    roleDefMap.set(def.slug, rd.id);
-  }
-  console.log("Created system role definitions");
+  // Only Owner is a true system role (global, salonId=null, isSystem=true) — locked
+  // and shared across all salons. Admin/Staff/Receptionist are created per-salon below
+  // (isSystem=false), so each salon can rename, recolour, or delete them like custom roles.
+  const ownerDef = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === SYSTEM_ROLES.OWNER)!;
+  const ownerRole = await prisma.roleDefinition.create({
+    data: {
+      name: ownerDef.name,
+      slug: ownerDef.slug,
+      description: ownerDef.description,
+      color: ownerDef.color,
+      hierarchyLevel: ownerDef.hierarchyLevel,
+      isSystem: true,
+      salonId: null,
+    },
+  });
+  console.log("Created global Owner role");
 
-  // Helper that throws a named error if a system role is missing from the map.
-  // Replaces fragile `roleDefMap.get(slug)!` non-null assertions.
-  const requireRole = (slug: string): string => {
-    const id = roleDefMap.get(slug);
-    if (!id) throw new Error(`Missing system role definition for slug: "${slug}". Check SYSTEM_ROLE_DEFINITIONS.`);
+  // Helper: build a per-salon role lookup map (slug → id) after seeding a salon's roles.
+  // Owner is global; Admin/Staff/Receptionist are looked up by salonId+slug.
+  const defaultPerSalonSlugs = [SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST];
+
+  async function createDefaultSalonRoles(salonId: string): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    map.set(SYSTEM_ROLES.OWNER, ownerRole.id);
+    for (const slug of defaultPerSalonSlugs) {
+      const def = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === slug);
+      if (!def) throw new Error(`Missing default role definition for slug: "${slug}"`);
+      const role = await prisma.roleDefinition.create({
+        data: {
+          name: def.name,
+          slug: def.slug,
+          description: def.description,
+          color: def.color,
+          hierarchyLevel: def.hierarchyLevel,
+          isSystem: false,
+          salonId,
+        },
+      });
+      map.set(def.slug, role.id);
+    }
+    return map;
+  }
+
+  const requireRole = (map: Map<string, string>, slug: string): string => {
+    const id = map.get(slug);
+    if (!id) throw new Error(`Missing role for slug: "${slug}" in this salon`);
     return id;
   };
 
@@ -115,6 +139,10 @@ async function main() {
 
   console.log("Created settings");
 
+  // Create per-salon default roles (Admin/Staff/Receptionist) for the default salon
+  const defaultSalonRoles = await createDefaultSalonRoles(salon.id);
+  console.log("Created per-salon default roles for default salon");
+
   // Create Users with role and salonId directly
   const hashedPassword = await bcrypt.hash("password123", 10);
   const superAdminPassword = await bcrypt.hash("umar111", 10);
@@ -129,7 +157,7 @@ async function main() {
       phone: "+923001234567",
       isSuperAdmin: true,
       salonId: salon.id,
-      roleDefinitionId: requireRole(SYSTEM_ROLES.OWNER),
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.OWNER),
     },
   });
 
@@ -141,7 +169,7 @@ async function main() {
       lastName: "Johnson",
       phone: "+1234567890",
       salonId: salon.id,
-      roleDefinitionId: requireRole(SYSTEM_ROLES.OWNER),
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.OWNER),
     },
   });
 
@@ -153,7 +181,7 @@ async function main() {
       lastName: "Chen",
       phone: "+1234567891",
       salonId: salon.id,
-      roleDefinitionId: requireRole(SYSTEM_ROLES.ADMIN),
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.ADMIN),
     },
   });
 
@@ -165,7 +193,7 @@ async function main() {
       lastName: "Wilson",
       phone: "+1234567892",
       salonId: salon.id,
-      roleDefinitionId: requireRole(SYSTEM_ROLES.STAFF),
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.STAFF),
     },
   });
 
@@ -177,7 +205,7 @@ async function main() {
       lastName: "Brown",
       phone: "+1234567893",
       salonId: salon.id,
-      roleDefinitionId: requireRole(SYSTEM_ROLES.STAFF),
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.STAFF),
     },
   });
 
@@ -189,14 +217,14 @@ async function main() {
       lastName: "Martinez",
       phone: "+1234567894",
       salonId: salon.id,
-      roleDefinitionId: requireRole(SYSTEM_ROLES.RECEPTIONIST),
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.RECEPTIONIST),
     },
   });
 
   console.log("Created users");
 
-  // Create UserSalon records for all users (using role slugs)
-  const allUsers = [
+  // Create UserSalon records for the default salon (using per-salon role IDs)
+  const defaultSalonUsers = [
     { user: superAdmin, roleSlug: SYSTEM_ROLES.OWNER },
     { user: owner, roleSlug: SYSTEM_ROLES.OWNER },
     { user: admin, roleSlug: SYSTEM_ROLES.ADMIN },
@@ -205,13 +233,13 @@ async function main() {
     { user: lisa, roleSlug: SYSTEM_ROLES.RECEPTIONIST },
   ];
 
-  for (const { user: u, roleSlug } of allUsers) {
+  for (const { user: u, roleSlug } of defaultSalonUsers) {
     await prisma.userSalon.create({
-      data: { userId: u.id, salonId: salon.id, roleDefinitionId: requireRole(roleSlug) },
+      data: { userId: u.id, salonId: salon.id, roleDefinitionId: requireRole(defaultSalonRoles, roleSlug) },
     });
   }
 
-  console.log("Created user-salon associations");
+  console.log("Created user-salon associations for default salon");
 
   // Create a demo branch salon
   const branchSalon = await prisma.salon.create({
@@ -237,16 +265,20 @@ async function main() {
     },
   });
 
-  // Give Owner and SuperAdmin access to the branch
+  // Create per-salon default roles for the branch salon
+  const branchSalonRoles = await createDefaultSalonRoles(branchSalon.id);
+  console.log("Created per-salon default roles for branch salon");
+
+  // Give Owner and SuperAdmin access to the branch (Owner is global, shared role row)
   await prisma.userSalon.create({
-    data: { userId: superAdmin.id, salonId: branchSalon.id, roleDefinitionId: requireRole(SYSTEM_ROLES.OWNER) },
+    data: { userId: superAdmin.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.OWNER) },
   });
   await prisma.userSalon.create({
-    data: { userId: owner.id, salonId: branchSalon.id, roleDefinitionId: requireRole(SYSTEM_ROLES.OWNER) },
+    data: { userId: owner.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.OWNER) },
   });
-  // Assign one staff member to both branches
+  // Assign one staff member to both branches (using the branch's per-salon Staff role)
   await prisma.userSalon.create({
-    data: { userId: staff1.id, salonId: branchSalon.id, roleDefinitionId: requireRole(SYSTEM_ROLES.STAFF) },
+    data: { userId: staff1.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.STAFF) },
   });
 
   console.log("Created demo branch salon");
@@ -746,6 +778,9 @@ async function main() {
     prisma.expenseCategory.create({
       data: { salonId: salon.id, name: "Marketing", icon: "Megaphone", color: "#EC4899", isDefault: true },
     }),
+    prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Other", icon: "MoreHorizontal", color: "#6B7280", isDefault: true },
+    }),
   ]);
 
   const thirtyDaysAgo = new Date();
@@ -973,20 +1008,42 @@ async function main() {
   });
   const permissionIdMap = new Map(permissionRecords.map((p) => [p.code, p.id]));
 
-  // Seed default role-permission assignments for both salons
-  const allSalonIds = [salon.id, branchSalon.id];
-  for (const sId of allSalonIds) {
+  // Seed default role-permission assignments for both salons. Each salon has its own
+  // Admin/Staff/Receptionist role rows; Owner is shared (global) so the same row is used
+  // for both salons but the permission rows are scoped per-salon.
+  const salonRoleMaps: Array<{ salonId: string; roleMap: Map<string, string> }> = [
+    { salonId: salon.id, roleMap: defaultSalonRoles },
+    { salonId: branchSalon.id, roleMap: branchSalonRoles },
+  ];
+  // Track missing references so a typo in DEFAULT_PERMISSION_ROLES doesn't silently
+  // produce a partially-seeded salon. Same fail-fast pattern as seed-permissions.ts.
+  const missingPermCodes = new Set<string>();
+  const missingRoleSlugs = new Set<string>();
+  for (const { salonId: sId, roleMap } of salonRoleMaps) {
     const rolePermData: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
     for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
       const permId = permissionIdMap.get(code);
-      if (!permId) continue;
+      if (!permId) {
+        missingPermCodes.add(code);
+        continue;
+      }
       for (const roleSlug of roles) {
-        const rdId = roleDefMap.get(roleSlug);
-        if (!rdId) continue;
+        const rdId = roleMap.get(roleSlug);
+        if (!rdId) {
+          missingRoleSlugs.add(roleSlug);
+          continue;
+        }
         rolePermData.push({ salonId: sId, roleDefinitionId: rdId, permissionId: permId });
       }
     }
     await prisma.rolePermission.createMany({ data: rolePermData });
+  }
+  if (missingPermCodes.size > 0 || missingRoleSlugs.size > 0) {
+    throw new Error(
+      `Seed failed: unresolved references in DEFAULT_PERMISSION_ROLES. ` +
+        `Missing permission codes: [${[...missingPermCodes].join(", ")}]. ` +
+        `Missing role slugs: [${[...missingRoleSlugs].join(", ")}].`
+    );
   }
 
   console.log("Created permissions and default role assignments");

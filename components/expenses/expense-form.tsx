@@ -33,7 +33,7 @@ interface ExpenseFormProps {
     isRecurring: boolean;
   };
   mode: "create" | "edit";
-  categories: { id: string; name: string; icon: string | null; color: string | null }[];
+  categories: { id: string; name: string; icon: string | null; color: string | null; isActive?: boolean }[];
   currencyCode?: string;
 }
 
@@ -66,6 +66,15 @@ export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }:
 
   const isRecurring = watch("isRecurring");
   const categoryId = watch("categoryId");
+
+  // Refined dropdown order: pin the expense's current category at the top (labelled),
+  // then show other active categories. Other inactive categories are hidden.
+  const originalCategoryId = expense?.categoryId ?? null;
+  const originalCategory = originalCategoryId
+    ? categories.find((c) => c.id === originalCategoryId) ?? null
+    : null;
+  const otherCategories = categories
+    .filter((c) => c.id !== originalCategoryId && c.isActive !== false);
 
   const onSubmit = async (data: CreateExpenseInput) => {
     setIsSubmitting(true);
@@ -114,7 +123,21 @@ export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }:
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories.map((cat) => (
+                  {originalCategory && (
+                    <SelectItem key={originalCategory.id} value={originalCategory.id}>
+                      <div className="flex items-center gap-2">
+                        {originalCategory.color && (
+                          <span
+                            className="inline-block h-3 w-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: originalCategory.color }}
+                          />
+                        )}
+                        {originalCategory.name}
+                        {originalCategory.isActive === false ? " (current, inactive)" : " (current)"}
+                      </div>
+                    </SelectItem>
+                  )}
+                  {otherCategories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
                       <div className="flex items-center gap-2">
                         {cat.color && (
