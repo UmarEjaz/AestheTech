@@ -6,7 +6,6 @@ import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
 import { salaryConfigSchema, SalaryConfigInput } from "@/lib/validations/payroll";
-import { getOrganizationSalonIds } from "./branch";
 import { logAudit } from "./audit";
 
 export type SalaryConfigListItem = {
@@ -46,28 +45,18 @@ const salaryConfigSelect = {
 } satisfies Prisma.SalaryConfigSelect;
 
 /**
- * Get salary configs. Owners see all branches when branchFilter is "all".
+ * Get salary configs for the caller's current branch. Operational lists are always
+ * branch-scoped; cross-branch visibility lives in reports/dashboards/audit only.
  */
-export async function getSalaryConfigs(
-  branchFilter: "current" | "all" = "current"
-): Promise<ActionResult<SalaryConfigListItem[]>> {
+export async function getSalaryConfigs(): Promise<ActionResult<SalaryConfigListItem[]>> {
   const authResult = await checkAuth("salary-config:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
-    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
-
-    let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
-      salonIds = await getOrganizationSalonIds(authResult.salonId);
-    } else {
-      salonIds = [authResult.salonId];
-    }
-
     const configs = await prisma.salaryConfig.findMany({
-      where: { salonId: { in: salonIds } },
+      where: { salonId: authResult.salonId },
       select: salaryConfigSelect,
       orderBy: [{ isActive: "desc" }, { effectiveDate: "desc" }],
     });
@@ -89,13 +78,8 @@ export async function getSalaryConfig(id: string): Promise<ActionResult<SalaryCo
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
-
     const config = await prisma.salaryConfig.findFirst({
-      where: { id, salonId: { in: salonIds } },
+      where: { id, salonId: authResult.salonId },
       select: salaryConfigSelect,
     });
 
@@ -123,13 +107,9 @@ export async function getStaffCurrentConfig(
   }
 
   try {
-    // Verify the caller has access to this salon
-    const authorizedSalonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
-
-    if (!authorizedSalonIds.includes(salonId)) {
+    // Operational reads are branch-scoped: callers must be on the same branch as the
+    // requested salonId. To view a staff member's config at another branch, switch first.
+    if (salonId !== authResult.salonId) {
       return { success: false, error: "Unauthorized access to this branch" };
     }
 
@@ -157,7 +137,7 @@ export async function getStaffCurrentConfig(
 export async function createSalaryConfig(
   data: SalaryConfigInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("salary-config:manage");
+  const authResult = await checkAuth("salary-config:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -221,7 +201,7 @@ export async function updateSalaryConfig(
   id: string,
   data: SalaryConfigInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("salary-config:manage");
+  const authResult = await checkAuth("salary-config:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -234,13 +214,10 @@ export async function updateSalaryConfig(
   const { userId, payType, baseRate, effectiveDate, notes } = validation.data;
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
-
+    // Mutations are always scoped to the caller's current branch. `data:all-branches`
+    // is a VIEW permission and must not widen update authority.
     const existing = await prisma.salaryConfig.findFirst({
-      where: { id, salonId: { in: salonIds } },
+      where: { id, salonId: authResult.salonId },
     });
 
     if (!existing) {
@@ -258,8 +235,10 @@ export async function updateSalaryConfig(
       }
     }
 
-    const config = await prisma.salaryConfig.update({
-      where: { id },
+    // Atomic write: keep the branch predicate in the WHERE so a concurrent salonId
+    // change between the preflight and the write can't slip through.
+    const updateResult = await prisma.salaryConfig.updateMany({
+      where: { id, salonId: authResult.salonId },
       data: {
         userId,
         payType,
@@ -268,6 +247,10 @@ export async function updateSalaryConfig(
         notes: notes || null,
       },
     });
+    if (updateResult.count === 0) {
+      return { success: false, error: "Salary configuration not found" };
+    }
+    const config = { id };
 
     await logAudit({
       action: "SALARY_CONFIG_UPDATED",
@@ -298,22 +281,19 @@ export async function updateSalaryConfig(
 }
 
 /**
- * Soft-delete a salary config (set isActive=false).
+ * Toggle a salary config's active status. Flips isActive (true ↔ false).
+ * Gated on `salary-config:update` because flipping isActive is an update, not a delete.
  */
-export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>> {
-  const authResult = await checkAuth("salary-config:manage");
+export async function toggleSalaryConfigActive(id: string): Promise<ActionResult<void>> {
+  const authResult = await checkAuth("salary-config:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
-    const salonIds =
-      authResult.role === "OWNER" || authResult.isSuperAdmin
-        ? await getOrganizationSalonIds(authResult.salonId)
-        : [authResult.salonId];
-
+    // Mutations are always scoped to the caller's current branch.
     const existing = await prisma.salaryConfig.findFirst({
-      where: { id, salonId: { in: salonIds } },
+      where: { id, salonId: authResult.salonId },
       include: { user: { select: { firstName: true, lastName: true } } },
     });
 
@@ -321,10 +301,14 @@ export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>
       return { success: false, error: "Salary configuration not found" };
     }
 
-    await prisma.salaryConfig.update({
-      where: { id },
+    // Atomic write: keep the branch predicate in the WHERE.
+    const toggleResult = await prisma.salaryConfig.updateMany({
+      where: { id, salonId: authResult.salonId },
       data: { isActive: !existing.isActive },
     });
+    if (toggleResult.count === 0) {
+      return { success: false, error: "Salary configuration not found" };
+    }
 
     await logAudit({
       action: existing.isActive ? "SALARY_CONFIG_DEACTIVATED" : "SALARY_CONFIG_RESTORED",
@@ -348,10 +332,62 @@ export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>
 }
 
 /**
+ * Hard delete a salary config. Any PayrollEntry rows referencing this config will have
+ * their `salaryConfigId` set to null by the DB (the FK uses `onDelete: SetNull`), so
+ * historical payroll amounts (`basePay`) remain intact — only the audit link is lost.
+ */
+export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>> {
+  const authResult = await checkAuth("salary-config:delete");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    // Mutations are always scoped to the caller's current branch.
+    const existing = await prisma.salaryConfig.findFirst({
+      where: { id, salonId: authResult.salonId },
+      include: { user: { select: { firstName: true, lastName: true } } },
+    });
+
+    if (!existing) {
+      return { success: false, error: "Salary configuration not found" };
+    }
+
+    // Atomic delete: keep the branch predicate in the WHERE.
+    const deleteResult = await prisma.salaryConfig.deleteMany({
+      where: { id, salonId: authResult.salonId },
+    });
+    if (deleteResult.count === 0) {
+      return { success: false, error: "Salary configuration not found" };
+    }
+
+    await logAudit({
+      action: "SALARY_CONFIG_DELETED",
+      entityType: "SalaryConfig",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      salonId: authResult.salonId,
+      details: {
+        staffName: `${existing.user.firstName} ${existing.user.lastName}`,
+        baseRate: existing.baseRate.toString(),
+        payType: existing.payType,
+      },
+    });
+
+    revalidatePath("/dashboard/payroll/salary-config");
+    return { success: true, data: undefined };
+  } catch (error) {
+    console.error("Error deleting salary config:", error);
+    return { success: false, error: "Failed to delete salary configuration" };
+  }
+}
+
+/**
  * Get staff members at the current branch (for dropdowns).
  */
 export async function getBranchStaff(): Promise<
-  ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string }[]>
+  ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string; roleName: string }[]>
 > {
   const authResult = await checkAuth("salary-config:view");
   if (!authResult) {
@@ -363,6 +399,7 @@ export async function getBranchStaff(): Promise<
       where: { salonId: authResult.salonId, isActive: true },
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        roleDefinition: { select: { slug: true, name: true } },
       },
     });
 
@@ -371,7 +408,8 @@ export async function getBranchStaff(): Promise<
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.role,
+      role: us.roleDefinition.slug,
+      roleName: us.roleDefinition.name,
     }));
 
     return { success: true, data: staff };

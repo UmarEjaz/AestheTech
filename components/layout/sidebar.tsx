@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Role } from "@prisma/client";
 import {
   Calendar,
   Users,
@@ -29,124 +28,48 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { usePermissions } from "@/lib/permissions-context";
 
 interface NavItem {
   title: string;
   href: string;
   icon: React.ElementType;
-  roles: Role[];
+  permission?: string; // permission code required to see this item (null = visible to all)
 }
 
 const navItems: NavItem[] = [
-  {
-    title: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Appointments",
-    href: "/dashboard/appointments",
-    icon: Calendar,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Clients",
-    href: "/dashboard/clients",
-    icon: Users,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Services",
-    href: "/dashboard/services",
-    icon: Scissors,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Products",
-    href: "/dashboard/products",
-    icon: Package,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Sales",
-    href: "/dashboard/sales",
-    icon: DollarSign,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Invoices",
-    href: "/dashboard/invoices",
-    icon: FileText,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Schedules",
-    href: "/dashboard/schedules",
-    icon: Clock,
-    roles: [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  },
-  {
-    title: "Staff",
-    href: "/dashboard/staff",
-    icon: UserCog,
-    roles: [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  },
-  {
-    title: "Reports",
-    href: "/dashboard/reports",
-    icon: BarChart3,
-    roles: [Role.OWNER, Role.ADMIN],
-  },
-  {
-    title: "Loyalty",
-    href: "/dashboard/loyalty",
-    icon: Gift,
-    roles: [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  },
-  {
-    title: "Expenses",
-    href: "/dashboard/expenses",
-    icon: Receipt,
-    roles: [Role.OWNER, Role.ADMIN],
-  },
-  {
-    title: "Payroll",
-    href: "/dashboard/payroll",
-    icon: Banknote,
-    roles: [Role.OWNER, Role.ADMIN],
-  },
-  {
-    title: "Settings",
-    href: "/dashboard/settings",
-    icon: Settings,
-    roles: [Role.OWNER, Role.ADMIN],
-  },
-  {
-    title: "Branches",
-    href: "/dashboard/branches",
-    icon: Building2,
-    roles: [Role.OWNER],
-  },
-  {
-    title: "Audit Log",
-    href: "/dashboard/audit-log",
-    icon: ShieldCheck,
-    roles: [Role.OWNER],
-  },
+  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { title: "Appointments", href: "/dashboard/appointments", icon: Calendar, permission: "appointments:view" },
+  { title: "Clients", href: "/dashboard/clients", icon: Users, permission: "clients:view" },
+  { title: "Services", href: "/dashboard/services", icon: Scissors, permission: "services:view" },
+  { title: "Products", href: "/dashboard/products", icon: Package, permission: "products:view" },
+  { title: "Sales", href: "/dashboard/sales", icon: DollarSign, permission: "sales:view" },
+  { title: "Invoices", href: "/dashboard/invoices", icon: FileText, permission: "invoices:view" },
+  { title: "Schedules", href: "/dashboard/schedules", icon: Clock, permission: "schedules:view" },
+  { title: "Staff", href: "/dashboard/staff", icon: UserCog, permission: "staff:view" },
+  { title: "Reports", href: "/dashboard/reports", icon: BarChart3, permission: "reports:view" },
+  { title: "Loyalty", href: "/dashboard/loyalty", icon: Gift, permission: "loyalty:view" },
+  { title: "Expenses", href: "/dashboard/expenses", icon: Receipt, permission: "expenses:view" },
+  { title: "Payroll", href: "/dashboard/payroll", icon: Banknote, permission: "payroll:view" },
+  { title: "Settings", href: "/dashboard/settings", icon: Settings, permission: "settings:view" },
+  { title: "Branches", href: "/dashboard/branches", icon: Building2, permission: "branches:view" },
+  { title: "Audit Log", href: "/dashboard/audit-log", icon: ShieldCheck, permission: "audit:view" },
 ];
 
 interface SidebarProps {
-  userRole: Role | null;
   isSuperAdmin?: boolean;
   collapsed?: boolean;
 }
 
-export function Sidebar({ userRole, isSuperAdmin = false, collapsed = false }: SidebarProps) {
+export function Sidebar({ isSuperAdmin = false, collapsed = false }: SidebarProps) {
   const pathname = usePathname();
-  const filteredNavItems = isSuperAdmin
-    ? navItems
-    : navItems.filter((item) => userRole != null && item.roles.includes(userRole));
+  const permissions = usePermissions();
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (!item.permission) return true; // Dashboard is always visible
+    if (isSuperAdmin) return true;
+    return permissions.includes(item.permission);
+  });
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -220,11 +143,15 @@ export function Sidebar({ userRole, isSuperAdmin = false, collapsed = false }: S
   );
 }
 
-export function MobileSidebar({ userRole, isSuperAdmin = false }: { userRole: Role | null; isSuperAdmin?: boolean }) {
+export function MobileSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const pathname = usePathname();
-  const filteredNavItems = isSuperAdmin
-    ? navItems
-    : navItems.filter((item) => userRole != null && item.roles.includes(userRole));
+  const permissions = usePermissions();
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (!item.permission) return true;
+    if (isSuperAdmin) return true;
+    return permissions.includes(item.permission);
+  });
 
   return (
     <nav className="flex flex-col gap-1 p-2">

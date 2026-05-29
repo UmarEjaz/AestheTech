@@ -11,9 +11,10 @@ import {
   X,
   Copy,
   Users,
+  CalendarDays,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ShiftType, Role } from "@prisma/client";
+import { ShiftType } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -47,12 +48,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   deleteSchedule,
   createSchedule,
   updateSchedule,
-  toggleScheduleAvailability,
   copySchedule,
+  setWeekSchedule,
 } from "@/lib/actions/schedule";
+import { Switch } from "@/components/ui/switch";
 
 const DAY_NAMES = [
   "Sunday",
@@ -78,7 +86,8 @@ interface StaffWithSchedules {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
+  role: string;
+  roleLabel?: string;
   schedules: Schedule[];
 }
 
@@ -106,10 +115,26 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
   const [copyToStaffId, setCopyToStaffId] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Bulk week schedule state
+  type ShiftEntry = { startTime: string; endTime: string; shiftType: ShiftType };
+  type DayEntry = { enabled: boolean; shifts: ShiftEntry[] };
+  const defaultShift = (): ShiftEntry => ({
+    startTime: "09:00",
+    endTime: "17:00",
+    shiftType: ShiftType.REGULAR,
+  });
+  const [weekDialog, setWeekDialog] = useState<{ staffId: string; staffName: string } | null>(null);
+  const [weekDays, setWeekDays] = useState<DayEntry[]>(() =>
+    DAY_NAMES.map(() => ({ enabled: false, shifts: [defaultShift()] }))
+  );
+
   // Form state
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [shiftType, setShiftType] = useState<ShiftType>(ShiftType.REGULAR);
+  // Pending availability for the edit dialog — committed on Save, discarded on close.
+  // Avoids the old behaviour where "Mark Off" mutated the server immediately.
+  const [pendingIsAvailable, setPendingIsAvailable] = useState(true);
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
@@ -120,10 +145,12 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
       setStartTime(schedule.startTime);
       setEndTime(schedule.endTime);
       setShiftType(schedule.shiftType);
+      setPendingIsAvailable(schedule.isAvailable);
     } else {
       setStartTime("09:00");
       setEndTime("17:00");
       setShiftType(ShiftType.REGULAR);
+      setPendingIsAvailable(true);
     }
     setEditingSchedule({ staffId, dayOfWeek, schedule });
   };
@@ -139,7 +166,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
         startTime,
         endTime,
         shiftType,
-        isAvailable: true,
+        isAvailable: pendingIsAvailable,
       };
 
       let result;
@@ -174,15 +201,6 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
     }
   };
 
-  const handleToggleAvailability = async (id: string) => {
-    const result = await toggleScheduleAvailability(id);
-    if (result.success) {
-      toast.success("Availability toggled");
-      router.refresh();
-    } else {
-      toast.error(result.error);
-    }
-  };
 
   const handleCopySchedule = async () => {
     if (!copyDialog || !copyToStaffId) return;
@@ -194,6 +212,160 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
         toast.success("Schedule copied successfully");
         setCopyDialog(null);
         setCopyToStaffId("");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openWeekDialog = (staff: StaffWithSchedules) => {
+    const days: DayEntry[] = DAY_NAMES.map((_, dayIndex) => {
+      // Skip shifts marked off (isAvailable: false) so re-saving the week doesn't
+      // silently un-mark-off days the admin previously hid via the single-shift dialog.
+      const shifts = staff.schedules
+        .filter((s) => s.dayOfWeek === dayIndex && s.isAvailable)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime))
+        .map<ShiftEntry>((s) => ({
+          startTime: s.startTime,
+          endTime: s.endTime,
+          shiftType: s.shiftType,
+        }));
+      if (shifts.length > 0) {
+        return { enabled: true, shifts };
+      }
+      return { enabled: false, shifts: [defaultShift()] };
+    });
+    setWeekDays(days);
+    setWeekDialog({ staffId: staff.id, staffName: `${staff.firstName} ${staff.lastName}` });
+  };
+
+  const setDayEnabled = (dayIndex: number, enabled: boolean) => {
+    setWeekDays((prev) =>
+      prev.map((d, i) => {
+        if (i !== dayIndex) return d;
+        // When enabling a day with no shifts, seed a default shift
+        const shifts = enabled && d.shifts.length === 0 ? [defaultShift()] : d.shifts;
+        return { ...d, enabled, shifts };
+      })
+    );
+  };
+
+  const addShift = (dayIndex: number) => {
+    setWeekDays((prev) =>
+      prev.map((d, i) => {
+        if (i !== dayIndex) return d;
+        // Auto-relabel: a day becoming multi-shift can no longer carry "Regular" labels
+        // (Regular means "the one continuous shift that day"). Opening/Closing/Split stay.
+        const relabeledExisting = d.shifts.map((s) =>
+          s.shiftType === ShiftType.REGULAR ? { ...s, shiftType: ShiftType.SPLIT } : s
+        );
+        const newShift: ShiftEntry = { ...defaultShift(), shiftType: ShiftType.SPLIT };
+        return { ...d, shifts: [...relabeledExisting, newShift] };
+      })
+    );
+  };
+
+  const removeShift = (dayIndex: number, shiftIndex: number) => {
+    setWeekDays((prev) =>
+      prev.map((d, i) => {
+        if (i !== dayIndex) return d;
+        const nextShifts = d.shifts.filter((_, si) => si !== shiftIndex);
+        // Removing the last shift auto-unchecks the day; reseed a default so re-enable works
+        if (nextShifts.length === 0) {
+          return { ...d, enabled: false, shifts: [defaultShift()] };
+        }
+        // Auto-relabel: if exactly one Split shift remains, flip it back to Regular
+        // (it's no longer "part of a split" — it's the day's only shift now).
+        // Opening/Closing labels are preserved (user picked them explicitly).
+        if (nextShifts.length === 1 && nextShifts[0].shiftType === ShiftType.SPLIT) {
+          return { ...d, shifts: [{ ...nextShifts[0], shiftType: ShiftType.REGULAR }] };
+        }
+        return { ...d, shifts: nextShifts };
+      })
+    );
+  };
+
+  const updateShift = (dayIndex: number, shiftIndex: number, updates: Partial<ShiftEntry>) => {
+    setWeekDays((prev) =>
+      prev.map((d, i) => {
+        if (i !== dayIndex) return d;
+        return {
+          ...d,
+          shifts: d.shifts.map((s, si) => (si === shiftIndex ? { ...s, ...updates } : s)),
+        };
+      })
+    );
+  };
+
+  const applyToWeekdays = () => {
+    const monday = weekDays[1];
+    setWeekDays((prev) =>
+      prev.map((d, i) =>
+        i >= 1 && i <= 5
+          ? {
+              ...d,
+              enabled: monday.enabled,
+              shifts: monday.shifts.map((s) => ({ ...s })),
+            }
+          : d
+      )
+    );
+  };
+
+  // Convert "HH:mm" to minutes since midnight for overlap checks
+  const toMinutes = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  // Per-day client-side overlap detection. Returns an array of error messages indexed by day.
+  const dayOverlapErrors: (string | null)[] = weekDays.map((day) => {
+    if (!day.enabled) return null;
+    for (let i = 0; i < day.shifts.length; i++) {
+      const a = day.shifts[i];
+      const aStart = toMinutes(a.startTime);
+      const aEnd = toMinutes(a.endTime);
+      if (aEnd <= aStart) {
+        return "End time must be after start time";
+      }
+      if (day.shifts.length < 2) continue;
+      for (let j = i + 1; j < day.shifts.length; j++) {
+        const b = day.shifts[j];
+        const bStart = toMinutes(b.startTime);
+        const bEnd = toMinutes(b.endTime);
+        if (aStart < bEnd && aEnd > bStart) {
+          return "Shifts overlap";
+        }
+      }
+    }
+    return null;
+  });
+  const hasAnyOverlap = dayOverlapErrors.some((e) => e !== null);
+
+  const handleSaveWeekSchedule = async () => {
+    if (!weekDialog) return;
+
+    const schedules = weekDays.flatMap((day, index) =>
+      day.enabled
+        ? day.shifts.map((shift) => ({
+            dayOfWeek: index,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            shiftType: shift.shiftType,
+            isAvailable: true,
+          }))
+        : []
+    );
+
+    setIsSubmitting(true);
+    try {
+      const result = await setWeekSchedule({ staffId: weekDialog.staffId, schedules });
+      if (result.success) {
+        toast.success("Week schedule saved");
+        setWeekDialog(null);
         router.refresh();
       } else {
         toast.error(result.error);
@@ -293,7 +465,7 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                             {staff.firstName} {staff.lastName}
                           </p>
                           <p className="text-xs text-muted-foreground capitalize">
-                            {staff.role.toLowerCase().replace("_", " ")}
+                            {staff.roleLabel || staff.role.toLowerCase().replaceAll("_", " ")}
                           </p>
                         </div>
                       </div>
@@ -342,15 +514,26 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                     })}
                     {canManage && (
                       <td className="p-2 text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => setCopyDialog({ fromStaffId: staff.id, fromName: `${staff.firstName} ${staff.lastName}` })}
-                          title="Copy schedule"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => openWeekDialog(staff)}
+                            title="Set week schedule"
+                          >
+                            <CalendarDays className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => setCopyDialog({ fromStaffId: staff.id, fromName: `${staff.firstName} ${staff.lastName}` })}
+                            title="Copy schedule"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -422,15 +605,23 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
                 </SelectContent>
               </Select>
             </div>
+            {editingSchedule?.schedule &&
+              pendingIsAvailable !== editingSchedule.schedule.isAvailable && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                  {pendingIsAvailable
+                    ? "This shift will be marked available when you save."
+                    : "This shift will be marked off when you save."}
+                </div>
+              )}
           </div>
           <DialogFooter className="flex gap-2">
             {editingSchedule?.schedule && (
               <>
                 <Button
                   variant="outline"
-                  onClick={() => handleToggleAvailability(editingSchedule.schedule!.id)}
+                  onClick={() => setPendingIsAvailable((prev) => !prev)}
                 >
-                  {editingSchedule.schedule.isAvailable ? (
+                  {pendingIsAvailable ? (
                     <>
                       <X className="h-4 w-4 mr-1" /> Mark Off
                     </>
@@ -490,6 +681,140 @@ export function ScheduleWeekView({ staffWithSchedules, canManage }: ScheduleWeek
             </Button>
             <Button onClick={handleCopySchedule} disabled={!copyToStaffId || isSubmitting}>
               {isSubmitting ? "Copying..." : "Copy Schedule"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set Week Schedule Dialog */}
+      <Dialog open={!!weekDialog} onOpenChange={() => setWeekDialog(null)}>
+        <DialogContent className="sm:max-w-fit max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Set Week Schedule</DialogTitle>
+            <DialogDescription>
+              Set {weekDialog?.staffName}&apos;s entire week at once. This will replace their current schedule.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex justify-end">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={!weekDays[1]?.enabled ? 0 : -1}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={applyToWeekdays}
+                        disabled={!weekDays[1]?.enabled}
+                      >
+                        Apply Monday to all weekdays
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {!weekDays[1]?.enabled
+                      ? "Enable Monday first to apply it to other weekdays"
+                      : "Copy Monday's shifts to Tuesday through Friday"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            {DAY_NAMES.map((day, index) => {
+              const dayEntry = weekDays[index];
+              const overlapError = dayOverlapErrors[index];
+              return (
+                <div
+                  key={index}
+                  className={`p-3 rounded-lg border ${
+                    dayEntry.enabled ? "bg-background" : "bg-muted/50"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex items-center gap-3 w-24 shrink-0 pt-1">
+                      <Switch
+                        checked={dayEntry.enabled}
+                        onCheckedChange={(checked) => setDayEnabled(index, checked)}
+                        aria-label={`Enable ${day}`}
+                      />
+                      <span className="text-sm font-medium">{day.slice(0, 3)}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {dayEntry.enabled ? (
+                        <div className="space-y-2">
+                          {dayEntry.shifts.map((shift, shiftIndex) => (
+                            <div key={shiftIndex} className="flex items-center gap-2">
+                              <Input
+                                type="time"
+                                value={shift.startTime}
+                                onChange={(e) =>
+                                  updateShift(index, shiftIndex, { startTime: e.target.value })
+                                }
+                                className="w-[120px] h-8 text-sm"
+                              />
+                              <span className="text-muted-foreground text-xs">to</span>
+                              <Input
+                                type="time"
+                                value={shift.endTime}
+                                onChange={(e) =>
+                                  updateShift(index, shiftIndex, { endTime: e.target.value })
+                                }
+                                className="w-[120px] h-8 text-sm"
+                              />
+                              <Select
+                                value={shift.shiftType}
+                                onValueChange={(v) =>
+                                  updateShift(index, shiftIndex, { shiftType: v as ShiftType })
+                                }
+                              >
+                                <SelectTrigger className="w-[110px] h-8 text-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="OPENING">Opening</SelectItem>
+                                  <SelectItem value="REGULAR">Regular</SelectItem>
+                                  <SelectItem value="CLOSING">Closing</SelectItem>
+                                  <SelectItem value="SPLIT">Split</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive shrink-0"
+                                onClick={() => removeShift(index, shiftIndex)}
+                                aria-label="Remove shift"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs border-dashed text-primary hover:text-primary"
+                            onClick={() => addShift(index)}
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Add shift
+                          </Button>
+                          {overlapError && (
+                            <p className="text-xs text-destructive mt-1">{overlapError}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground italic">Day off</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setWeekDialog(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveWeekSchedule} disabled={isSubmitting || hasAnyOverlap}>
+              {isSubmitting ? "Saving..." : "Save Week Schedule"}
             </Button>
           </DialogFooter>
         </DialogContent>

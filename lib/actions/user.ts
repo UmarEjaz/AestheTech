@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { canManageRole } from "@/lib/permissions";
-import { checkAuth } from "@/lib/auth-helpers";
+import { canManageRole, hasPermission } from "@/lib/permissions";
+import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
+import { SYSTEM_ROLES } from "@/lib/roles";
 import {
   userSchema,
   userUpdateSchema,
@@ -13,7 +14,6 @@ import {
   PasswordChangeData,
   UserSearchParams,
 } from "@/lib/validations/user";
-import { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
@@ -24,7 +24,9 @@ export type UserListItem = {
   lastName: string;
   email: string;
   phone: string | null;
-  role: Role;
+  role: string;        // Slug (e.g., "owner") — for matching/logic
+  roleName: string;    // Display name (e.g., "Owner") — for UI
+  roleColor: string;   // Hex color (e.g., "#9333EA") — for badge styling
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -40,8 +42,12 @@ export type UserDetail = {
   lastName: string;
   email: string;
   phone: string | null;
-  role: Role;
+  role: string;
+  roleLabel: string;
+  roleColor: string;
+  roleDefinitionId: string | null;
   isActive: boolean;
+  isServiceProvider: boolean;
   createdAt: Date;
   updatedAt: Date;
   appointments: {
@@ -88,51 +94,81 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
   const skip = (safePage - 1) * safeLimit;
 
   try {
+    // Resolve staff via branch membership (UserSalon). `User.salonId` is volatile (it's
+    // the user's last-used branch), so it can't be used to determine who works here.
+    // Pulling the role from UserSalon also gives this user's role AT THIS BRANCH.
     const where = {
       salonId: authResult.salonId,
-      ...(role && { role }),
-      ...(isActive !== undefined && { isActive }),
-      ...(query && {
-        OR: [
-          { firstName: { contains: query, mode: "insensitive" as const } },
-          { lastName: { contains: query, mode: "insensitive" as const } },
-          { email: { contains: query, mode: "insensitive" as const } },
-          { phone: { contains: query } },
-        ],
-      }),
+      isActive: true,
+      ...(role && { roleDefinitionId: role }),
+      ...(query || isActive !== undefined
+        ? {
+            user: {
+              ...(isActive !== undefined && { isActive }),
+              ...(query && {
+                OR: [
+                  { firstName: { contains: query, mode: "insensitive" as const } },
+                  { lastName: { contains: query, mode: "insensitive" as const } },
+                  { email: { contains: query, mode: "insensitive" as const } },
+                  { phone: { contains: query } },
+                ],
+              }),
+            },
+          }
+        : {}),
     };
 
-    const [users, total] = await Promise.all([
-      prisma.user.findMany({
+    const [userSalons, total] = await Promise.all([
+      prisma.userSalon.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: { user: { createdAt: "desc" } },
         skip,
         take: safeLimit,
         select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phone: true,
-          role: true,
-          isActive: true,
-          createdAt: true,
-          updatedAt: true,
-          _count: {
+          roleDefinitionId: true,
+          roleDefinition: { select: { slug: true, name: true, color: true } },
+          user: {
             select: {
-              appointments: { where: { salonId: authResult.salonId } },
-              sales: { where: { salonId: authResult.salonId } },
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              isActive: true,
+              createdAt: true,
+              updatedAt: true,
+              _count: {
+                select: {
+                  appointments: { where: { salonId: authResult.salonId } },
+                  sales: { where: { salonId: authResult.salonId } },
+                },
+              },
             },
           },
         },
       }),
-      prisma.user.count({ where }),
+      prisma.userSalon.count({ where }),
     ]);
+
+    const mappedUsers: UserListItem[] = userSalons.map((us) => ({
+      id: us.user.id,
+      firstName: us.user.firstName,
+      lastName: us.user.lastName,
+      email: us.user.email,
+      phone: us.user.phone,
+      role: us.roleDefinition?.slug ?? "",
+      roleName: us.roleDefinition?.name ?? "",
+      roleColor: us.roleDefinition?.color ?? "#6B7280",
+      isActive: us.user.isActive,
+      createdAt: us.user.createdAt,
+      updatedAt: us.user.updatedAt,
+      _count: us.user._count,
+    }));
 
     return {
       success: true,
       data: {
-        users: users as UserListItem[],
+        users: mappedUsers,
         total,
         page: safePage,
         totalPages: Math.max(1, Math.ceil(total / safeLimit)),
@@ -159,9 +195,11 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
         lastName: true,
         email: true,
         phone: true,
-        role: true,
+        roleDefinitionId: true,
+        roleDefinition: { select: { name: true, slug: true, color: true } },
         salonId: true,
         isActive: true,
+        isServiceProvider: true,
         createdAt: true,
         updatedAt: true,
         appointments: {
@@ -209,7 +247,7 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       return { success: false, error: "User is not a member of this salon" };
     }
 
-    if (!user.role) {
+    if (!user.roleDefinitionId) {
       return { success: false, error: "User has no role assigned" };
     }
 
@@ -219,8 +257,12 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       lastName: user.lastName,
       email: user.email,
       phone: user.phone,
-      role: user.role,
+      role: user.roleDefinition?.slug ?? "",
+      roleLabel: user.roleDefinition?.name ?? "",
+      roleColor: user.roleDefinition?.color ?? "#6B7280",
+      roleDefinitionId: user.roleDefinitionId,
       isActive: user.isActive,
+      isServiceProvider: user.isServiceProvider,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       appointments: user.appointments,
@@ -248,10 +290,10 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { confirmPassword, role, ...userData } = validationResult.data;
+  const { confirmPassword, role: roleDefinitionId, ...userData } = validationResult.data;
 
   // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, role, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.roleId, roleDefinitionId, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot create a user with this role" };
   }
 
@@ -276,8 +318,9 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
         email: userData.email,
         password: hashedPassword,
         phone: userData.phone || null,
+        isServiceProvider: data.isServiceProvider ?? false,
         salonId: authResult.salonId,
-        role,
+        roleDefinitionId,
       },
     });
 
@@ -285,7 +328,7 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
       data: {
         userId: newUser.id,
         salonId: authResult.salonId,
-        role,
+        roleDefinitionId,
       },
     });
 
@@ -298,7 +341,7 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
     entityId: user.id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { email: userData.email, role, firstName: userData.firstName, lastName: userData.lastName },
+    details: { email: userData.email, roleDefinitionId, firstName: userData.firstName, lastName: userData.lastName },
   });
 
   revalidatePath("/dashboard/staff");
@@ -307,7 +350,7 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
 }
 
 export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("staff:update");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -318,7 +361,18 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { id, role: newRole, ...updateData } = validationResult.data;
+  const { id, role: newRoleDefId, ...updateData } = validationResult.data;
+
+  const isSelfEdit = id === authResult.userId;
+
+  // Self-edit: anyone can update their own profile (name, phone, email)
+  // Editing others: requires staff:update permission + hierarchy check
+  if (!isSelfEdit) {
+    const hasUpdatePerm = await hasPermission(authResult.roleId || null, "staff:update", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    if (!hasUpdatePerm) {
+      return { success: false, error: "Unauthorized" };
+    }
+  }
 
   // Get current user data
   const existingUser = await prisma.user.findUnique({
@@ -333,20 +387,34 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     return { success: false, error: "User is not a member of this salon" };
   }
 
-  const existingRole = existingUser.role;
-  if (!existingRole) {
+  const existingRoleDefId = existingUser.roleDefinitionId;
+  if (!existingRoleDefId) {
     return { success: false, error: "User has no role assigned" };
   }
 
-  // Check if the user can manage the target role
-  if (!canManageRole(authResult.role, existingRole, authResult.isSuperAdmin)) {
-    return { success: false, error: "You cannot modify this user" };
-  }
+  if (isSelfEdit) {
+    // Self-edit: block role changes
+    if (newRoleDefId && newRoleDefId !== existingRoleDefId) {
+      return { success: false, error: "You cannot change your own role" };
+    }
 
-  // If changing role, check if can assign new role
-  if (newRole && newRole !== existingRole) {
-    if (!canManageRole(authResult.role, newRole, authResult.isSuperAdmin)) {
-      return { success: false, error: "You cannot assign this role" };
+    // Self-edit: only Owner can toggle isServiceProvider for themselves
+    if (updateData.isServiceProvider !== undefined && updateData.isServiceProvider !== existingUser.isServiceProvider) {
+      if (authResult.role !== SYSTEM_ROLES.OWNER && !authResult.isSuperAdmin) {
+        return { success: false, error: "You can't change your own service provider status. Ask the salon owner to update it for you." };
+      }
+    }
+  } else {
+    // Editing others: check hierarchy
+    if (!(await canManageRole(authResult.roleId, existingRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
+      return { success: false, error: "You cannot modify this user" };
+    }
+
+    // If changing role, check if can assign new role
+    if (newRoleDefId && newRoleDefId !== existingRoleDefId) {
+      if (!(await canManageRole(authResult.roleId, newRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
+        return { success: false, error: "You cannot assign this role" };
+      }
     }
   }
 
@@ -360,7 +428,7 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     }
   }
 
-  // Update user and sync UserSalon role if changed
+  // Update user and sync UserSalon roleDefinitionId if changed
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
       where: { id, salonId: authResult.salonId },
@@ -369,24 +437,25 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
         lastName: updateData.lastName,
         email: updateData.email,
         phone: updateData.phone || null,
-        ...(newRole && newRole !== existingRole && { role: newRole }),
+        ...(!isSelfEdit && newRoleDefId && newRoleDefId !== existingRoleDefId && { roleDefinitionId: newRoleDefId }),
         ...(updateData.isActive !== undefined && { isActive: updateData.isActive }),
+        ...(updateData.isServiceProvider !== undefined && { isServiceProvider: updateData.isServiceProvider }),
       },
     });
 
-    // Keep UserSalon.role in sync with the denormalized User.role
-    if (newRole && newRole !== existingRole) {
+    // Keep UserSalon.roleDefinitionId in sync with the denormalized User.roleDefinitionId
+    if (!isSelfEdit && newRoleDefId && newRoleDefId !== existingRoleDefId) {
       await tx.userSalon.upsert({
         where: { userId_salonId: { userId: id, salonId: authResult.salonId } },
-        update: { role: newRole },
-        create: { userId: id, salonId: authResult.salonId, role: newRole },
+        update: { roleDefinitionId: newRoleDefId },
+        create: { userId: id, salonId: authResult.salonId, roleDefinitionId: newRoleDefId },
       });
     }
   });
 
   const changes: Record<string, { from: string; to: string }> = {};
   if (updateData.email !== existingUser.email) changes.email = { from: existingUser.email, to: updateData.email };
-  if (newRole && newRole !== existingRole) changes.role = { from: existingRole, to: newRole };
+  if (newRoleDefId && newRoleDefId !== existingRoleDefId) changes.roleDefinitionId = { from: existingRoleDefId, to: newRoleDefId };
   if (updateData.firstName !== existingUser.firstName) changes.firstName = { from: existingUser.firstName, to: updateData.firstName };
   if (updateData.lastName !== existingUser.lastName) changes.lastName = { from: existingUser.lastName, to: updateData.lastName };
 
@@ -432,13 +501,13 @@ export async function changePassword(data: PasswordChangeData): Promise<ActionRe
     return { success: false, error: "User is not a member of this salon" };
   }
 
-  const targetRole = existingUser.role;
-  if (!targetRole) {
+  const targetRoleDefId = existingUser.roleDefinitionId;
+  if (!targetRoleDefId) {
     return { success: false, error: "User has no role assigned" };
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot modify this user's password" };
   }
 
@@ -482,13 +551,13 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
     return { success: false, error: "User is not a member of this salon" };
   }
 
-  const targetRole = existingUser.role;
-  if (!targetRole) {
+  const targetRoleDefId = existingUser.roleDefinitionId;
+  if (!targetRoleDefId) {
     return { success: false, error: "User has no role assigned" };
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot modify this user" };
   }
 
@@ -509,7 +578,7 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
     entityId: id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { targetUser: existingUser.email, targetRole },
+    details: { targetUser: existingUser.email, targetRoleDefId },
   });
 
   revalidatePath("/dashboard/staff");
@@ -546,13 +615,13 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     return { success: false, error: "User is not a member of this salon" };
   }
 
-  const targetRole = existingUser.role;
-  if (!targetRole) {
+  const targetRoleDefId = existingUser.roleDefinitionId;
+  if (!targetRoleDefId) {
     return { success: false, error: "User has no role assigned" };
   }
 
   // Check if the user can manage the target user
-  if (!canManageRole(authResult.role, targetRole, authResult.isSuperAdmin)) {
+  if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You cannot delete this user" };
   }
 
@@ -580,7 +649,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     entityId: id,
     userId: authResult.userId,
     userRole: authResult.role,
-    details: { email: existingUser.email, role: targetRole, firstName: existingUser.firstName, lastName: existingUser.lastName },
+    details: { email: existingUser.email, roleDefinitionId: targetRoleDefId, firstName: existingUser.firstName, lastName: existingUser.lastName },
   });
 
   revalidatePath("/dashboard/staff");
@@ -589,7 +658,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
 }
 
 // Get all active staff members (for dropdowns)
-export async function getActiveStaff(branchFilter: "current" | "all" = "current"): Promise<ActionResult<{ id: string; firstName: string; lastName: string; role: Role }[]>> {
+export async function getActiveStaff(branchFilter: "current" | "all" = "current"): Promise<ActionResult<{ id: string; firstName: string; lastName: string; role: string }[]>> {
   const authResult = await checkAuth("staff:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
@@ -597,27 +666,48 @@ export async function getActiveStaff(branchFilter: "current" | "all" = "current"
 
   try {
     let salonFilter: string | { in: string[] } = authResult.salonId;
-    if (branchFilter === "all" && authResult.role === "OWNER") {
+    const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+    if (branchFilter === "all" && canViewAllBranches) {
       const { getOrganizationSalonIds } = await import("./branch");
       const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
       salonFilter = { in: orgSalonIds };
     }
 
-    const staff = await prisma.user.findMany({
+    const memberships = await prisma.userSalon.findMany({
       where: {
         salonId: salonFilter,
         isActive: true,
+        user: { isActive: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        role: true,
+        roleDefinitionId: true,
+        roleDefinition: { select: { name: true } },
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
-      orderBy: { firstName: "asc" },
+      orderBy: { user: { firstName: "asc" } },
     });
 
-    return { success: true, data: staff as { id: string; firstName: string; lastName: string; role: Role }[] };
+    const staff = Array.from(
+      new Map(
+        memberships.map((m) => [
+          m.user.id,
+          {
+            id: m.user.id,
+            firstName: m.user.firstName,
+            lastName: m.user.lastName,
+            role: m.roleDefinition.name,
+          },
+        ])
+      ).values()
+    );
+
+    return { success: true, data: staff };
   } catch (error) {
     console.error("Error fetching staff:", error);
     return { success: false, error: "Failed to fetch staff" };

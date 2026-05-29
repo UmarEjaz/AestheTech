@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
-import { Role } from "@prisma/client";
 import { logAudit } from "./audit";
 
 /**
@@ -14,14 +13,32 @@ import { logAudit } from "./audit";
 export async function assignStaffToBranch(
   userId: string,
   targetSalonId: string,
-  role: Role
+  roleDefinitionId: string
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("branches:manage");
+  const authResult = await checkAuth("staff:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
+    // Validate role exists (system or salon-scoped)
+    const roleDef = await prisma.roleDefinition.findFirst({
+      where: {
+        id: roleDefinitionId,
+        OR: [{ isSystem: true }, { salonId: targetSalonId }],
+      },
+      select: { id: true, name: true },
+    });
+    if (!roleDef) {
+      return { success: false, error: "Invalid role" };
+    }
+
+    // Enforce hierarchy — caller must outrank the role being assigned
+    const { canManageRole } = await import("@/lib/permissions");
+    if (!(await canManageRole(authResult.roleId, roleDefinitionId, authResult.isSuperAdmin, targetSalonId))) {
+      return { success: false, error: "Cannot assign a role above your level" };
+    }
+
     // Verify same organization
     const [currentSalon, targetSalon] = await Promise.all([
       prisma.salon.findUnique({
@@ -82,7 +99,7 @@ export async function assignStaffToBranch(
       // Reactivate
       await prisma.userSalon.update({
         where: { id: existing.id },
-        data: { isActive: true, role },
+        data: { isActive: true, roleDefinitionId },
       });
 
       await logAudit({
@@ -95,7 +112,7 @@ export async function assignStaffToBranch(
           staffEmail: user.email,
           staffName: `${user.firstName} ${user.lastName}`,
           targetBranch: targetSalon.name,
-          role,
+          roleDefinitionId,
         },
       });
 
@@ -105,7 +122,7 @@ export async function assignStaffToBranch(
 
     // Create new assignment
     const userSalon = await prisma.userSalon.create({
-      data: { userId, salonId: targetSalonId, role },
+      data: { userId, salonId: targetSalonId, roleDefinitionId },
     });
 
     await logAudit({
@@ -118,7 +135,7 @@ export async function assignStaffToBranch(
         staffEmail: user.email,
         staffName: `${user.firstName} ${user.lastName}`,
         targetBranch: targetSalon.name,
-        role,
+        roleDefinitionId,
       },
     });
 
@@ -138,7 +155,7 @@ export async function removeStaffFromBranch(
   userId: string,
   salonId: string
 ): Promise<ActionResult> {
-  const authResult = await checkAuth("branches:manage");
+  const authResult = await checkAuth("staff:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -186,6 +203,12 @@ export async function removeStaffFromBranch(
       return { success: false, error: "User is not assigned to this branch" };
     }
 
+    // Enforce hierarchy — caller must outrank the user's role at the target branch
+    const { canManageRole } = await import("@/lib/permissions");
+    if (!(await canManageRole(authResult.roleId, userSalon.roleDefinitionId, authResult.isSuperAdmin, salonId))) {
+      return { success: false, error: "Cannot remove a user with a role above your level" };
+    }
+
     // Ensure user has at least one other active salon
     const otherSalons = await prisma.userSalon.findMany({
       where: {
@@ -219,7 +242,7 @@ export async function removeStaffFromBranch(
           where: { id: userId },
           data: {
             salonId: fallback.salon.id,
-            role: fallback.role,
+            roleDefinitionId: fallback.roleDefinitionId,
           },
         });
       }
@@ -252,8 +275,8 @@ export async function removeStaffFromBranch(
  */
 export async function getAvailableStaffForBranch(
   targetSalonId: string
-): Promise<ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: Role }[]>> {
-  const authResult = await checkAuth("branches:manage");
+): Promise<ActionResult<{ id: string; firstName: string; lastName: string; email: string; role: string; roleName: string }[]>> {
+  const authResult = await checkAuth("staff:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -281,6 +304,11 @@ export async function getAvailableStaffForBranch(
 
     const orgSalonIds = orgSalons.map((s) => s.id);
 
+    // Verify target branch belongs to this organization
+    if (!orgSalonIds.includes(targetSalonId)) {
+      return { success: false, error: "Target branch is not in your organization" };
+    }
+
     // Get users already assigned to target branch
     const assignedUserIds = (
       await prisma.userSalon.findMany({
@@ -301,6 +329,9 @@ export async function getAvailableStaffForBranch(
         user: {
           select: { id: true, firstName: true, lastName: true, email: true },
         },
+        roleDefinition: {
+          select: { slug: true, name: true },
+        },
       },
       distinct: ["userId"],
     });
@@ -310,7 +341,8 @@ export async function getAvailableStaffForBranch(
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.role,
+      role: us.roleDefinition.slug,
+      roleName: us.roleDefinition.name,
     }));
 
     return { success: true, data: result };

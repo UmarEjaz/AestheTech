@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
 import { branchSchema, BranchFormData } from "@/lib/validations/branch";
-import { Role } from "@prisma/client";
+import { SYSTEM_ROLES } from "@/lib/roles";
 import { logAudit } from "./audit";
 
 /**
@@ -66,7 +66,9 @@ export type BranchDetail = BranchListItem & {
     firstName: string;
     lastName: string;
     email: string;
-    role: Role;
+    role: string;       // Slug — for matching/logic
+    roleName: string;   // Display name — for UI
+    roleColor: string;  // Hex color — for badge styling
     isActive: boolean;
   }[];
 };
@@ -131,7 +133,7 @@ export async function getBranches(): Promise<ActionResult<BranchListItem[]>> {
 export async function createBranch(
   data: BranchFormData
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("branches:manage");
+  const authResult = await checkAuth("branches:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -164,7 +166,16 @@ export async function createBranch(
 
     const parentId = currentSalon.parentSalonId || currentSalon.id;
 
-    // Create branch salon with settings in a transaction
+    // Look up the OWNER RoleDefinition ID (Owner is global — system roles share salonId=null)
+    const ownerRoleDef = await prisma.roleDefinition.findFirst({
+      where: { slug: SYSTEM_ROLES.OWNER, isSystem: true },
+      select: { id: true },
+    });
+    if (!ownerRoleDef) {
+      return { success: false, error: "System role OWNER not found" };
+    }
+
+    // Create branch salon with settings + per-salon default roles in a transaction
     const branch = await prisma.$transaction(async (tx) => {
       const newBranch = await tx.salon.create({
         data: {
@@ -190,14 +201,24 @@ export async function createBranch(
         },
       });
 
+      // Seed per-salon Admin/Staff/Receptionist roles for this branch.
+      // Must happen inside the transaction so permission seeding (below) can resolve them.
+      const { seedDefaultSalonRoles } = await import("@/lib/actions/role");
+      await seedDefaultSalonRoles(newBranch.id, tx);
+
       // Give the current user (Owner) access to the new branch
       await tx.userSalon.create({
         data: {
           userId: authResult.userId,
           salonId: newBranch.id,
-          role: Role.OWNER,
+          roleDefinitionId: ownerRoleDef.id,
         },
       });
+
+      // Seed default permissions inside the same transaction so a failure here rolls back
+      // everything — no half-built branch with rows but no permissions.
+      const { seedPermissionsForSalon } = await import("@/lib/seed-permissions");
+      await seedPermissionsForSalon(newBranch.id, tx);
 
       return newBranch;
     });
@@ -286,6 +307,9 @@ export async function getBranchDetail(
             isActive: true,
           },
         },
+        roleDefinition: {
+          select: { slug: true, name: true, color: true },
+        },
       },
       orderBy: { user: { firstName: "asc" } },
     });
@@ -295,7 +319,9 @@ export async function getBranchDetail(
       firstName: us.user.firstName,
       lastName: us.user.lastName,
       email: us.user.email,
-      role: us.role,
+      role: us.roleDefinition.slug,
+      roleName: us.roleDefinition.name,
+      roleColor: us.roleDefinition.color,
       isActive: us.user.isActive,
     }));
 

@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { checkAuth } from "@/lib/auth-helpers";
+import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
+import { hasAnyPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
 import { expenseCategorySchema, ExpenseCategoryInput } from "@/lib/validations/expense";
 import { getOrgRootSalonId } from "./branch";
@@ -57,9 +58,22 @@ async function ensureDefaultCategories(orgRootSalonId: string): Promise<void> {
 /**
  * Get all expense categories for the organization.
  */
-export async function getExpenseCategories(): Promise<ActionResult<ExpenseCategoryItem[]>> {
-  const authResult = await checkAuth("expense-categories:view");
+export async function getAllExpenseCategories(): Promise<ActionResult<ExpenseCategoryItem[]>> {
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage expenses (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  // The category-management page still requires the explicit `expense-categories:view`.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["expense-categories:view", "expenses:create", "expenses:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -68,7 +82,7 @@ export async function getExpenseCategories(): Promise<ActionResult<ExpenseCatego
     await ensureDefaultCategories(orgRootId);
 
     const categories = await prisma.expenseCategory.findMany({
-      where: { salonId: orgRootId },
+      where: { salonId: orgRootId, deletedAt: null },
       select: {
         id: true,
         name: true,
@@ -94,8 +108,20 @@ export async function getExpenseCategories(): Promise<ActionResult<ExpenseCatego
 export async function getActiveExpenseCategories(): Promise<
   ActionResult<{ id: string; name: string; icon: string | null; color: string | null }[]>
 > {
-  const authResult = await checkAuth("expenses:view");
+  const authResult = await checkAuthBasic();
   if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+  // Shopify-style implicit bundling: any role authorised to manage expenses (create or
+  // update) implicitly gets read access to the category catalog needed to fill the form.
+  const canRead = await hasAnyPermission(
+    authResult.roleId || null,
+    ["expense-categories:view", "expenses:create", "expenses:update"],
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
+  if (!canRead) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -104,7 +130,7 @@ export async function getActiveExpenseCategories(): Promise<
     await ensureDefaultCategories(orgRootId);
 
     const categories = await prisma.expenseCategory.findMany({
-      where: { salonId: orgRootId, isActive: true },
+      where: { salonId: orgRootId, isActive: true, deletedAt: null },
       select: { id: true, name: true, icon: true, color: true },
       orderBy: { name: "asc" },
     });
@@ -122,7 +148,7 @@ export async function getActiveExpenseCategories(): Promise<
 export async function createExpenseCategory(
   data: ExpenseCategoryInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("expense-categories:manage");
+  const authResult = await checkAuth("expense-categories:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -156,6 +182,7 @@ export async function createExpenseCategory(
     });
 
     revalidatePath("/dashboard/expenses");
+    revalidatePath("/dashboard/expenses/categories");
     return { success: true, data: { id: category.id } };
   } catch (error) {
     if (
@@ -176,7 +203,7 @@ export async function updateExpenseCategory(
   id: string,
   data: ExpenseCategoryInput
 ): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("expense-categories:manage");
+  const authResult = await checkAuth("expense-categories:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -191,17 +218,21 @@ export async function updateExpenseCategory(
   try {
     const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
-    // Verify the category belongs to this org
+    // Fetch existing for audit-log purposes only (we need the previous name)
     const existing = await prisma.expenseCategory.findFirst({
-      where: { id, salonId: orgRootId },
+      where: { id, salonId: orgRootId, deletedAt: null },
+      select: { name: true },
     });
 
     if (!existing) {
       return { success: false, error: "Category not found" };
     }
 
-    const category = await prisma.expenseCategory.update({
-      where: { id },
+    // Atomic update: verification filters are part of the update itself,
+    // so a race between the find above and the write here can't silently
+    // change a category that no longer belongs to this org or got soft-deleted.
+    const result = await prisma.expenseCategory.updateMany({
+      where: { id, salonId: orgRootId, deletedAt: null },
       data: {
         name,
         icon: icon || null,
@@ -209,17 +240,22 @@ export async function updateExpenseCategory(
       },
     });
 
+    if (result.count === 0) {
+      return { success: false, error: "Category not found" };
+    }
+
     await logAudit({
       action: "EXPENSE_CATEGORY_UPDATED",
       entityType: "ExpenseCategory",
-      entityId: category.id,
+      entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
       details: { name, previousName: existing.name },
     });
 
     revalidatePath("/dashboard/expenses");
-    return { success: true, data: { id: category.id } };
+    revalidatePath("/dashboard/expenses/categories");
+    return { success: true, data: { id } };
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -238,7 +274,7 @@ export async function updateExpenseCategory(
 export async function toggleExpenseCategory(
   id: string
 ): Promise<ActionResult<{ isActive: boolean }>> {
-  const authResult = await checkAuth("expense-categories:manage");
+  const authResult = await checkAuth("expense-categories:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -247,20 +283,27 @@ export async function toggleExpenseCategory(
     const orgRootId = await getOrgRootSalonId(authResult.salonId);
 
     const existing = await prisma.expenseCategory.findFirst({
-      where: { id, salonId: orgRootId },
+      where: { id, salonId: orgRootId, deletedAt: null },
     });
 
     if (!existing) {
       return { success: false, error: "Category not found" };
     }
 
-    const updated = await prisma.expenseCategory.update({
-      where: { id },
+    // Race-safe write: filter the update with the same predicate as the existence check
+    // so a concurrent soft-delete or org reassignment between the check and the update
+    // fails closed (count === 0) instead of flipping a stale row.
+    const result = await prisma.expenseCategory.updateMany({
+      where: { id, salonId: orgRootId, deletedAt: null },
       data: { isActive: !existing.isActive },
     });
 
+    if (result.count === 0) {
+      return { success: false, error: "Category not found" };
+    }
+
     await logAudit({
-      action: updated.isActive ? "EXPENSE_CATEGORY_RESTORED" : "EXPENSE_CATEGORY_DEACTIVATED",
+      action: !existing.isActive ? "EXPENSE_CATEGORY_RESTORED" : "EXPENSE_CATEGORY_DEACTIVATED",
       entityType: "ExpenseCategory",
       entityId: id,
       userId: authResult.userId,
@@ -269,9 +312,98 @@ export async function toggleExpenseCategory(
     });
 
     revalidatePath("/dashboard/expenses");
-    return { success: true, data: { isActive: updated.isActive } };
+    revalidatePath("/dashboard/expenses/categories");
+    return { success: true, data: { isActive: !existing.isActive } };
   } catch (error) {
     console.error("Error toggling expense category:", error);
     return { success: false, error: "Failed to update expense category" };
+  }
+}
+
+/**
+ * Delete an expense category.
+ * - Hard-deletes when no references exist anywhere (excluding audit logs).
+ * - Soft-deletes (sets deletedAt) when only "other" references exist beyond Expenses.
+ * - Blocks with an error if any Expense still references it (defense-in-depth — UI also disables).
+ */
+export async function deleteExpenseCategory(
+  id: string
+): Promise<ActionResult<{ hardDeleted: boolean }>> {
+  const authResult = await checkAuth("expense-categories:delete");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+
+    const existing = await prisma.expenseCategory.findFirst({
+      where: { id, salonId: orgRootId, deletedAt: null },
+    });
+
+    if (!existing) {
+      return { success: false, error: "Category not found" };
+    }
+
+    const expensesCount = await prisma.expense.count({
+      where: { categoryId: id },
+    });
+    if (expensesCount > 0) {
+      return {
+        success: false,
+        error: `Cannot delete: ${expensesCount} expense(s) use this category. Deactivate it instead.`,
+      };
+    }
+
+    // "Other references" check — defensive future-proofing.
+    // No other tables currently reference ExpenseCategory.
+    const otherReferencesCount = 0;
+
+    const snapshot = {
+      name: existing.name,
+      icon: existing.icon,
+      color: existing.color,
+      isDefault: existing.isDefault,
+      isActive: existing.isActive,
+      createdAt: existing.createdAt,
+    };
+
+    // Race-safe write: filter the mutation with the same predicate as the existence
+    // check so a concurrent change between the check and the write fails closed.
+    let hardDeleted: boolean;
+    if (otherReferencesCount > 0) {
+      const result = await prisma.expenseCategory.updateMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
+      hardDeleted = false;
+    } else {
+      const result = await prisma.expenseCategory.deleteMany({
+        where: { id, salonId: orgRootId, deletedAt: null },
+      });
+      if (result.count === 0) {
+        return { success: false, error: "Category not found" };
+      }
+      hardDeleted = true;
+    }
+
+    await logAudit({
+      action: "EXPENSE_CATEGORY_DELETED",
+      entityType: "ExpenseCategory",
+      entityId: id,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { hardDeleted, snapshot },
+    });
+
+    revalidatePath("/dashboard/expenses");
+    revalidatePath("/dashboard/expenses/categories");
+    return { success: true, data: { hardDeleted } };
+  } catch (error) {
+    console.error("Error deleting expense category:", error);
+    return { success: false, error: "Failed to delete expense category" };
   }
 }

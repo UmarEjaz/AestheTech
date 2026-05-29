@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -11,6 +10,7 @@ import { PayrollSearch } from "@/components/payroll/payroll-search";
 import { getPayrollRuns, getPayrollSummary } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { PayrollRunStatus } from "@prisma/client";
 
 interface PageProps {
@@ -31,16 +31,20 @@ export default async function PayrollPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!hasPermission(userRole, "payroll:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["payroll:view"]);
   }
 
-  const canManage = hasPermission(userRole, "payroll:manage", isSuperAdmin);
-  const canDelete = hasPermission(userRole, "payroll:delete", isSuperAdmin);
+  const [canCreate, canCancel, canDelete] = await Promise.all([
+    hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:delete", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   const page = parseInt(params.page || "1", 10);
   const status = params.status as PayrollRunStatus | undefined;
@@ -68,7 +72,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
@@ -79,7 +83,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
   const { runs, total, totalPages } = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -96,7 +100,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
                 Salary Config
               </Link>
             </Button>
-            {canManage && (
+            {canCreate && (
               <Button asChild>
                 <Link href="/dashboard/payroll/new">
                   <Plus className="mr-2 h-4 w-4" />
@@ -121,7 +125,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
           page={page}
           totalPages={totalPages}
           total={total}
-          canManage={canManage}
+          canCancel={canCancel}
           canDelete={canDelete}
           currencyCode={currencyCode}
           timezone={timezone}

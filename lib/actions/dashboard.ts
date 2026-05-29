@@ -1,10 +1,10 @@
 "use server";
 
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { checkAuthBasic } from "@/lib/auth-helpers";
 import { hasPermission } from "@/lib/permissions";
 import { subDays, startOfDay, endOfDay } from "date-fns";
-import { Role, AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, Prisma } from "@prisma/client";
 import { getSettings } from "./settings";
 import {
   getNow,
@@ -18,46 +18,37 @@ import { ActionResult } from "@/lib/types";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { getOrganizationSalonIds, getOrgRootSalonId } from "./branch";
 
-async function checkAuth(): Promise<{ userId: string; role: Role; salonId: string; isSuperAdmin: boolean } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-  if (!session.user.salonRole) return null;
-  const salonId = session.user.salonId;
-  if (!salonId) return null;
-  return { userId: session.user.id, role: session.user.salonRole as Role, salonId, isSuperAdmin: session.user.isSuperAdmin === true };
-}
-
 // Dashboard stats
 export interface DashboardStats {
-  todaysAppointments: {
+  todaysAppointments?: {
     total: number;
     completed: number;
     remaining: number;
     cancelled: number;
   };
-  todaysRevenue: {
+  todaysRevenue?: {
     amount: number;
     salesCount: number;
     comparison: number; // percentage change from yesterday
   };
-  clients: {
+  clients?: {
     total: number;
     newThisWeek: number;
     newThisMonth: number;
   };
-  topServices: {
+  topServices?: {
     name: string;
     count: number;
     revenue: number;
   }[];
-  recentSales: {
+  recentSales?: {
     id: string;
     clientName: string;
     amount: number;
     createdAt: Date;
     invoiceNumber: string | null;
   }[];
-  upcomingAppointments: {
+  upcomingAppointments?: {
     id: string;
     clientName: string;
     serviceName: string;
@@ -65,7 +56,7 @@ export interface DashboardStats {
     startTime: Date;
     status: AppointmentStatus;
   }[];
-  staffPerformance: {
+  staffPerformance?: {
     staffId: string;
     staffName: string;
     appointmentsCount: number;
@@ -87,26 +78,41 @@ export interface DashboardStats {
     margin: number; // percentage
   };
   currencyCode: string;
+  permissions?: {
+    canViewAppointments: boolean;
+    canViewSales: boolean;
+    canViewClients: boolean;
+    canViewStaff: boolean;
+    canViewExpenses: boolean;
+    canViewPayroll: boolean;
+    canViewProfit: boolean;
+  };
 }
 
 export async function getDashboardStats(params?: {
   branchFilter?: "current" | "all";
 }): Promise<ActionResult<DashboardStats>> {
-  const authResult = await checkAuth();
+  const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
   try {
     const branchFilter = params?.branchFilter || "current";
-    const canViewExpenses = hasPermission(authResult.role, "expenses:view", authResult.isSuperAdmin);
-    const canViewPayroll = hasPermission(authResult.role, "payroll:view", authResult.isSuperAdmin);
-    const canViewProfit = hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin);
-    const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
+    const [canViewAppointments, canViewSales, canViewClients, canViewStaff, canViewExpenses, canViewPayroll, canViewProfit, canViewAllBranches] = await Promise.all([
+      hasPermission(authResult.roleId, "appointments:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "sales:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "clients:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "staff:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "expenses:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "payroll:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+      hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
+    ]);
 
-    // Determine which salon IDs to query (only owners can view all branches)
+    // Determine which salon IDs to query (only users with data:all-branches can view across all branches)
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -120,11 +126,11 @@ export async function getDashboardStats(params?: {
 
     // Check cache — use org root ID for org-wide queries so invalidation works correctly
     let cacheKey: string;
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
+      cacheKey = `org:${orgRootId}:dashboard:stats:${tz}:${currencyCode}:apt=${canViewAppointments}:sal=${canViewSales}:cli=${canViewClients}:stf=${canViewStaff}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
+      cacheKey = `salon:${authResult.salonId}:dashboard:stats:${tz}:${currencyCode}:apt=${canViewAppointments}:sal=${canViewSales}:cli=${canViewClients}:stf=${canViewStaff}:exp=${canViewExpenses}:pay=${canViewPayroll}:pft=${canViewProfit}`;
     }
     const cached = await cacheGet<DashboardStats>(cacheKey);
     if (cached) {
@@ -159,109 +165,129 @@ export async function getDashboardStats(params?: {
       monthlyPayrollData,
       todaysSaleItemsData,
     ] = await Promise.all([
-      // Today's appointments
-      prisma.appointment.groupBy({
-        by: ["status"],
-        where: {
-          salonId: salonFilter,
-          startTime: { gte: todayStart, lt: todayEnd },
-        },
-        _count: { id: true },
-      }),
+      // Today's appointments (only if permitted)
+      canViewAppointments
+        ? prisma.appointment.groupBy({
+            by: ["status"],
+            where: {
+              salonId: salonFilter,
+              startTime: { gte: todayStart, lt: todayEnd },
+            },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
 
-      // Today's sales (completed)
-      prisma.sale.findMany({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: todayStart, lt: todayEnd },
-          invoice: { isNot: null },
-        },
-        select: { finalAmount: true },
-      }),
+      // Today's sales (needed for revenue and profit)
+      (canViewSales || canViewProfit)
+        ? prisma.sale.findMany({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: todayStart, lt: todayEnd },
+              invoice: { isNot: null },
+            },
+            select: { finalAmount: true },
+          })
+        : Promise.resolve([]),
 
-      // Yesterday's sales for comparison
-      prisma.sale.findMany({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: yesterdayStart, lt: yesterdayEnd },
-          invoice: { isNot: null },
-        },
-        select: { finalAmount: true },
-      }),
+      // Yesterday's sales for comparison (only if permitted)
+      canViewSales
+        ? prisma.sale.findMany({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: yesterdayStart, lt: yesterdayEnd },
+              invoice: { isNot: null },
+            },
+            select: { finalAmount: true },
+          })
+        : Promise.resolve([]),
 
-      // Total active clients
-      prisma.client.count({ where: { salonId: salonFilter, isActive: true } }),
+      // Total active clients (only if permitted)
+      canViewClients
+        ? prisma.client.count({ where: { salonId: salonFilter, isActive: true } })
+        : Promise.resolve(0),
 
-      // New clients this week
-      prisma.client.count({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: weekStart },
-          isActive: true,
-        },
-      }),
+      // New clients this week (only if permitted)
+      canViewClients
+        ? prisma.client.count({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: weekStart },
+              isActive: true,
+            },
+          })
+        : Promise.resolve(0),
 
-      // New clients this month
-      prisma.client.count({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: monthStart },
-          isActive: true,
-        },
-      }),
+      // New clients this month (only if permitted)
+      canViewClients
+        ? prisma.client.count({
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: monthStart },
+              isActive: true,
+            },
+          })
+        : Promise.resolve(0),
 
-      // Top services this month (only service-based items)
-      prisma.saleItem.groupBy({
-        by: ["serviceId"],
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: monthStart },
-          serviceId: { not: null },
-        },
-        _count: { id: true },
-        _sum: { price: true },
-        orderBy: { _count: { id: "desc" } },
-        take: 5,
-      }),
+      // Top services this month (only if sales permitted)
+      canViewSales
+        ? prisma.saleItem.groupBy({
+            by: ["serviceId"],
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: monthStart },
+              serviceId: { not: null },
+            },
+            _count: { id: true },
+            _sum: { price: true },
+            orderBy: { _count: { id: "desc" } },
+            take: 5,
+          })
+        : Promise.resolve([]),
 
-      // Recent sales
-      prisma.sale.findMany({
-        where: { salonId: salonFilter, invoice: { isNot: null } },
-        include: {
-          client: { select: { firstName: true, lastName: true } },
-          invoice: { select: { invoiceNumber: true } },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      }),
+      // Recent sales (only if permitted)
+      canViewSales
+        ? prisma.sale.findMany({
+            where: { salonId: salonFilter, invoice: { isNot: null } },
+            include: {
+              client: { select: { firstName: true, lastName: true } },
+              invoice: { select: { invoiceNumber: true } },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          })
+        : Promise.resolve([]),
 
-      // Upcoming appointments (today and tomorrow)
-      prisma.appointment.findMany({
-        where: {
-          salonId: salonFilter,
-          startTime: { gte: new Date() },
-          status: { in: ["SCHEDULED", "CONFIRMED"] },
-        },
-        include: {
-          client: { select: { firstName: true, lastName: true } },
-          service: { select: { name: true } },
-          staff: { select: { firstName: true, lastName: true } },
-        },
-        orderBy: { startTime: "asc" },
-        take: 5,
-      }),
+      // Upcoming appointments (only if permitted)
+      canViewAppointments
+        ? prisma.appointment.findMany({
+            where: {
+              salonId: salonFilter,
+              startTime: { gte: new Date() },
+              status: { in: ["SCHEDULED", "CONFIRMED"] },
+            },
+            include: {
+              client: { select: { firstName: true, lastName: true } },
+              service: { select: { name: true } },
+              staff: { select: { firstName: true, lastName: true } },
+            },
+            orderBy: { startTime: "asc" },
+            take: 5,
+          })
+        : Promise.resolve([]),
 
-      // Staff performance this month (only items with staff)
-      prisma.saleItem.groupBy({
-        by: ["staffId"],
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: monthStart },
-          staffId: { not: null },
-        },
-        _count: { id: true },
-        _sum: { price: true },
-      }),
+      // Staff performance this month (only if permitted)
+      canViewStaff
+        ? prisma.saleItem.groupBy({
+            by: ["staffId"],
+            where: {
+              salonId: salonFilter,
+              createdAt: { gte: monthStart },
+              staffId: { not: null },
+            },
+            _count: { id: true },
+            _sum: { price: true },
+          })
+        : Promise.resolve([]),
 
       // Today's expenses (only if user has permission)
       canViewExpenses
@@ -378,26 +404,32 @@ export async function getDashboardStats(params?: {
       .slice(0, 5);
 
     const data: DashboardStats = {
-      todaysAppointments: {
-        total: totalAppointments,
-        completed: completedAppointments,
-        remaining: remainingAppointments,
-        cancelled: cancelledAppointments,
-      },
-      todaysRevenue: {
-        amount: todaysRevenue,
-        salesCount: todaysSales.length,
-        comparison: Math.round(revenueComparison * 10) / 10,
-      },
-      clients: {
-        total: totalClients,
-        newThisWeek: newClientsThisWeek,
-        newThisMonth: newClientsThisMonth,
-      },
-      topServices,
-      recentSales,
-      upcomingAppointments,
-      staffPerformance,
+      ...(canViewAppointments && {
+        todaysAppointments: {
+          total: totalAppointments,
+          completed: completedAppointments,
+          remaining: remainingAppointments,
+          cancelled: cancelledAppointments,
+        },
+      }),
+      ...(canViewSales && {
+        todaysRevenue: {
+          amount: todaysRevenue,
+          salesCount: todaysSales.length,
+          comparison: Math.round(revenueComparison * 10) / 10,
+        },
+      }),
+      ...(canViewClients && {
+        clients: {
+          total: totalClients,
+          newThisWeek: newClientsThisWeek,
+          newThisMonth: newClientsThisMonth,
+        },
+      }),
+      ...(canViewSales && { topServices }),
+      ...(canViewSales && { recentSales }),
+      ...(canViewAppointments && { upcomingAppointments }),
+      ...(canViewStaff && { staffPerformance }),
       ...(canViewExpenses && {
         todaysExpenses: {
           amount: todaysExpensesData.reduce((sum, e) => sum + Number(e.amount), 0),
@@ -434,6 +466,15 @@ export async function getDashboardStats(params?: {
         })(),
       }),
       currencyCode,
+      permissions: {
+        canViewAppointments,
+        canViewSales,
+        canViewClients,
+        canViewStaff,
+        canViewExpenses,
+        canViewPayroll,
+        canViewProfit,
+      },
     };
 
     await cacheSet(cacheKey, data, 300); // 5 min TTL
@@ -447,20 +488,24 @@ export async function getDashboardStats(params?: {
 
 // Reports data
 export interface ReportData {
-  revenueByDay: { date: string; revenue: number; salesCount: number; expenses: number; cost?: number; profit?: number }[];
-  revenueByItem: { item: string; revenue: number; percentage: number; cost?: number; profit?: number; margin?: number }[];
-  revenueByStaff: { staff: string; revenue: number; appointments: number; cost?: number; profit?: number }[];
+  // Money-bearing arrays are optional. Server omits them when the caller lacks
+  // `reports:financial`. UI must check `capabilities.includes("reports:financial")`
+  // and either hide those sections or render an "access denied" placeholder —
+  // never fall back to `?? 0`/`?? []` which would silently lie ("revenue is $0").
+  revenueByDay?: { date: string; revenue: number; salesCount: number; expenses: number; cost?: number; profit?: number }[];
+  revenueByItem?: { item: string; revenue: number; percentage: number; cost?: number; profit?: number; margin?: number }[];
+  revenueByStaff?: { staff: string; revenue: number; appointments: number; cost?: number; profit?: number }[];
   profitByClient?: { client: string; revenue: number; cost: number; profit: number; margin: number; salesCount: number }[];
   appointmentsByStatus: { status: string; count: number }[];
   clientGrowth: { date: string; newClients: number; totalClients: number }[];
   peakHours: { hour: number; count: number }[];
-  expensesByCategory: { category: string; color: string; amount: number }[];
+  expensesByCategory?: { category: string; color: string; amount: number }[];
   totals: {
-    revenue: number;
+    revenue?: number;
     sales: number;
     appointments: number;
     newClients: number;
-    expenses: number;
+    expenses?: number;
     cost?: number;
     grossProfit?: number;
     profitMargin?: number;
@@ -476,22 +521,33 @@ export async function getReportData(params: {
   endDate: Date;
   branchFilter?: "current" | "all";
 }): Promise<ActionResult<ReportData>> {
-  const authResult = await checkAuth();
+  const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
-  if (!hasPermission(authResult.role, "reports:view")) {
+  if (!(await hasPermission(authResult.roleId, "reports:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId))) {
     return { success: false, error: "You don't have permission to view reports" };
   }
 
   const { startDate, endDate, branchFilter = "current" } = params;
-  const isOwnerOrSuperAdmin = authResult.role === "OWNER" || authResult.isSuperAdmin;
+  const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
+
+  // `reports:financial` gates monetary fields (revenue, expenses, profit, etc.).
+  // A user with `reports:view` but not `reports:financial` still sees operational
+  // sections (appointments, client growth, peak hours) but with money fields redacted.
+  const canViewFinancial = await hasPermission(
+    authResult.roleId,
+    "reports:financial",
+    authResult.isSuperAdmin,
+    authResult.salonId,
+    authResult.userId
+  );
 
   try {
-    // Determine which salon IDs to query (only owners can view all branches)
+    // Determine which salon IDs to query (only users with data:all-branches can view across all branches)
     let salonIds: string[];
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       salonIds = await getOrganizationSalonIds(authResult.salonId);
     } else {
       salonIds = [authResult.salonId];
@@ -502,42 +558,52 @@ export async function getReportData(params: {
     const settingsResult = await getSettings();
     const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
     const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
-    const canViewProfit = hasPermission(authResult.role, "profit:view", authResult.isSuperAdmin);
+    const canViewProfit = await hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
 
-    // Check cache — use org root ID for org-wide queries so invalidation works correctly
+    // Check cache — use org root ID for org-wide queries so invalidation works correctly.
+    // `fin=${canViewFinancial}` separates cache entries for users with vs. without financial
+    // access so a financial-view user doesn't get served a redacted cached payload (or vice versa).
     let cacheKey: string;
-    if (branchFilter === "all" && isOwnerOrSuperAdmin) {
+    if (branchFilter === "all" && canViewAllBranches) {
       const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:${startDate.toISOString()}:${endDate.toISOString()}`;
+      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:fin=${canViewFinancial}:${startDate.toISOString()}:${endDate.toISOString()}`;
     } else {
-      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:${startDate.toISOString()}:${endDate.toISOString()}`;
+      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:fin=${canViewFinancial}:${startDate.toISOString()}:${endDate.toISOString()}`;
     }
     const cached = await cacheGet<ReportData>(cacheKey);
     if (cached) {
       return { success: true, data: cached };
     }
 
-    // Fetch all report data in parallel
+    // Fetch all report data in parallel. Money-bearing queries (sale, saleItem, expense
+     // full rows) are skipped for callers without `reports:financial` — the redacted
+     // response never reads them, so paying to fetch them is pure waste at scale.
+     // For non-financial callers we still need the SALES COUNT (for totals.sales), so
+     // we run a cheap `count` instead of the full findMany.
+    const salesWhere = {
+      salonId: salonFilter,
+      createdAt: { gte: startDate, lte: endDate },
+      invoice: { isNot: null },
+    };
     const [
       salesData,
       appointmentsData,
       clientsData,
       saleItemsData,
       expensesData,
+      redactedSalesCount,
     ] = await Promise.all([
-      // Sales in date range
-      prisma.sale.findMany({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: startDate, lte: endDate },
-          invoice: { isNot: null },
-        },
-        select: {
-          createdAt: true,
-          finalAmount: true,
-        },
-        orderBy: { createdAt: "asc" },
-      }),
+      // Sales in date range — full rows only when financial.
+      canViewFinancial
+        ? prisma.sale.findMany({
+            where: salesWhere,
+            select: {
+              createdAt: true,
+              finalAmount: true,
+            },
+            orderBy: { createdAt: "asc" },
+          })
+        : Promise.resolve([] as { createdAt: Date; finalAmount: Prisma.Decimal }[]),
 
       // Appointments in date range
       prisma.appointment.findMany({
@@ -558,35 +624,52 @@ export async function getReportData(params: {
         orderBy: { createdAt: "asc" },
       }),
 
-      // Sale items for service/product breakdown (filter by sale.createdAt to match revenue bucketing)
-      prisma.saleItem.findMany({
-        where: {
-          salonId: salonFilter,
-          sale: {
-            createdAt: { gte: startDate, lte: endDate },
-            invoice: { isNot: null },
-          },
-        },
-        include: {
-          service: { select: { id: true, name: true } },
-          product: { select: { id: true, name: true } },
-          staff: { select: { id: true, firstName: true, lastName: true } },
-          sale: { select: { createdAt: true, clientId: true, client: { select: { firstName: true, lastName: true } } } },
-        },
-      }),
+      // Sale items — fully skipped when not financial (only feeds money breakdowns).
+      canViewFinancial
+        ? prisma.saleItem.findMany({
+            where: {
+              salonId: salonFilter,
+              sale: {
+                createdAt: { gte: startDate, lte: endDate },
+                invoice: { isNot: null },
+              },
+            },
+            include: {
+              service: { select: { id: true, name: true } },
+              product: { select: { id: true, name: true } },
+              staff: { select: { id: true, firstName: true, lastName: true } },
+              sale: { select: { createdAt: true, clientId: true, client: { select: { firstName: true, lastName: true } } } },
+            },
+          })
+        : Promise.resolve([] as Prisma.SaleItemGetPayload<{
+            include: {
+              service: { select: { id: true; name: true } };
+              product: { select: { id: true; name: true } };
+              staff: { select: { id: true; firstName: true; lastName: true } };
+              sale: { select: { createdAt: true; clientId: true; client: { select: { firstName: true; lastName: true } } } };
+            };
+          }>[]),
 
-      // Expenses in date range
-      prisma.expense.findMany({
-        where: {
-          salonId: salonFilter,
-          date: { gte: startDate, lte: endDate },
-        },
-        select: {
-          amount: true,
-          date: true,
-          category: { select: { name: true, color: true } },
-        },
-      }),
+      // Expenses — fully skipped when not financial (only feeds money breakdowns).
+      canViewFinancial
+        ? prisma.expense.findMany({
+            where: {
+              salonId: salonFilter,
+              date: { gte: startDate, lte: endDate },
+            },
+            select: {
+              amount: true,
+              date: true,
+              category: { select: { name: true, color: true } },
+            },
+          })
+        : Promise.resolve([] as { amount: Prisma.Decimal; date: Date; category: { name: string; color: string } }[]),
+
+      // Cheap fallback: count of sales for redacted callers (so totals.sales is correct
+      // even though we didn't fetch full sale rows).
+      canViewFinancial
+        ? Promise.resolve(0)
+        : prisma.sale.count({ where: salesWhere }),
     ]);
 
     // Revenue by day
@@ -788,7 +871,9 @@ export async function getReportData(params: {
     const totalRevenue = salesData.reduce((sum, s) => sum + Number(s.finalAmount), 0);
     const totals: ReportData["totals"] = {
       revenue: totalRevenue,
-      sales: salesData.length,
+      // Financial users: salesData is the full sale rows so length is accurate.
+      // Redacted users: salesData was skipped; use the cheap count we ran instead.
+      sales: canViewFinancial ? salesData.length : redactedSalesCount,
       appointments: appointmentsData.length,
       newClients: clientsData.length,
       expenses: totalExpenses,
@@ -810,18 +895,33 @@ export async function getReportData(params: {
       hasMissingCosts = saleItemsData.some((item) => item.costAtSale == null);
     }
 
+    // Redact monetary fields for users without `reports:financial`. Money-bearing fields
+    // are OMITTED (undefined), not zeroed — zeroing would lie to the UI ("$0 revenue" is
+    // a lie; "no access to revenue" is the truth). Non-financial operational sections
+    // (appointments-by-status, client growth, peak hours, counts) still ship so the page
+    // isn't empty for view-only roles.
+    const capabilities: string[] = [];
+    if (canViewProfit) capabilities.push("profit:view");
+    if (canViewFinancial) capabilities.push("reports:financial");
+
+    const redactedTotals: ReportData["totals"] = canViewFinancial
+      ? totals
+      : {
+          sales: totals.sales,
+          appointments: totals.appointments,
+          newClients: totals.newClients,
+        };
+
     const data: ReportData = {
-      revenueByDay,
-      revenueByItem,
-      revenueByStaff,
-      ...(profitByClient && { profitByClient }),
+      ...(canViewFinancial && { revenueByDay, revenueByItem, revenueByStaff }),
+      ...(canViewFinancial && profitByClient && { profitByClient }),
       appointmentsByStatus,
       clientGrowth,
       peakHours,
-      expensesByCategory,
-      totals,
-      ...(canViewProfit && { hasMissingCosts }),
-      capabilities: canViewProfit ? ["profit:view"] : [],
+      ...(canViewFinancial && { expensesByCategory }),
+      totals: redactedTotals,
+      ...(canViewFinancial && canViewProfit && { hasMissingCosts }),
+      capabilities,
       currencyCode,
     };
 

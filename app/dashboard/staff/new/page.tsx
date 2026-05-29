@@ -2,11 +2,11 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewStaffPage() {
   const session = await auth();
@@ -17,22 +17,25 @@ export default async function NewStaffPage() {
 
   const isSuperAdmin = session.user.isSuperAdmin === true;
   if (!session.user.salonRole && !isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
 
-  if (!hasPermission(userRole, "staff:create", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id))) {
+    redirectAccessDenied(["staff:create"]);
   }
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/staff">
               <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back to staff</span>
             </Link>
           </Button>
           <div>

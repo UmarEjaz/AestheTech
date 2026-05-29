@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import { formatInTz } from "@/lib/utils/timezone";
 import { formatCurrency } from "@/lib/utils/currency";
 import Link from "next/link";
@@ -28,6 +27,7 @@ import {
 import { getSale } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
@@ -46,13 +46,14 @@ export default async function SaleDetailPage({
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "sales:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["sales:view"]);
   }
 
   const { id } = await params;
@@ -138,14 +139,14 @@ export default async function SaleDetailPage({
   };
 
   // Calculate refund information
-  const canRefund = hasPermission(userRole, "invoices:refund", isSuperAdmin);
+  const canRefund = await hasPermission(userRoleId, "invoices:refund", isSuperAdmin, salonId, session.user.id);
   const invoiceRefunds = sale.invoice?.refunds || [];
   const totalRefunded = invoiceRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
   const maxRefundable = sale.invoice ? Number(sale.invoice.total) - totalRefunded : 0;
   const canIssueRefund = canRefund && sale.invoice?.status === "PAID" && maxRefundable > 0;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -153,6 +154,7 @@ export default async function SaleDetailPage({
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/sales">
                 <ArrowLeft className="h-5 w-5" />
+                <span className="sr-only">Back to sales</span>
               </Link>
             </Button>
             <div>

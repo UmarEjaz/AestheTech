@@ -15,6 +15,7 @@ export const salaryConfigSchema = z.object({
   effectiveDate: z.coerce.date({ message: "Effective date is required" }),
   notes: z
     .string()
+    .trim()
     .max(500, "Notes must be less than 500 characters")
     .optional()
     .or(z.literal("")),
@@ -62,11 +63,13 @@ export const updatePayrollEntrySchema = z.object({
     }),
   deductionNotes: z
     .string()
+    .trim()
     .max(500, "Deduction notes must be less than 500 characters")
     .optional()
     .or(z.literal("")),
   notes: z
     .string()
+    .trim()
     .max(500, "Notes must be less than 500 characters")
     .optional()
     .or(z.literal("")),

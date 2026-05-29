@@ -10,6 +10,7 @@ export function Toaster() {
     <SonnerToaster
       theme={theme as "light" | "dark" | "system"}
       position="top-right"
+      richColors
       toastOptions={{
         classNames: {
           toast:
@@ -19,8 +20,6 @@ export function Toaster() {
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          success: "group-[.toaster]:border-green-500",
-          error: "group-[.toaster]:border-destructive",
         },
       }}
     />

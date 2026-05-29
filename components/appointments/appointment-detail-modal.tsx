@@ -61,7 +61,9 @@ interface AppointmentDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDataChange?: () => void;
-  canManage?: boolean;
+  canUpdate?: boolean;
+  canCancel?: boolean;
+  canDelete?: boolean;
   timezone: string;
 }
 
@@ -82,7 +84,9 @@ export function AppointmentDetailModal({
   isOpen,
   onClose,
   onDataChange,
-  canManage = false,
+  canUpdate = false,
+  canCancel = false,
+  canDelete = false,
   timezone,
 }: AppointmentDetailModalProps) {
   const router = useRouter();
@@ -270,7 +274,7 @@ export function AppointmentDetailModal({
   const canConfirm = appointment.status === "SCHEDULED";
   const canStart = appointment.status === "SCHEDULED" || appointment.status === "CONFIRMED";
   const canComplete = appointment.status === "IN_PROGRESS";
-  const canCancel = !["COMPLETED", "CANCELLED"].includes(appointment.status);
+  const statusAllowsCancel = !["COMPLETED", "CANCELLED"].includes(appointment.status);
   const canMarkNoShow =
     appointment.status === "SCHEDULED" || appointment.status === "CONFIRMED";
 
@@ -392,68 +396,72 @@ export function AppointmentDetailModal({
             )}
 
             {/* Actions */}
-            {canManage && (
+            {(canUpdate || canCancel || canDelete) && (
               <div className="space-y-2 pt-2">
-                {/* Status Actions */}
-                <div className="flex flex-wrap gap-2">
-                  {canConfirm && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleStatusUpdate("CONFIRMED")}
-                      disabled={isUpdating}
-                    >
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Confirm
-                    </Button>
-                  )}
-                  {canStart && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleStatusUpdate("IN_PROGRESS")}
-                      disabled={isUpdating}
-                    >
-                      <PlayCircle className="h-4 w-4 mr-1" />
-                      Start
-                    </Button>
-                  )}
-                  {canComplete && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleStatusUpdate("COMPLETED")}
-                      disabled={isUpdating}
-                    >
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Complete
-                    </Button>
-                  )}
-                  {canMarkNoShow && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleStatusUpdate("NO_SHOW")}
-                      disabled={isUpdating}
-                    >
-                      <AlertCircle className="h-4 w-4 mr-1" />
-                      No Show
-                    </Button>
-                  )}
-                </div>
+                {/* Status Actions (require :update) */}
+                {canUpdate && (
+                  <div className="flex flex-wrap gap-2">
+                    {canConfirm && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleStatusUpdate("CONFIRMED")}
+                        disabled={isUpdating}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Confirm
+                      </Button>
+                    )}
+                    {canStart && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleStatusUpdate("IN_PROGRESS")}
+                        disabled={isUpdating}
+                      >
+                        <PlayCircle className="h-4 w-4 mr-1" />
+                        Start
+                      </Button>
+                    )}
+                    {canComplete && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleStatusUpdate("COMPLETED")}
+                        disabled={isUpdating}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Complete
+                      </Button>
+                    )}
+                    {canMarkNoShow && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleStatusUpdate("NO_SHOW")}
+                        disabled={isUpdating}
+                      >
+                        <AlertCircle className="h-4 w-4 mr-1" />
+                        No Show
+                      </Button>
+                    )}
+                  </div>
+                )}
 
                 {/* Edit/Cancel/Delete Actions */}
                 <div className="flex flex-wrap gap-2 pt-2 border-t">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleEditClick}
-                    disabled={isUpdating || appointment.status === "COMPLETED"}
-                  >
-                    <Edit className="h-4 w-4 mr-1" />
-                    Edit
-                    {isSeriesAppointment && <Repeat className="h-3 w-3 ml-1 opacity-60" />}
-                  </Button>
-                  {canCancel && (
+                  {canUpdate && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleEditClick}
+                      disabled={isUpdating || appointment.status === "COMPLETED"}
+                    >
+                      <Edit className="h-4 w-4 mr-1" />
+                      Edit
+                      {isSeriesAppointment && <Repeat className="h-3 w-3 ml-1 opacity-60" />}
+                    </Button>
+                  )}
+                  {canCancel && statusAllowsCancel && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -474,15 +482,17 @@ export function AppointmentDetailModal({
                     <Download className="h-4 w-4 mr-1" />
                     Export
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => setShowDeleteDialog(true)}
-                    disabled={isUpdating}
-                  >
-                    <Trash2 className="h-4 w-4 mr-1" />
-                    Delete
-                  </Button>
+                  {canDelete && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setShowDeleteDialog(true)}
+                      disabled={isUpdating}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Delete
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { BranchForm } from "./branch-form";
 
@@ -10,17 +10,18 @@ export default async function NewBranchPage() {
   if (!session) redirect("/login");
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "branches:manage", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRoleId, "branches:create", isSuperAdmin, salonId, session.user.id))) {
+    redirectAccessDenied(["branches:create"]);
   }
 
   return (
-    <DashboardLayout userRole={userRole} isSuperAdmin={isSuperAdmin}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Create Branch</h1>

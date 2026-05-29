@@ -1,11 +1,11 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffTable } from "@/components/staff/staff-table";
 import { getUsers } from "@/lib/actions/user";
 import { getTimezone } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function StaffPage() {
   const session = await auth();
@@ -15,19 +15,20 @@ export default async function StaffPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
   // Check if user can view staff
-  if (!hasPermission(userRole, "staff:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["staff:view"]);
   }
 
-  const canCreate = hasPermission(userRole, "staff:create", isSuperAdmin);
-  const canEdit = hasPermission(userRole, "staff:update", isSuperAdmin);
-  const canDelete = hasPermission(userRole, "staff:delete", isSuperAdmin);
+  const canCreate = await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id);
+  const canEdit = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "staff:delete", isSuperAdmin, salonId, session.user.id);
 
   const [usersResult, tz] = await Promise.all([
     getUsers({ page: 1, limit: 15 }),
@@ -36,7 +37,7 @@ export default async function StaffPage() {
 
   if (!usersResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{usersResult.error}</p>
         </div>
@@ -47,7 +48,7 @@ export default async function StaffPage() {
   const { users, total, page, totalPages } = usersResult.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div>

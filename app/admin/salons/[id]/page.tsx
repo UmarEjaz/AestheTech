@@ -15,7 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
 function statusVariant(status: string) {
   switch (status) {
     case "ACTIVE":
@@ -30,16 +29,7 @@ function statusVariant(status: string) {
   }
 }
 
-function roleBadgeVariant(role: string) {
-  switch (role) {
-    case "OWNER":
-      return "default" as const;
-    case "ADMIN":
-      return "secondary" as const;
-    default:
-      return "outline" as const;
-  }
-}
+const DEFAULT_ROLE_COLOR = "#6B7280"; // gray, for users with no role assigned
 
 interface SalonDetailPageProps {
   params: Promise<{ id: string }>;
@@ -206,8 +196,15 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
                           {user.email}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={roleBadgeVariant(user.role ?? "STAFF")}>
-                            {user.role ?? "STAFF"}
+                          <Badge
+                            className="border"
+                            style={{
+                              backgroundColor: `${user.roleColor ?? DEFAULT_ROLE_COLOR}20`,
+                              color: user.roleColor ?? DEFAULT_ROLE_COLOR,
+                              borderColor: `${user.roleColor ?? DEFAULT_ROLE_COLOR}40`,
+                            }}
+                          >
+                            {user.roleName ?? "—"}
                           </Badge>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">

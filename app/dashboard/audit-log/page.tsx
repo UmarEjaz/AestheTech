@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { getAuditLogs, getAuditActions, getAuditEntityTypes } from "@/lib/actions/audit";
 import { getActiveStaff } from "@/lib/actions/user";
 import { getBranches } from "@/lib/actions/branch";
@@ -29,19 +29,21 @@ export default async function AuditLogPage({
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const isOwner = userRole === "OWNER" || isSuperAdmin;
 
-  if (!hasPermission(userRole, "audit:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRoleId, "audit:view", isSuperAdmin, salonId, session.user.id))) {
+    redirectAccessDenied(["audit:view"]);
   }
+
+  const canViewAllBranches = await hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, session.user.id);
 
   const params = await searchParams;
   const page = params.page ? parseInt(params.page) : 1;
-  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = canViewAllBranches && params.branch === "all" ? "all" as const : "current" as const;
 
   const [logsResult, actionsResult, entityTypesResult, staffResult, branchesResult] = await Promise.all([
     getAuditLogs({
@@ -57,7 +59,7 @@ export default async function AuditLogPage({
     getAuditActions(branchFilter),
     getAuditEntityTypes(branchFilter),
     getActiveStaff(branchFilter),
-    isOwner ? getBranches() : Promise.resolve(null),
+    canViewAllBranches ? getBranches() : Promise.resolve(null),
   ]);
 
   const hasMultipleBranches = branchesResult?.success && branchesResult.data.length > 1;
@@ -67,7 +69,7 @@ export default async function AuditLogPage({
 
   if (!logsResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{logsResult.error}</p>
         </div>
@@ -76,7 +78,7 @@ export default async function AuditLogPage({
   }
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       {hasMultipleBranches && (
         <div className="flex justify-end mb-4">
           <BranchFilter

@@ -3,12 +3,10 @@
 import { prisma } from "@/lib/prisma";
 import { checkAuthBasic } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
-import { Role } from "@prisma/client";
-
 export type UserSalonItem = {
   salonId: string;
   salonName: string;
-  role: Role;
+  role: string;
   isCurrent: boolean;
 };
 
@@ -29,6 +27,9 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
         salon: {
           select: { id: true, name: true },
         },
+        roleDefinition: {
+          select: { slug: true },
+        },
       },
       orderBy: { salon: { name: "asc" } },
     });
@@ -36,7 +37,7 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
     const items: UserSalonItem[] = userSalons.map((us) => ({
       salonId: us.salon.id,
       salonName: us.salon.name,
-      role: us.role,
+      role: us.roleDefinition.slug,
       isCurrent: us.salonId === authResult.salonId,
     }));
 
@@ -49,7 +50,7 @@ export async function getUserSalons(): Promise<ActionResult<UserSalonItem[]>> {
 
 export async function switchSalon(
   targetSalonId: string
-): Promise<ActionResult<{ salonId: string; role: Role }>> {
+): Promise<ActionResult<{ salonId: string; role: string }>> {
   const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
@@ -66,6 +67,7 @@ export async function switchSalon(
       },
       include: {
         salon: { select: { isActive: true } },
+        roleDefinition: { select: { slug: true } },
       },
     });
 
@@ -77,18 +79,18 @@ export async function switchSalon(
       return { success: false, error: "This salon is not active" };
     }
 
-    // Update user's current salon and role
+    // Update user's current salon and roleDefinitionId
     await prisma.user.update({
       where: { id: authResult.userId },
       data: {
         salonId: targetSalonId,
-        role: userSalon.role,
+        roleDefinitionId: userSalon.roleDefinitionId,
       },
     });
 
     return {
       success: true,
-      data: { salonId: targetSalonId, role: userSalon.role },
+      data: { salonId: targetSalonId, role: userSalon.roleDefinition.slug },
     };
   } catch (error) {
     console.error("Error switching salon:", error);

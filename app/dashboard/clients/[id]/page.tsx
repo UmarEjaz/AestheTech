@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import {
   ArrowLeft,
   Edit,
@@ -25,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { getClient } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { calculateTier, getNextTier, getPointsToNextTier, getTierProgress } from "@/lib/utils/loyalty";
 import { Progress } from "@/components/ui/progress";
 import { RecurringSeriesCard } from "@/components/clients/recurring-series-card";
@@ -35,7 +35,7 @@ interface PageProps {
 }
 
 const tierColors = {
-  SILVER: "bg-gray-400",
+  MEMBER: "bg-gray-400",
   GOLD: "bg-yellow-500",
   PLATINUM: "bg-purple-500",
 };
@@ -49,11 +49,16 @@ export default async function ClientDetailPage({ params }: PageProps) {
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canEdit = hasPermission(userRole, "clients:update", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const [canEdit, canUpdateAppointments, canCancelAppointments] = await Promise.all([
+    hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   const [result, settingsResult] = await Promise.all([
     getClient(id),
@@ -75,7 +80,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const initials = `${client.firstName[0]}${client.lastName?.[0] || ""}`.toUpperCase();
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -83,6 +88,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/clients">
                 <ArrowLeft className="h-4 w-4" />
+                <span className="sr-only">Back to clients</span>
               </Link>
             </Button>
             <Avatar className="h-16 w-16">
@@ -235,10 +241,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
         </div>
 
         {/* Loyalty Dashboard */}
-        {loyaltyEnabled && client.loyaltyTransactions && client.loyaltyTransactions.length > 0 && (
+        {loyaltyEnabled && client.loyaltyPoints && client.loyaltyTransactions && client.loyaltyTransactions.length > 0 && (
           <LoyaltyDashboard
-            balance={client.loyaltyPoints?.balance ?? 0}
-            tier={client.loyaltyPoints?.tier ?? "SILVER"}
+            balance={client.loyaltyPoints.balance}
+            tier={client.loyaltyPoints.tier}
             transactions={client.loyaltyTransactions}
             thresholds={thresholds}
             timezone={tz}
@@ -247,7 +253,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
 
         {/* Recurring Appointments */}
         {client.recurringSeries && client.recurringSeries.length > 0 && (
-          <RecurringSeriesCard series={client.recurringSeries} clientId={client.id} canManage={canEdit} timezone={tz} />
+          <RecurringSeriesCard series={client.recurringSeries} clientId={client.id} canUpdate={canUpdateAppointments} canCancel={canCancelAppointments} timezone={tz} />
         )}
 
         <div className="grid gap-6 lg:grid-cols-2">

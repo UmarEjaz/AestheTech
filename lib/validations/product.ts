@@ -3,15 +3,18 @@ import { z } from "zod";
 export const productSchema = z.object({
   name: z
     .string()
+    .trim()
     .min(1, "Product name is required")
     .max(100, "Product name must be less than 100 characters"),
   description: z
     .string()
+    .trim()
     .max(500, "Description must be less than 500 characters")
     .optional()
     .or(z.literal("")),
   sku: z
     .string()
+    .trim()
     .max(50, "SKU must be less than 50 characters")
     .optional()
     .or(z.literal("")),
@@ -40,11 +43,7 @@ export const productSchema = z.object({
     .int("Points must be a whole number")
     .min(0, "Points must be a non-negative number")
     .default(0),
-  category: z
-    .string()
-    .max(50, "Category must be less than 50 characters")
-    .optional()
-    .or(z.literal("")),
+  categoryId: z.string().min(1, "Category is required"),
   isActive: z.boolean().default(true),
 });
 

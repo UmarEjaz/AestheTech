@@ -2,12 +2,12 @@ import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
 import { getUserById } from "@/lib/actions/user";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function EditStaffPage({
   params,
@@ -22,13 +22,15 @@ export default async function EditStaffPage({
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRole = session.user.salonRole ?? null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "staff:update", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id))) {
+    redirectAccessDenied(["staff:update"]);
   }
 
   const result = await getUserById(id);
@@ -40,13 +42,14 @@ export default async function EditStaffPage({
   const user = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href={`/dashboard/staff/${id}`}>
               <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back to staff details</span>
             </Link>
           </Button>
           <div>
@@ -67,6 +70,7 @@ export default async function EditStaffPage({
             phone: user.phone,
             role: user.role,
             isActive: user.isActive,
+            isServiceProvider: user.isServiceProvider,
           }}
           mode="edit"
           currentUserRole={userRole}

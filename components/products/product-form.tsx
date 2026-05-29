@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { productSchema, ProductFormData, ProductFormInput } from "@/lib/validations/product";
 import { createProduct, updateProduct } from "@/lib/actions/product";
 
@@ -25,21 +32,32 @@ interface ProductFormProps {
     stock: number;
     lowStockThreshold: number;
     points: number;
-    category: string | null;
+    categoryId: string | null;
     isActive: boolean;
   };
   mode: "create" | "edit";
-  categories: string[];
+  categories: { id: string; name: string; isActive?: boolean }[];
   currencyCode?: string;
 }
 
 export function ProductForm({ product, mode, categories, currencyCode = "USD" }: ProductFormProps) {
+  // Refined dropdown order: pin the product's current category at the top (labelled),
+  // then show other active categories alphabetically. Other inactive categories are hidden.
+  const originalCategoryId = product?.categoryId ?? null;
+  const originalCategory = originalCategoryId
+    ? categories.find((c) => c.id === originalCategoryId) ?? null
+    : null;
+  const otherCategories = categories
+    .filter((c) => c.id !== originalCategoryId && c.isActive !== false)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<ProductFormInput, unknown, ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -52,7 +70,7 @@ export function ProductForm({ product, mode, categories, currencyCode = "USD" }:
       stock: product?.stock ?? 0,
       lowStockThreshold: product?.lowStockThreshold ?? 5,
       points: product?.points || 0,
-      category: product?.category || "",
+      categoryId: product?.categoryId || "",
       isActive: product?.isActive ?? true,
     },
   });
@@ -106,20 +124,33 @@ export function ProductForm({ product, mode, categories, currencyCode = "USD" }:
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
-              <Input
-                id="category"
-                {...register("category")}
-                placeholder="Hair Care"
-                list="product-categories"
+              <Label htmlFor="categoryId">Category</Label>
+              <Controller
+                control={control}
+                name="categoryId"
+                render={({ field }) => (
+                  <Select value={field.value || ""} onValueChange={field.onChange}>
+                    <SelectTrigger id="categoryId">
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {originalCategory && (
+                        <SelectItem key={originalCategory.id} value={originalCategory.id}>
+                          {originalCategory.name}
+                          {originalCategory.isActive === false ? " (current, inactive)" : " (current)"}
+                        </SelectItem>
+                      )}
+                      {otherCategories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               />
-              <datalist id="product-categories">
-                {categories.map((cat) => (
-                  <option key={cat} value={cat} />
-                ))}
-              </datalist>
-              {errors.category && (
-                <p className="text-sm text-destructive">{errors.category.message}</p>
+              {errors.categoryId && (
+                <p className="text-sm text-destructive">{errors.categoryId.message}</p>
               )}
             </div>
           </div>

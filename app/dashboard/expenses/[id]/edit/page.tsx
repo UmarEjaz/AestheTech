@@ -1,15 +1,15 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ExpenseForm } from "@/components/expenses/expense-form";
 import { getExpense } from "@/lib/actions/expense";
-import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
+import { getAllExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -22,21 +22,23 @@ export default async function EditExpensePage({ params }: PageProps) {
     redirect("/login");
   }
 
-  const userRole = session.user.salonRole;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canUpdate =
-    isSuperAdmin ||
-    (userRole != null && hasPermission(userRole as Role, "expenses:update"));
-
-  if (!canUpdate) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!isSuperAdmin) {
+    // hasPermission applies :view inference, so :update implicitly grants :view —
+    // no need to check :view explicitly.
+    const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
+    if (!canUpdate) {
+      redirectAccessDenied(["expenses:update"]);
+    }
   }
 
   const { id } = await params;
 
   const [expenseResult, categoriesResult, settingsResult] = await Promise.all([
     getExpense(id),
-    getActiveExpenseCategories(),
+    getAllExpenseCategories(),
     getSettings(),
   ]);
 
@@ -51,7 +53,7 @@ export default async function EditExpensePage({ params }: PageProps) {
         ? undefined
         : settingsResult.error;
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{errorMsg || "Failed to load required data"}</p>
         </div>
@@ -59,13 +61,21 @@ export default async function EditExpensePage({ params }: PageProps) {
     );
   }
 
-  const categories = categoriesResult.data;
+  // Pass id/name/icon/color/isActive so the form can pin the expense's current category
+  // at the top and hide other inactive ones. See ExpenseForm for the dropdown rendering.
+  const categories = categoriesResult.data.map((c) => ({
+    id: c.id,
+    name: c.name,
+    icon: c.icon,
+    color: c.color,
+    isActive: c.isActive,
+  }));
   const currencyCode = settingsResult.data.currencyCode;
 
   const expense = expenseResult.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

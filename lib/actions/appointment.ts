@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, Permission } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   appointmentSchema,
   appointmentStatusSchema,
@@ -12,28 +11,12 @@ import {
   AppointmentStatusFormData,
   RescheduleFormData,
 } from "@/lib/validations/appointment";
-import { Role, Prisma, AppointmentStatus } from "@prisma/client";
+import { Prisma, AppointmentStatus } from "@prisma/client";
 import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
 import { invalidateDashboardCache } from "@/lib/redis";
 import { getOrganizationSalonIds } from "./branch";
-
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const salonId = session.user.salonId;
-  if (!salonId) return null;
-  if (!session.user.salonRole) return null;
-
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, permission)) {
-    return null;
-  }
-
-  return { userId: session.user.id, role, salonId };
-}
 
 // Include relations for appointment list
 const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
@@ -53,7 +36,7 @@ const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
       name: true,
       duration: true,
       price: true,
-      category: true,
+      category: { select: { id: true, name: true } },
     },
   },
   staff: {
@@ -259,14 +242,21 @@ export async function createAppointment(
       return { success: false, error: "Client not found or inactive" };
     }
 
-    // Verify staff exists and is active
-    const staff = await prisma.user.findUnique({
-      where: { id: staffId },
-      select: { isActive: true },
+    // Verify staff is assigned to this branch (via UserSalon), active, and flagged as a
+    // service provider. Defense-in-depth — the dropdown already filters service providers,
+    // but a scripted client could submit any staffId without this guard.
+    const staffMembership = await prisma.userSalon.findFirst({
+      where: {
+        userId: staffId,
+        salonId: authResult.salonId,
+        isActive: true,
+        user: { isActive: true, isServiceProvider: true },
+      },
+      select: { id: true },
     });
 
-    if (!staff || !staff.isActive) {
-      return { success: false, error: "Staff member not found or inactive" };
+    if (!staffMembership) {
+      return { success: false, error: "Staff member not found, inactive, or not a service provider in this branch" };
     }
 
     const appointment = await prisma.appointment.create({
@@ -399,7 +389,9 @@ export async function updateAppointmentStatus(
   id: string,
   data: AppointmentStatusFormData
 ): Promise<ActionResult<AppointmentListItem>> {
-  const authResult = await checkAuth("appointments:update");
+  // Cancellation requires the dedicated cancel permission
+  const requiredPermission = data.status === "CANCELLED" ? "appointments:cancel" : "appointments:update";
+  const authResult = await checkAuth(requiredPermission);
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -534,7 +526,7 @@ export async function rescheduleAppointment(
 
 // Cancel appointment
 export async function cancelAppointment(id: string): Promise<ActionResult<AppointmentListItem>> {
-  const authResult = await checkAuth("appointments:update");
+  const authResult = await checkAuth("appointments:cancel");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -738,19 +730,23 @@ export async function getStaffForAppointments(): Promise<ActionResult<{
   }
 
   try {
-    const staff = await prisma.user.findMany({
+    // Resolve staff via branch membership (UserSalon). User.salonId is volatile (it's the
+    // user's last-used branch) so it can't be used to determine who works at this branch.
+    // Restricts to service providers — function is "for appointments" so non-providers
+    // should never be returned.
+    const staffRows = await prisma.userSalon.findMany({
       where: {
         salonId: authResult.salonId,
         isActive: true,
-        role: { in: ["STAFF", "ADMIN", "OWNER"] },
+        user: { isActive: true, isServiceProvider: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
       },
-      orderBy: { firstName: "asc" },
+      distinct: ["userId"],
+      orderBy: { user: { firstName: "asc" } },
     });
+    const staff = staffRows.map((row) => row.user);
 
     return { success: true, data: staff };
   } catch (error) {

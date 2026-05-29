@@ -1,22 +1,9 @@
 import { z } from "zod";
+import { categorySchema, type CategoryInput } from "./category";
 
-// Schema for creating/updating an expense category
-export const expenseCategorySchema = z.object({
-  name: z
-    .string()
-    .min(1, "Category name is required")
-    .max(50, "Category name must be less than 50 characters"),
-  icon: z
-    .string()
-    .max(30, "Icon name must be less than 30 characters")
-    .optional()
-    .or(z.literal("")),
-  color: z
-    .string()
-    .regex(/^#[0-9A-Fa-f]{6}$/, "Color must be a valid hex color (e.g. #FF5733)")
-    .optional()
-    .or(z.literal("")),
-});
+// Re-export the shared category schema under the existing names for backward compat
+export const expenseCategorySchema = categorySchema;
+export type ExpenseCategoryInput = CategoryInput;
 
 // Schema for creating an expense
 export const createExpenseSchema = z.object({
@@ -59,7 +46,6 @@ export const expenseSearchSchema = z.object({
 });
 
 // Types — output types (after Zod validation/coercion)
-export type ExpenseCategoryInput = z.infer<typeof expenseCategorySchema>;
 export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 export type UpdateExpenseInput = z.infer<typeof updateExpenseSchema>;
 export type ExpenseSearchParams = z.input<typeof expenseSearchSchema>;

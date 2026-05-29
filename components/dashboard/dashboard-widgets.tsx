@@ -42,6 +42,29 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
     currencyCode,
   } = stats;
 
+  const perms = stats.permissions;
+  const hasAnyStats = todaysAppointments || todaysRevenue || clients || todaysExpenses || monthlyPayroll || todaysProfit;
+  const hasAnyLists = !!upcomingAppointments || !!recentSales || !!topServices;
+
+  const hasAnyPermission = perms
+    ? (perms.canViewAppointments || perms.canViewSales || perms.canViewClients || perms.canViewStaff || perms.canViewExpenses || perms.canViewPayroll || perms.canViewProfit)
+    : (hasAnyStats || hasAnyLists || (staffPerformance && staffPerformance.length > 0));
+
+  if (!hasAnyPermission) {
+    return (
+      <Card>
+        <CardContent className="p-12 text-center">
+          <p className="text-muted-foreground text-lg">
+            Your account doesn&apos;t have permissions to view dashboard data.
+          </p>
+          <p className="text-muted-foreground text-sm mt-2">
+            Contact your salon owner to get access.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -65,8 +88,10 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
   return (
     <div className="space-y-6">
       {/* Main Stats Cards */}
+      {hasAnyStats && (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {/* Today's Appointments */}
+        {todaysAppointments && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Today&apos;s Appointments</CardTitle>
@@ -85,8 +110,10 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Today's Revenue */}
+        {todaysRevenue && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Today&apos;s Revenue</CardTitle>
@@ -112,8 +139,10 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Active Clients */}
+        {clients && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
@@ -126,6 +155,7 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
             </p>
           </CardContent>
         </Card>
+        )}
 
         {/* Today's Expenses (only for roles with expenses:view) */}
         {todaysExpenses && (
@@ -139,10 +169,13 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
                 {formatCurrency(todaysExpenses.amount, currencyCode)}
               </div>
               <p className="text-xs text-muted-foreground">
-                {todaysExpenses.count} expense{todaysExpenses.count !== 1 ? "s" : ""} &middot; Net:{" "}
-                <span className={todaysRevenue.amount - todaysExpenses.amount >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                  {formatCurrency(todaysRevenue.amount - todaysExpenses.amount, currencyCode)}
-                </span>
+                {todaysExpenses.count} expense{todaysExpenses.count !== 1 ? "s" : ""}{todaysRevenue && (
+                  <> &middot; Net:{" "}
+                    <span className={todaysRevenue.amount - todaysExpenses.amount >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                      {formatCurrency(todaysRevenue.amount - todaysExpenses.amount, currencyCode)}
+                    </span>
+                  </>
+                )}
               </p>
             </CardContent>
           </Card>
@@ -184,10 +217,13 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
           </Card>
         )}
       </div>
+      )}
 
       {/* Second Row - Lists */}
+      {hasAnyLists && (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {/* Upcoming Appointments */}
+        {upcomingAppointments && (
         <Card className="lg:col-span-1">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -234,8 +270,10 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Recent Sales */}
+        {recentSales && (
         <Card className="lg:col-span-1">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -284,8 +322,10 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Top Services */}
+        {topServices && (
         <Card className="lg:col-span-1">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Top Services This Month</CardTitle>
@@ -316,10 +356,12 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
+      )}
 
       {/* Staff Performance */}
-      {staffPerformance.length > 0 && (
+      {staffPerformance && staffPerformance.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">

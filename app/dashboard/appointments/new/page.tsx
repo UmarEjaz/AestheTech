@@ -1,12 +1,12 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { prisma } from "@/lib/prisma";
 import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
@@ -23,24 +23,24 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canCreate = hasPermission(userRole, "appointments:create", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const canCreate = await hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id);
 
   if (!canCreate) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["appointments:create"]);
   }
 
-  const salonId = session.user.salonId;
   if (!salonId) {
     redirect("/dashboard");
   }
 
   // Fetch clients, services, and staff for the form (org-scoped)
   const orgSalonIds = await getOrganizationSalonIds(salonId);
-  const [clients, services, staff] = await Promise.all([
+  const [clients, services, staffRows] = await Promise.all([
     prisma.client.findMany({
       where: { salonId: { in: orgSalonIds }, isActive: true },
       select: {
@@ -52,41 +52,44 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       orderBy: { firstName: "asc" },
     }),
     prisma.service.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
+      where: { salonId, isActive: true },
       select: {
         id: true,
         name: true,
         duration: true,
         price: true,
-        category: true,
+        category: { select: { name: true } },
       },
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({
+    // Resolve providers via branch membership (UserSalon) so staff assigned to this
+    // branch are included regardless of their volatile `User.salonId` value.
+    prisma.userSalon.findMany({
       where: {
         salonId,
-        role: { in: ["STAFF", "ADMIN", "OWNER"] },
         isActive: true,
+        user: { isActive: true, isServiceProvider: true },
       },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
       },
-      orderBy: { firstName: "asc" },
+      distinct: ["userId"],
+      orderBy: { user: { firstName: "asc" } },
     }),
   ]);
+  const staff = staffRows.map((row) => row.user);
 
   // Parse initial date from URL if provided
   const initialDate = params.startTime ? new Date(params.startTime) : undefined;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/appointments">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to appointments</span>
             </Link>
           </Button>
           <div>
@@ -101,8 +104,11 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
           mode="create"
           clients={clients}
           services={services.map((s) => ({
-            ...s,
+            id: s.id,
+            name: s.name,
+            duration: s.duration,
             price: Number(s.price),
+            category: s.category?.name ?? null,
           }))}
           staff={staff}
           initialDate={initialDate}

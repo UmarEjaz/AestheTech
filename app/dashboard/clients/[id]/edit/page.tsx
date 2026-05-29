@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -8,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ClientForm } from "@/components/clients/client-form";
 import { getClient } from "@/lib/actions/client";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -22,14 +22,15 @@ export default async function EditClientPage({ params }: PageProps) {
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canEdit = hasPermission(userRole, "clients:update", isSuperAdmin);
+  const salonId = session.user.salonId;
+  const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
 
   if (!canEdit) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied(["clients:update"]);
   }
 
   const result = await getClient(id);
@@ -41,12 +42,13 @@ export default async function EditClientPage({ params }: PageProps) {
   const client = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href={`/dashboard/clients/${id}`}>
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to client details</span>
             </Link>
           </Button>
           <div>

@@ -1,14 +1,14 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceForm } from "@/components/services/service-form";
-import { getAllCategories } from "@/lib/actions/service";
+import { getActiveServiceCategories } from "@/lib/actions/service-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewServicePage() {
   const session = await auth();
@@ -18,30 +18,37 @@ export default async function NewServicePage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canManage = hasPermission(userRole, "services:manage", isSuperAdmin);
-
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!isSuperAdmin) {
+    // Category dropdown is just form data — the category-fetch server action
+    // guards itself, so don't require the category-management view permission here.
+    // hasPermission applies :view inference, so :create implicitly grants :view —
+    // no need to check :view explicitly.
+    const canCreate = await hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id);
+    if (!canCreate) {
+      redirectAccessDenied(["services:create"]);
+    }
   }
 
   const [categoriesResult, settingsResult] = await Promise.all([
-    getAllCategories(),
+    getActiveServiceCategories(),
     getSettings(),
   ]);
   const categories = categoriesResult.success ? categoriesResult.data : [];
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/services">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to services</span>
             </Link>
           </Button>
           <div>

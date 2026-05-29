@@ -1,25 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Role } from "@prisma/client";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { cn } from "@/lib/utils";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  userRole: Role | null;
   isSuperAdmin?: boolean;
 }
 
-export function DashboardLayout({ children, userRole, isSuperAdmin = false }: DashboardLayoutProps) {
+export function DashboardLayout({ children, isSuperAdmin = false }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
     <div className="min-h-screen bg-background">
       {/* Desktop Sidebar */}
       <div className="hidden md:block">
-        <Sidebar userRole={userRole} isSuperAdmin={isSuperAdmin} collapsed={sidebarCollapsed} />
+        <Sidebar isSuperAdmin={isSuperAdmin} collapsed={sidebarCollapsed} />
       </div>
 
       {/* Header */}

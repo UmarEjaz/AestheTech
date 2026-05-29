@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -12,6 +11,7 @@ import { getExpenses, getIncomeExpenseSummary } from "@/lib/actions/expense";
 import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   searchParams: Promise<{
@@ -32,18 +32,19 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!hasPermission(userRole, "expenses:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["expenses:view"]);
   }
 
-  const canCreate = hasPermission(userRole, "expenses:create", isSuperAdmin);
-  const canManage = hasPermission(userRole, "expenses:update", isSuperAdmin);
-  const canDelete = hasPermission(userRole, "expenses:delete", isSuperAdmin);
-  const canManageCategories = hasPermission(userRole, "expense-categories:manage", isSuperAdmin);
+  const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id);
+  const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "expenses:delete", isSuperAdmin, salonId, session.user.id);
+  const canViewCategories = await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";
@@ -52,17 +53,14 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const endDate = params.endDate || undefined;
 
   const [result, categoriesResult, settingsResult, summaryResult] = await Promise.all([
-    getExpenses(
-      {
-        query: query || undefined,
-        categoryId: categoryId || undefined,
-        startDate: startDate ? new Date(startDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
-        page,
-        limit: 20,
-      },
-      "current"
-    ),
+    getExpenses({
+      query: query || undefined,
+      categoryId: categoryId || undefined,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      page,
+      limit: 20,
+    }),
     getActiveExpenseCategories(),
     getSettings(),
     getIncomeExpenseSummary(),
@@ -75,7 +73,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
@@ -86,7 +84,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const { expenses, total, totalPages } = result.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -97,7 +95,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
             </p>
           </div>
           <div className="flex gap-2">
-            {canManageCategories && (
+            {canViewCategories && (
               <Button variant="outline" asChild>
                 <Link href="/dashboard/expenses/categories">
                   <Settings2 className="mr-2 h-4 w-4" />
@@ -136,7 +134,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           page={page}
           totalPages={totalPages}
           total={total}
-          canManage={canManage}
+          canUpdate={canUpdate}
           canDelete={canDelete}
           currencyCode={currencyCode}
           timezone={timezone}

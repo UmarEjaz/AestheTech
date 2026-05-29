@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getBranches } from "@/lib/actions/branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,20 +15,41 @@ export default async function BranchesPage() {
   if (!session) redirect("/login");
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "branches:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["branches:view"]);
   }
 
   const result = await getBranches();
-  const branches = result.success ? result.data : [];
+  const canManage = await hasPermission(userRoleId, "branches:create", isSuperAdmin, salonId, session.user.id);
+
+  if (!result.success) {
+    return (
+      <DashboardLayout isSuperAdmin={isSuperAdmin}>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">Branches</h1>
+              <p className="text-muted-foreground">Manage your salon locations</p>
+            </div>
+          </div>
+          <div className="rounded-md border p-4 text-sm text-destructive">
+            {result.error}
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const branches = result.data;
 
   return (
-    <DashboardLayout userRole={userRole} isSuperAdmin={isSuperAdmin}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -37,7 +58,7 @@ export default async function BranchesPage() {
               Manage your salon locations
             </p>
           </div>
-          {hasPermission(userRole, "branches:manage", isSuperAdmin) && (
+          {canManage && (
             <Link href="/dashboard/branches/new">
               <Button>
                 <Plus className="mr-2 h-4 w-4" />

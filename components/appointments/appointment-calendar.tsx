@@ -14,7 +14,10 @@ import { AppointmentDetailModal } from "./appointment-detail-modal";
 
 interface AppointmentCalendarProps {
   initialAppointments: AppointmentListItem[];
-  canManage?: boolean;
+  canCreate?: boolean;
+  canUpdate?: boolean;
+  canCancel?: boolean;
+  canDelete?: boolean;
   staffFilter?: string;
   businessHoursStart?: string;
   businessHoursEnd?: string;
@@ -35,7 +38,10 @@ const DRAGGABLE_STATUSES: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED"];
 
 export function AppointmentCalendar({
   initialAppointments,
-  canManage = false,
+  canCreate = false,
+  canUpdate = false,
+  canCancel = false,
+  canDelete = false,
   staffFilter,
   businessHoursStart = "08:00",
   businessHoursEnd = "20:00",
@@ -59,7 +65,7 @@ export function AppointmentCalendar({
       title: `${recurringIndicator}${clientName}${walkInLabel} - ${apt.service.name}`,
       start: apt.startTime,
       end: apt.endTime,
-      editable: canManage && DRAGGABLE_STATUSES.includes(apt.status),
+      editable: canUpdate && DRAGGABLE_STATUSES.includes(apt.status),
       extendedProps: {
         appointment: apt,
         status: apt.status,
@@ -117,7 +123,7 @@ export function AppointmentCalendar({
 
   // Handle date selection (for creating new appointments)
   const handleDateSelect = (arg: DateSelectArg) => {
-    if (canManage) {
+    if (canCreate) {
       const startTime = arg.start.toISOString();
       router.push(`/dashboard/appointments/new?startTime=${encodeURIComponent(startTime)}`);
     }
@@ -250,7 +256,7 @@ export function AppointmentCalendar({
         events={events}
         eventClick={handleEventClick}
         eventDrop={handleEventDrop}
-        selectable={canManage}
+        selectable={canCreate}
         select={handleDateSelect}
         datesSet={handleDatesSet}
         slotMinTime={businessHoursStart}
@@ -270,7 +276,9 @@ export function AppointmentCalendar({
           isOpen={isModalOpen}
           onClose={handleModalClose}
           onDataChange={refreshAppointments}
-          canManage={canManage}
+          canUpdate={canUpdate}
+          canCancel={canCancel}
+          canDelete={canDelete}
           timezone={timezone}
         />
       )}

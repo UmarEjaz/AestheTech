@@ -14,6 +14,9 @@ import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 
 const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
+  category: {
+    select: { id: true, name: true },
+  },
   _count: {
     select: {
       appointments: true,
@@ -31,7 +34,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
   total: number;
   page: number;
   totalPages: number;
-  categories: string[];
+  categories: { id: string; name: string }[];
 }>> {
   const authResult = await checkAuth("services:view");
   if (!authResult) {
@@ -44,7 +47,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
   const skip = (safePage - 1) * safeLimit;
 
   try {
-    const where = {
+    const where: Prisma.ServiceWhereInput = {
       salonId: authResult.salonId,
       isActive,
       ...(query && {
@@ -53,29 +56,28 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
           { description: { contains: query, mode: "insensitive" as const } },
         ],
       }),
-      ...(category && { category }),
+      ...(category && { categoryId: category }),
     };
 
-    const [services, total, allServices] = await Promise.all([
+    // Fetch categories from the ServiceCategory table via the org root
+    const { getOrgRootSalonId } = await import("./branch");
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+
+    const [services, total, allCategories] = await Promise.all([
       prisma.service.findMany({
         where,
-        orderBy: [{ category: "asc" }, { name: "asc" }],
+        orderBy: [{ category: { name: "asc" } }, { name: "asc" }],
         skip,
         take: safeLimit,
         include: serviceListInclude,
       }),
       prisma.service.count({ where }),
-      prisma.service.findMany({
-        where: { salonId: authResult.salonId, isActive: true },
-        select: { category: true },
-        distinct: ["category"],
+      prisma.serviceCategory.findMany({
+        where: { salonId: orgRootId, isActive: true, deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
       }),
     ]);
-
-    const categories = allServices
-      .map((s) => s.category)
-      .filter((c): c is string => c !== null)
-      .sort();
 
     return {
       success: true,
@@ -84,7 +86,7 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
         total,
         page: safePage,
         totalPages: Math.max(1, Math.ceil(total / safeLimit)),
-        categories,
+        categories: allCategories,
       },
     };
   } catch (error) {
@@ -117,7 +119,7 @@ export async function getService(id: string): Promise<ActionResult<ServiceListIt
 }
 
 export async function createService(data: ServiceFormData): Promise<ActionResult<{ id: string }>> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -127,14 +129,25 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { description, category, cost, ...rest } = validationResult.data;
+  const { description, categoryId, cost, ...rest } = validationResult.data;
+
+  if (categoryId) {
+    const { getOrgRootSalonId } = await import("./branch");
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+    const validCategory = await prisma.serviceCategory.findFirst({
+      where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
+    });
+    if (!validCategory) {
+      return { success: false, error: "Invalid category" };
+    }
+  }
 
   const service = await prisma.service.create({
     data: {
       ...rest,
       salonId: authResult.salonId,
       description: description || null,
-      category: category || null,
+      categoryId: categoryId || null,
       cost: cost ?? null,
     },
   });
@@ -155,7 +168,7 @@ export async function createService(data: ServiceFormData): Promise<ActionResult
 export async function updateService(
   data: { id: string } & Partial<ServiceFormData>
 ): Promise<ActionResult> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -165,7 +178,18 @@ export async function updateService(
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { id, description, category, cost, ...rest } = validationResult.data;
+  const { id, description, categoryId, cost, ...rest } = validationResult.data;
+
+  if (categoryId) {
+    const { getOrgRootSalonId } = await import("./branch");
+    const orgRootId = await getOrgRootSalonId(authResult.salonId);
+    const validCategory = await prisma.serviceCategory.findFirst({
+      where: { id: categoryId, salonId: orgRootId, isActive: true, deletedAt: null },
+    });
+    if (!validCategory) {
+      return { success: false, error: "Invalid category" };
+    }
+  }
 
   const existingService = await prisma.service.findFirst({
     where: { id, salonId: authResult.salonId },
@@ -180,7 +204,7 @@ export async function updateService(
     data: {
       ...rest,
       ...(description !== undefined && { description: description || null }),
-      ...(category !== undefined && { category: category || null }),
+      ...(categoryId !== undefined && { categoryId: categoryId || null }),
       ...(cost !== undefined && { cost: cost ?? null }),
     },
   });
@@ -190,7 +214,7 @@ export async function updateService(
   if (rest.price !== undefined && Number(rest.price) !== Number(existingService.price)) changes.price = { from: Number(existingService.price), to: Number(rest.price) };
   if (cost !== undefined && Number(cost ?? 0) !== Number(existingService.cost ?? 0)) changes.cost = { from: Number(existingService.cost ?? 0), to: Number(cost ?? 0) };
   if (rest.duration !== undefined && rest.duration !== existingService.duration) changes.duration = { from: existingService.duration, to: rest.duration };
-  if (category !== undefined && (category || null) !== existingService.category) changes.category = { from: existingService.category, to: category || null };
+  if (categoryId !== undefined && (categoryId || null) !== existingService.categoryId) changes.categoryId = { from: existingService.categoryId, to: categoryId || null };
 
   await logAudit({
     action: "SERVICE_UPDATED",
@@ -206,7 +230,7 @@ export async function updateService(
 }
 
 export async function deleteService(id: string): Promise<ActionResult> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -247,7 +271,7 @@ export async function deleteService(id: string): Promise<ActionResult> {
 }
 
 export async function restoreService(id: string): Promise<ActionResult> {
-  const authResult = await checkAuth("services:manage");
+  const authResult = await checkAuth("services:delete");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
@@ -278,27 +302,3 @@ export async function restoreService(id: string): Promise<ActionResult> {
   return { success: true, data: undefined };
 }
 
-export async function getAllCategories(): Promise<ActionResult<string[]>> {
-  const authResult = await checkAuth("services:view");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  try {
-    const services = await prisma.service.findMany({
-      where: { salonId: authResult.salonId, isActive: true },
-      select: { category: true },
-      distinct: ["category"],
-    });
-
-    const categories = services
-      .map((s) => s.category)
-      .filter((c): c is string => c !== null)
-      .sort();
-
-    return { success: true, data: categories };
-  } catch (error) {
-    console.error("Error fetching service categories:", error);
-    return { success: false, error: "Failed to fetch categories" };
-  }
-}

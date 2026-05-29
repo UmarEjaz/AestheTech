@@ -1,9 +1,9 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getStaffWithSchedules } from "@/lib/actions/schedule";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { getSettings } from "@/lib/actions/settings";
 import { SchedulePageClient } from "@/components/schedules/schedule-page-client";
 
@@ -15,17 +15,25 @@ export default async function SchedulesPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canManage = hasPermission(userRole, "schedules:manage", isSuperAdmin);
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["schedules:view"]);
+  }
+  const [canCreate, canUpdate] = await Promise.all([
+    hasPermission(userRoleId, "schedules:create", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "schedules:update", isSuperAdmin, salonId, session.user.id),
+  ]);
+  const canManage = canCreate || canUpdate;
 
   const staffResult = await getStaffWithSchedules();
 
   if (!staffResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{staffResult.error}</p>
         </div>
@@ -37,7 +45,7 @@ export default async function SchedulesPage() {
   const salonName = settingsResult.success ? settingsResult.data.salonName : "AestheTech Salon";
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <SchedulePageClient
         staffWithSchedules={staffResult.data}
         canManage={canManage}

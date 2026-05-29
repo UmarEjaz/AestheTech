@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getBranchDetail } from "@/lib/actions/branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,20 +21,21 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   if (!session) redirect("/login");
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "branches:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["branches:view"]);
   }
 
   const result = await getBranchDetail(id);
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole} isSuperAdmin={isSuperAdmin}>
+      <DashboardLayout isSuperAdmin={isSuperAdmin}>
         <div className="space-y-6">
           <p className="text-destructive">{result.error}</p>
           <Link href="/dashboard/branches">
@@ -46,15 +47,16 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   }
 
   const branch = result.data;
-  const canManage = hasPermission(userRole, "branches:manage", isSuperAdmin);
+  const canManageStaff = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
 
   return (
-    <DashboardLayout userRole={userRole} isSuperAdmin={isSuperAdmin}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Link href="/dashboard/branches">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to branches</span>
             </Button>
           </Link>
           <div>
@@ -102,7 +104,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
         <BranchStaffTable
           branchId={branch.id}
           staff={branch.staff}
-          canManage={canManage}
+          canManageStaff={canManageStaff}
         />
       </div>
     </DashboardLayout>

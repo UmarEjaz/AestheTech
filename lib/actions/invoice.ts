@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, Permission } from "@/lib/permissions";
+import { checkAuth } from "@/lib/auth-helpers";
 import {
   invoiceSearchSchema,
   addPaymentSchema,
@@ -14,28 +13,12 @@ import {
   UpdateInvoiceStatusInput,
   CreateRefundInput,
 } from "@/lib/validations/invoice";
-import { Role, Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
+import { Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier } from "@/lib/utils/loyalty";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
-
-async function checkAuth(permission: Permission): Promise<{ userId: string; role: Role; salonId: string } | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-
-  const salonId = session.user.salonId;
-  if (!salonId) return null;
-  if (!session.user.salonRole) return null;
-
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, permission)) {
-    return null;
-  }
-
-  return { userId: session.user.id, role, salonId };
-}
 
 // Include relations for invoice list
 const invoiceListInclude = Prisma.validator<Prisma.InvoiceInclude>()({
@@ -248,50 +231,59 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
   const { invoiceId, amount, method } = validationResult.data;
 
   try {
-    const invoice = await prisma.invoice.findFirst({
-      where: { id: invoiceId, salonId: authResult.salonId },
-      include: { payments: true },
-    });
+    // Atomic read + validate + insert + optional status update. Serializable
+    // isolation ensures two concurrent payment inserts can't both pass the
+    // balance check and produce overpayment — one of them will be aborted
+    // with a serialization failure (caught below).
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: invoiceId, salonId: authResult.salonId },
+          include: { payments: true },
+        });
 
-    if (!invoice) {
-      return { success: false, error: "Invoice not found" };
-    }
+        if (!invoice) {
+          return { ok: false as const, error: "Invoice not found" };
+        }
+        if (invoice.status === InvoiceStatus.CANCELLED) {
+          return { ok: false as const, error: "Cannot add payment to cancelled invoice" };
+        }
+        if (invoice.status === InvoiceStatus.PAID) {
+          return { ok: false as const, error: "Invoice is already paid" };
+        }
 
-    if (invoice.status === InvoiceStatus.CANCELLED) {
-      return { success: false, error: "Cannot add payment to cancelled invoice" };
-    }
+        const paidAmount = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+        const remaining = Number(invoice.total) - paidAmount;
 
-    if (invoice.status === InvoiceStatus.PAID) {
-      return { success: false, error: "Invoice is already paid" };
-    }
+        if (amount > remaining + 0.01) {
+          return {
+            ok: false as const,
+            error: `Payment amount exceeds remaining balance of ${remaining.toFixed(2)}`,
+          };
+        }
 
-    // Calculate remaining amount
-    const paidAmount = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const remaining = Number(invoice.total) - paidAmount;
+        await tx.payment.create({
+          data: { invoiceId, amount, method },
+        });
 
-    if (amount > remaining + 0.01) {
-      return { success: false, error: `Payment amount exceeds remaining balance of ${remaining.toFixed(2)}` };
-    }
+        const newPaidAmount = paidAmount + amount;
+        if (newPaidAmount >= Number(invoice.total) - 0.01) {
+          await tx.invoice.update({
+            where: { id: invoiceId },
+            data: {
+              status: InvoiceStatus.PAID,
+              paidAt: new Date(),
+            },
+          });
+        }
 
-    // Add payment
-    await prisma.payment.create({
-      data: {
-        invoiceId,
-        amount,
-        method,
+        return { ok: true as const };
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
 
-    // Check if invoice is now fully paid
-    const newPaidAmount = paidAmount + amount;
-    if (newPaidAmount >= Number(invoice.total) - 0.01) {
-      await prisma.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          status: InvoiceStatus.PAID,
-          paidAt: new Date(),
-        },
-      });
+    if (!result.ok) {
+      return { success: false, error: result.error };
     }
 
     // Fetch updated invoice
@@ -313,6 +305,17 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
     await invalidateDashboardCache(authResult.salonId);
     return { success: true, data: updatedInvoice! };
   } catch (error) {
+    // Postgres serialization_failure (40001) is thrown by Prisma when a
+    // concurrent transaction conflicts. Give the user a clear, actionable error.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2034"
+    ) {
+      return {
+        success: false,
+        error: "Another payment was added at the same time. Please reload and try again.",
+      };
+    }
     console.error("Error adding payment:", error);
     return { success: false, error: "Failed to add payment" };
   }
@@ -360,17 +363,26 @@ export async function updateInvoiceStatus(
       };
     }
 
-    const updateData: Prisma.InvoiceUpdateInput = {
-      status: validationResult.data.status,
-    };
+    // Atomic update: condition on the status we just read. If a concurrent
+    // transaction changed the status between our read and our write, the
+    // updateMany WHERE clause excludes it and count === 0.
+    const result = await prisma.invoice.updateMany({
+      where: { id, salonId: authResult.salonId, status: invoice.status },
+      data: {
+        status: validationResult.data.status,
+        ...(validationResult.data.status === InvoiceStatus.PAID && { paidAt: new Date() }),
+      },
+    });
 
-    if (validationResult.data.status === InvoiceStatus.PAID) {
-      updateData.paidAt = new Date();
+    if (result.count === 0) {
+      return {
+        success: false,
+        error: "Invoice status changed by another user. Please reload and try again.",
+      };
     }
 
-    const updatedInvoice = await prisma.invoice.update({
+    const updatedInvoice = await prisma.invoice.findUnique({
       where: { id },
-      data: updateData,
       include: invoiceListInclude,
     });
 
@@ -380,12 +392,12 @@ export async function updateInvoiceStatus(
       entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { from: invoice.status, to: validationResult.data.status, invoiceNumber: updatedInvoice.invoiceNumber },
+      details: { from: invoice.status, to: validationResult.data.status, invoiceNumber: updatedInvoice?.invoiceNumber },
     });
 
     revalidatePath("/dashboard/invoices");
     await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: updatedInvoice };
+    return { success: true, data: updatedInvoice! };
   } catch (error) {
     console.error("Error updating invoice status:", error);
     return { success: false, error: "Failed to update invoice status" };
@@ -400,26 +412,41 @@ export async function cancelInvoice(id: string): Promise<ActionResult<InvoiceLis
   }
 
   try {
-    const invoice = await prisma.invoice.findFirst({
-      where: { id, salonId: authResult.salonId },
-      select: { status: true },
+    // Atomic cancel: the predicate on `status` is evaluated together with the
+    // UPDATE, so a concurrent payment that marks the invoice PAID can't be
+    // overwritten by this cancel.
+    const result = await prisma.invoice.updateMany({
+      where: {
+        id,
+        salonId: authResult.salonId,
+        status: { notIn: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED, InvoiceStatus.REFUNDED] },
+      },
+      data: { status: InvoiceStatus.CANCELLED },
     });
 
-    if (!invoice) {
-      return { success: false, error: "Invoice not found" };
+    if (result.count === 0) {
+      // Diagnose which precondition failed so we can give a specific error.
+      const invoice = await prisma.invoice.findFirst({
+        where: { id, salonId: authResult.salonId },
+        select: { status: true },
+      });
+      if (!invoice) {
+        return { success: false, error: "Invoice not found" };
+      }
+      if (invoice.status === InvoiceStatus.PAID) {
+        return { success: false, error: "Cannot cancel a paid invoice" };
+      }
+      if (invoice.status === InvoiceStatus.CANCELLED) {
+        return { success: false, error: "Invoice is already cancelled" };
+      }
+      if (invoice.status === InvoiceStatus.REFUNDED) {
+        return { success: false, error: "Cannot cancel a refunded invoice" };
+      }
+      return { success: false, error: "Cannot cancel this invoice" };
     }
 
-    if (invoice.status === InvoiceStatus.PAID) {
-      return { success: false, error: "Cannot cancel a paid invoice" };
-    }
-
-    if (invoice.status === InvoiceStatus.CANCELLED) {
-      return { success: false, error: "Invoice is already cancelled" };
-    }
-
-    const updatedInvoice = await prisma.invoice.update({
+    const updatedInvoice = await prisma.invoice.findUnique({
       where: { id },
-      data: { status: InvoiceStatus.CANCELLED },
       include: invoiceListInclude,
     });
 
@@ -429,12 +456,12 @@ export async function cancelInvoice(id: string): Promise<ActionResult<InvoiceLis
       entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { invoiceNumber: updatedInvoice.invoiceNumber },
+      details: { invoiceNumber: updatedInvoice?.invoiceNumber },
     });
 
     revalidatePath("/dashboard/invoices");
     await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: updatedInvoice };
+    return { success: true, data: updatedInvoice! };
   } catch (error) {
     console.error("Error cancelling invoice:", error);
     return { success: false, error: "Failed to cancel invoice" };

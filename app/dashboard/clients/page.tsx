@@ -1,11 +1,11 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ClientTable } from "@/components/clients/client-table";
 import { getClients } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function ClientsPage() {
   const session = await auth();
@@ -15,13 +15,17 @@ export default async function ClientsPage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canCreate = hasPermission(userRole, "clients:create", isSuperAdmin);
-  const canEdit = hasPermission(userRole, "clients:update", isSuperAdmin);
-  const canDelete = hasPermission(userRole, "clients:delete", isSuperAdmin);
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "clients:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["clients:view"]);
+  }
+  const canCreate = await hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, session.user.id);
+  const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "clients:delete", isSuperAdmin, salonId, session.user.id);
 
   const [clientsResult, settingsResult] = await Promise.all([
     getClients({ page: 1, limit: 15 }),
@@ -32,7 +36,7 @@ export default async function ClientsPage() {
 
   if (!clientsResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{clientsResult.error}</p>
         </div>
@@ -43,7 +47,7 @@ export default async function ClientsPage() {
   const { clients, total, page, totalPages } = clientsResult.data;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div>

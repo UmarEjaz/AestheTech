@@ -81,6 +81,43 @@ async function scanAndDelete(redis: Redis, pattern: string): Promise<void> {
   } while (cursor !== "0");
 }
 
+export async function invalidatePermissionCache(salonId: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+
+  try {
+    await scanAndDelete(redis, `salon:${salonId}:perms:*`);
+  } catch {
+    // Silent failure
+  }
+}
+
+export async function invalidateUserPermissionCache(salonId: string, userId: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+
+  try {
+    await redis.unlink(`salon:${salonId}:userperms:${userId}`);
+  } catch {
+    // Silent failure
+  }
+}
+
+export async function invalidateRoleCache(salonId?: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+
+  try {
+    if (salonId) {
+      await scanAndDelete(redis, `roles:hierarchy:${salonId}`);
+    }
+    // Always invalidate the system-level hierarchy cache too
+    await redis.unlink("roles:hierarchy:system");
+  } catch {
+    // Silent failure
+  }
+}
+
 export async function invalidateDashboardCache(salonId?: string, orgRootId?: string): Promise<void> {
   const redis = getRedis();
   if (!redis) return;

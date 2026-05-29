@@ -1,12 +1,29 @@
-import { PrismaClient, Role, LoyaltyTier, PayType } from "@prisma/client";
+import { PrismaClient, LoyaltyTier, PayType } from "@prisma/client";
+import { PERMISSION_REGISTRY, DEFAULT_PERMISSION_ROLES } from "../lib/permissions-defaults";
+import { SYSTEM_ROLE_DEFINITIONS, SYSTEM_ROLES } from "../lib/roles";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🌱 Starting seed...");
+  console.log("Starting seed...");
+
+  // Apply partial unique index for system roles.
+  // Prisma's @@unique([salonId, slug]) does not enforce uniqueness when salonId is NULL
+  // (Postgres treats NULLs as distinct). System roles have salonId=NULL, so we need a
+  // partial unique index to guarantee no two system roles can share a slug at the DB level.
+  // This runs every seed; IF NOT EXISTS makes it idempotent so it's safe to re-run.
+  // When Prisma migrations are set up, fold this into the baseline migration and remove this block.
+  await prisma.$executeRawUnsafe(
+    `CREATE UNIQUE INDEX IF NOT EXISTS "role_definitions_system_slug_key"
+     ON "role_definitions" ("slug") WHERE "salonId" IS NULL;`
+  );
+  console.log("Ensured partial unique index for system roles");
 
   // Clean existing data (order matters for foreign keys)
+  await prisma.userPermission.deleteMany();
+  await prisma.rolePermission.deleteMany();
+  await prisma.permission.deleteMany();
   await prisma.payrollEntry.deleteMany();
   await prisma.payrollRun.deleteMany();
   await prisma.salaryConfig.deleteMany();
@@ -27,13 +44,68 @@ async function main() {
   await prisma.schedule.deleteMany();
   await prisma.product.deleteMany();
   await prisma.service.deleteMany();
+  await prisma.productCategory.deleteMany();
+  await prisma.serviceCategory.deleteMany();
   await prisma.client.deleteMany();
   await prisma.settings.deleteMany();
   await prisma.userSalon.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.roleDefinition.deleteMany();
   await prisma.salon.deleteMany();
 
-  console.log("🗑️  Cleared existing data");
+  console.log("Cleared existing data");
+
+  // ============================================
+  // ROLE DEFINITIONS
+  // ============================================
+  // Only Owner is a true system role (global, salonId=null, isSystem=true) — locked
+  // and shared across all salons. Admin/Staff/Receptionist are created per-salon below
+  // (isSystem=false), so each salon can rename, recolour, or delete them like custom roles.
+  const ownerDef = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === SYSTEM_ROLES.OWNER)!;
+  const ownerRole = await prisma.roleDefinition.create({
+    data: {
+      name: ownerDef.name,
+      slug: ownerDef.slug,
+      description: ownerDef.description,
+      color: ownerDef.color,
+      hierarchyLevel: ownerDef.hierarchyLevel,
+      isSystem: true,
+      salonId: null,
+    },
+  });
+  console.log("Created global Owner role");
+
+  // Helper: build a per-salon role lookup map (slug → id) after seeding a salon's roles.
+  // Owner is global; Admin/Staff/Receptionist are looked up by salonId+slug.
+  const defaultPerSalonSlugs = [SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST];
+
+  async function createDefaultSalonRoles(salonId: string): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    map.set(SYSTEM_ROLES.OWNER, ownerRole.id);
+    for (const slug of defaultPerSalonSlugs) {
+      const def = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === slug);
+      if (!def) throw new Error(`Missing default role definition for slug: "${slug}"`);
+      const role = await prisma.roleDefinition.create({
+        data: {
+          name: def.name,
+          slug: def.slug,
+          description: def.description,
+          color: def.color,
+          hierarchyLevel: def.hierarchyLevel,
+          isSystem: false,
+          salonId,
+        },
+      });
+      map.set(def.slug, role.id);
+    }
+    return map;
+  }
+
+  const requireRole = (map: Map<string, string>, slug: string): string => {
+    const id = map.get(slug);
+    if (!id) throw new Error(`Missing role for slug: "${slug}" in this salon`);
+    return id;
+  };
 
   // Create Default Salon
   const salon = await prisma.salon.create({
@@ -48,7 +120,7 @@ async function main() {
     },
   });
 
-  console.log("🏪 Created salon");
+  console.log("Created salon");
 
   // Create Settings (1:1 with Salon)
   await prisma.settings.create({
@@ -65,7 +137,11 @@ async function main() {
     },
   });
 
-  console.log("⚙️  Created settings");
+  console.log("Created settings");
+
+  // Create per-salon default roles (Admin/Staff/Receptionist) for the default salon
+  const defaultSalonRoles = await createDefaultSalonRoles(salon.id);
+  console.log("Created per-salon default roles for default salon");
 
   // Create Users with role and salonId directly
   const hashedPassword = await bcrypt.hash("password123", 10);
@@ -81,7 +157,7 @@ async function main() {
       phone: "+923001234567",
       isSuperAdmin: true,
       salonId: salon.id,
-      role: Role.OWNER,
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.OWNER),
     },
   });
 
@@ -93,7 +169,7 @@ async function main() {
       lastName: "Johnson",
       phone: "+1234567890",
       salonId: salon.id,
-      role: Role.OWNER,
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.OWNER),
     },
   });
 
@@ -105,7 +181,7 @@ async function main() {
       lastName: "Chen",
       phone: "+1234567891",
       salonId: salon.id,
-      role: Role.ADMIN,
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.ADMIN),
     },
   });
 
@@ -117,7 +193,7 @@ async function main() {
       lastName: "Wilson",
       phone: "+1234567892",
       salonId: salon.id,
-      role: Role.STAFF,
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.STAFF),
     },
   });
 
@@ -129,7 +205,7 @@ async function main() {
       lastName: "Brown",
       phone: "+1234567893",
       salonId: salon.id,
-      role: Role.STAFF,
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.STAFF),
     },
   });
 
@@ -141,29 +217,29 @@ async function main() {
       lastName: "Martinez",
       phone: "+1234567894",
       salonId: salon.id,
-      role: Role.RECEPTIONIST,
+      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.RECEPTIONIST),
     },
   });
 
-  console.log("👤 Created users");
+  console.log("Created users");
 
-  // Create UserSalon records for all users
-  const allUsers = [
-    { user: superAdmin, role: Role.OWNER },
-    { user: owner, role: Role.OWNER },
-    { user: admin, role: Role.ADMIN },
-    { user: staff1, role: Role.STAFF },
-    { user: staff2, role: Role.STAFF },
-    { user: lisa, role: Role.RECEPTIONIST },
+  // Create UserSalon records for the default salon (using per-salon role IDs)
+  const defaultSalonUsers = [
+    { user: superAdmin, roleSlug: SYSTEM_ROLES.OWNER },
+    { user: owner, roleSlug: SYSTEM_ROLES.OWNER },
+    { user: admin, roleSlug: SYSTEM_ROLES.ADMIN },
+    { user: staff1, roleSlug: SYSTEM_ROLES.STAFF },
+    { user: staff2, roleSlug: SYSTEM_ROLES.STAFF },
+    { user: lisa, roleSlug: SYSTEM_ROLES.RECEPTIONIST },
   ];
 
-  for (const { user: u, role: r } of allUsers) {
+  for (const { user: u, roleSlug } of defaultSalonUsers) {
     await prisma.userSalon.create({
-      data: { userId: u.id, salonId: salon.id, role: r },
+      data: { userId: u.id, salonId: salon.id, roleDefinitionId: requireRole(defaultSalonRoles, roleSlug) },
     });
   }
 
-  console.log("🔗 Created user-salon associations");
+  console.log("Created user-salon associations for default salon");
 
   // Create a demo branch salon
   const branchSalon = await prisma.salon.create({
@@ -189,19 +265,80 @@ async function main() {
     },
   });
 
-  // Give Owner and SuperAdmin access to the branch
+  // Create per-salon default roles for the branch salon
+  const branchSalonRoles = await createDefaultSalonRoles(branchSalon.id);
+  console.log("Created per-salon default roles for branch salon");
+
+  // Give Owner and SuperAdmin access to the branch (Owner is global, shared role row)
   await prisma.userSalon.create({
-    data: { userId: superAdmin.id, salonId: branchSalon.id, role: Role.OWNER },
+    data: { userId: superAdmin.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.OWNER) },
   });
   await prisma.userSalon.create({
-    data: { userId: owner.id, salonId: branchSalon.id, role: Role.OWNER },
+    data: { userId: owner.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.OWNER) },
   });
-  // Assign one staff member to both branches
+  // Assign one staff member to both branches (using the branch's per-salon Staff role)
   await prisma.userSalon.create({
-    data: { userId: staff1.id, salonId: branchSalon.id, role: Role.STAFF },
+    data: { userId: staff1.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.STAFF) },
   });
 
-  console.log("🏢 Created demo branch salon");
+  console.log("Created demo branch salon");
+
+  // ============================================
+  // SERVICE CATEGORIES & PRODUCT CATEGORIES
+  // ============================================
+  const serviceCategories = await Promise.all([
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Hair", icon: "Scissors", color: "#9333EA", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Nails", icon: "Paintbrush", color: "#EC4899", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Skin", icon: "Sparkles", color: "#F59E0B", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Makeup", icon: "Palette", color: "#EF4444", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Massage", icon: "Hand", color: "#22C55E", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Waxing", icon: "Flame", color: "#F97316", isDefault: true },
+    }),
+    prisma.serviceCategory.create({
+      data: { salonId: salon.id, name: "Other", icon: "MoreHorizontal", color: "#6B7280", isDefault: true },
+    }),
+  ]);
+
+  const svcCatMap = new Map(serviceCategories.map((c) => [c.name, c.id]));
+
+  const productCategories = await Promise.all([
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Hair Care", icon: "Sparkles", color: "#9333EA", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Skin Care", icon: "Droplet", color: "#3B82F6", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Nail Care", icon: "Paintbrush", color: "#EC4899", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Styling Tools", icon: "Wrench", color: "#F59E0B", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Accessories", icon: "Gem", color: "#8B5CF6", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Grooming", icon: "Scissors", color: "#14B8A6", isDefault: true },
+    }),
+    prisma.productCategory.create({
+      data: { salonId: salon.id, name: "Other", icon: "MoreHorizontal", color: "#6B7280", isDefault: true },
+    }),
+  ]);
+
+  const prodCatMap = new Map(productCategories.map((c) => [c.name, c.id]));
+
+  console.log("Created service and product categories");
 
   // Create branch-specific services (demonstrates cross-branch service visibility)
   await Promise.all([
@@ -213,7 +350,7 @@ async function main() {
         duration: 30,
         price: 45.0,
         points: 45,
-        category: "Skin",
+        categoryId: svcCatMap.get("Skin")!,
       },
     }),
     prisma.service.create({
@@ -224,7 +361,7 @@ async function main() {
         duration: 20,
         price: 20.0,
         points: 20,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
   ]);
@@ -242,7 +379,7 @@ async function main() {
         create: {
           salonId: branchSalon.id,
           balance: 100,
-          tier: "SILVER",
+          tier: "MEMBER",
         },
       },
     },
@@ -260,11 +397,11 @@ async function main() {
       stock: 30,
       lowStockThreshold: 5,
       points: 18,
-      category: "Grooming",
+      categoryId: prodCatMap.get("Grooming")!,
     },
   });
 
-  console.log("🏪 Created branch services, client, and product");
+  console.log("Created branch services, client, and product");
 
   // Create Services (salon-scoped)
   const services = await Promise.all([
@@ -276,7 +413,7 @@ async function main() {
         duration: 60,
         price: 75.0,
         points: 75,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -287,7 +424,7 @@ async function main() {
         duration: 30,
         price: 35.0,
         points: 35,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -298,7 +435,7 @@ async function main() {
         duration: 120,
         price: 150.0,
         points: 150,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -309,7 +446,7 @@ async function main() {
         duration: 90,
         price: 120.0,
         points: 120,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -320,7 +457,7 @@ async function main() {
         duration: 45,
         price: 50.0,
         points: 50,
-        category: "Hair",
+        categoryId: svcCatMap.get("Hair")!,
       },
     }),
     prisma.service.create({
@@ -331,7 +468,7 @@ async function main() {
         duration: 30,
         price: 30.0,
         points: 30,
-        category: "Nails",
+        categoryId: svcCatMap.get("Nails")!,
       },
     }),
     prisma.service.create({
@@ -342,7 +479,7 @@ async function main() {
         duration: 45,
         price: 45.0,
         points: 45,
-        category: "Nails",
+        categoryId: svcCatMap.get("Nails")!,
       },
     }),
     prisma.service.create({
@@ -353,7 +490,7 @@ async function main() {
         duration: 60,
         price: 55.0,
         points: 55,
-        category: "Nails",
+        categoryId: svcCatMap.get("Nails")!,
       },
     }),
     prisma.service.create({
@@ -364,7 +501,7 @@ async function main() {
         duration: 60,
         price: 80.0,
         points: 80,
-        category: "Skincare",
+        categoryId: svcCatMap.get("Skin")!,
       },
     }),
     prisma.service.create({
@@ -375,12 +512,12 @@ async function main() {
         duration: 90,
         price: 150.0,
         points: 150,
-        category: "Skincare",
+        categoryId: svcCatMap.get("Skin")!,
       },
     }),
   ]);
 
-  console.log("💇 Created services");
+  console.log("Created services");
 
   // Create Products (salon-scoped)
   await Promise.all([
@@ -395,7 +532,7 @@ async function main() {
         stock: 25,
         lowStockThreshold: 5,
         points: 25,
-        category: "Hair Care",
+        categoryId: prodCatMap.get("Hair Care")!,
       },
     }),
     prisma.product.create({
@@ -409,7 +546,7 @@ async function main() {
         stock: 18,
         lowStockThreshold: 5,
         points: 35,
-        category: "Hair Care",
+        categoryId: prodCatMap.get("Hair Care")!,
       },
     }),
     prisma.product.create({
@@ -423,7 +560,7 @@ async function main() {
         stock: 12,
         lowStockThreshold: 3,
         points: 45,
-        category: "Nails",
+        categoryId: prodCatMap.get("Nail Care")!,
       },
     }),
     prisma.product.create({
@@ -437,7 +574,7 @@ async function main() {
         stock: 30,
         lowStockThreshold: 8,
         points: 13,
-        category: "Nails",
+        categoryId: prodCatMap.get("Nail Care")!,
       },
     }),
     prisma.product.create({
@@ -451,7 +588,7 @@ async function main() {
         stock: 8,
         lowStockThreshold: 5,
         points: 60,
-        category: "Skincare",
+        categoryId: prodCatMap.get("Skin Care")!,
       },
     }),
     prisma.product.create({
@@ -465,12 +602,12 @@ async function main() {
         stock: 3,
         lowStockThreshold: 5,
         points: 28,
-        category: "Skincare",
+        categoryId: prodCatMap.get("Skin Care")!,
       },
     }),
   ]);
 
-  console.log("📦 Created products");
+  console.log("Created products");
 
   // Create Clients (salon-scoped)
   const clients = await Promise.all([
@@ -534,7 +671,7 @@ async function main() {
     }),
   ]);
 
-  console.log("👥 Created clients");
+  console.log("Created clients");
 
   // Create Loyalty Points for clients (salon-scoped)
   await Promise.all(
@@ -546,8 +683,8 @@ async function main() {
           balance: [500, 250, 100, 750, 1200][index],
           tier: [
             LoyaltyTier.GOLD,
-            LoyaltyTier.SILVER,
-            LoyaltyTier.SILVER,
+            LoyaltyTier.MEMBER,
+            LoyaltyTier.MEMBER,
             LoyaltyTier.GOLD,
             LoyaltyTier.PLATINUM,
           ][index],
@@ -556,7 +693,7 @@ async function main() {
     )
   );
 
-  console.log("⭐ Created loyalty points");
+  console.log("Created loyalty points");
 
   // Create Staff Schedules (salon-scoped)
   const daysOfWeek = [1, 2, 3, 4, 5]; // Monday to Friday
@@ -576,7 +713,7 @@ async function main() {
     }
   }
 
-  console.log("📅 Created staff schedules");
+  console.log("Created staff schedules");
 
   // Create some sample appointments for today and upcoming days (salon-scoped)
   const today = new Date();
@@ -619,7 +756,7 @@ async function main() {
     },
   });
 
-  console.log("📆 Created appointments");
+  console.log("Created appointments");
 
   // ============================================
   // EXPENSE CATEGORIES & EXPENSES
@@ -640,6 +777,9 @@ async function main() {
     }),
     prisma.expenseCategory.create({
       data: { salonId: salon.id, name: "Marketing", icon: "Megaphone", color: "#EC4899", isDefault: true },
+    }),
+    prisma.expenseCategory.create({
+      data: { salonId: salon.id, name: "Other", icon: "MoreHorizontal", color: "#6B7280", isDefault: true },
     }),
   ]);
 
@@ -698,7 +838,7 @@ async function main() {
     ],
   });
 
-  console.log("💰 Created expense categories and sample expenses");
+  console.log("Created expense categories and sample expenses");
 
   // ============================================
   // SALARY CONFIGS & PAYROLL
@@ -845,11 +985,74 @@ async function main() {
     },
   });
 
-  console.log("💸 Created salary configs and payroll runs");
+  console.log("Created salary configs and payroll runs");
 
-  console.log("✅ Seed completed successfully!");
+  // ============================================
+  // PERMISSIONS — Seed global registry + default role assignments
+  // ============================================
+
+  // Create all permission records (global registry) in a single bulk insert
+  await prisma.permission.createMany({
+    data: PERMISSION_REGISTRY.map((p) => ({
+      code: p.code,
+      module: p.module,
+      label: p.label,
+      description: p.description,
+      sortOrder: p.sortOrder,
+    })),
+  });
+
+  // Build a code->id lookup map
+  const permissionRecords = await prisma.permission.findMany({
+    select: { id: true, code: true },
+  });
+  const permissionIdMap = new Map(permissionRecords.map((p) => [p.code, p.id]));
+
+  // Seed default role-permission assignments for both salons. Each salon has its own
+  // Admin/Staff/Receptionist role rows; Owner is shared (global) so the same row is used
+  // for both salons but the permission rows are scoped per-salon.
+  const salonRoleMaps: Array<{ salonId: string; roleMap: Map<string, string> }> = [
+    { salonId: salon.id, roleMap: defaultSalonRoles },
+    { salonId: branchSalon.id, roleMap: branchSalonRoles },
+  ];
+  // Track missing references so a typo in DEFAULT_PERMISSION_ROLES doesn't silently
+  // produce a partially-seeded salon. Validate all references FIRST, then write —
+  // otherwise an unresolved reference in salon #2 would leave salon #1 partially
+  // seeded by the time we throw. Same fail-fast pattern as seed-permissions.ts.
+  const missingPermCodes = new Set<string>();
+  const missingRoleSlugs = new Set<string>();
+  const allRolePermData: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
+  for (const { salonId: sId, roleMap } of salonRoleMaps) {
+    for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
+      const permId = permissionIdMap.get(code);
+      if (!permId) {
+        missingPermCodes.add(code);
+        continue;
+      }
+      for (const roleSlug of roles) {
+        const rdId = roleMap.get(roleSlug);
+        if (!rdId) {
+          missingRoleSlugs.add(roleSlug);
+          continue;
+        }
+        allRolePermData.push({ salonId: sId, roleDefinitionId: rdId, permissionId: permId });
+      }
+    }
+  }
+  if (missingPermCodes.size > 0 || missingRoleSlugs.size > 0) {
+    throw new Error(
+      `Seed failed: unresolved references in DEFAULT_PERMISSION_ROLES. ` +
+        `Missing permission codes: [${[...missingPermCodes].join(", ")}]. ` +
+        `Missing role slugs: [${[...missingRoleSlugs].join(", ")}].`
+    );
+  }
+  await prisma.rolePermission.createMany({ data: allRolePermData });
+
+  console.log("Created permissions and default role assignments");
+
+  console.log("Seed completed successfully!");
   console.log("");
-  console.log("📋 Test Accounts:");
+  console.log("Test Accounts:");
   console.log("   Super Admin: itsumarejaz@gmail.com / umar111");
   console.log("   Owner: owner@aesthetech.com / password123");
   console.log("   Admin: admin@aesthetech.com / password123");
@@ -860,7 +1063,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error("❌ Seed failed:", e);
+    console.error("Seed failed:", e);
     process.exit(1);
   })
   .finally(async () => {

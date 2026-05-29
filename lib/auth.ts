@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -13,7 +13,8 @@ declare module "next-auth" {
     lastName: string;
     isSuperAdmin: boolean;
     salonId: string | null;
-    salonRole: Role | null;
+    salonRole: string | null;
+    salonRoleId: string | null;
   }
 
   interface Session {
@@ -25,7 +26,8 @@ declare module "next-auth" {
       lastName: string;
       isSuperAdmin: boolean;
       salonId: string | null;
-      salonRole: Role | null;
+      salonRole: string | null;
+      salonRoleId: string | null;
     };
   }
 }
@@ -38,7 +40,8 @@ interface CustomJWT {
   lastName: string;
   isSuperAdmin: boolean;
   salonId: string | null;
-  salonRole: Role | null;
+  salonRole: string | null;
+  salonRoleId: string | null;
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -61,6 +64,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: { email },
           include: {
             salon: { select: { isActive: true } },
+            roleDefinition: { select: { id: true, slug: true } },
           },
         });
 
@@ -88,7 +92,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           lastName: user.lastName,
           isSuperAdmin: user.isSuperAdmin,
           salonId: user.salonId,
-          salonRole: user.role,
+          salonRole: user.roleDefinition?.slug ?? null,
+          salonRoleId: user.roleDefinitionId,
         };
       },
     }),
@@ -104,6 +109,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.isSuperAdmin = user.isSuperAdmin;
         token.salonId = user.salonId;
         token.salonRole = user.salonRole;
+        token.salonRoleId = user.salonRoleId;
       }
 
       // Salon switch — verify against DB instead of trusting client values
@@ -116,12 +122,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             },
             isActive: true,
           },
-          include: { salon: { select: { isActive: true } } },
+          include: {
+            salon: { select: { isActive: true } },
+            roleDefinition: { select: { id: true, slug: true } },
+          },
         });
 
         if (userSalon && userSalon.salon.isActive) {
           token.salonId = userSalon.salonId;
-          token.salonRole = userSalon.role;
+          token.salonRole = userSalon.roleDefinition.slug;
+          token.salonRoleId = userSalon.roleDefinitionId;
         }
       }
 
@@ -138,6 +148,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.isSuperAdmin = t.isSuperAdmin;
         session.user.salonId = t.salonId;
         session.user.salonRole = t.salonRole;
+        session.user.salonRoleId = t.salonRoleId;
       }
       return session;
     },

@@ -8,14 +8,12 @@ import {
   Mail,
   Phone,
   Calendar,
-  Shield,
   Edit,
   UserCheck,
   UserX,
   Briefcase,
   Clock,
 } from "lucide-react";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,22 +28,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getUserById } from "@/lib/actions/user";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, canManageRole } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { PasswordResetDialog } from "@/components/staff/password-reset-dialog";
-
-const ROLE_COLORS: Record<Role, string> = {
-  OWNER: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-  ADMIN: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  STAFF: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  RECEPTIONIST: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-};
-
-const ROLE_LABELS: Record<Role, string> = {
-  OWNER: "Owner",
-  ADMIN: "Admin",
-  STAFF: "Staff",
-  RECEPTIONIST: "Receptionist",
-};
+import { UserPermissionsEditor } from "@/components/staff/user-permissions-editor";
+import { getUserPermissionOverrides } from "@/lib/actions/permission";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -71,18 +58,23 @@ export default async function StaffDetailPage({
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  const salonId = session.user.salonId;
 
-  if (!hasPermission(userRole, "staff:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["staff:view"]);
   }
 
-  const canEdit = hasPermission(userRole, "staff:update", isSuperAdmin);
+  const hasEditPermission = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
+  const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id);
 
-  const [result, tz] = await Promise.all([getUserById(id), getTimezone()]);
+  const [result, tz] = await Promise.all([
+    getUserById(id),
+    getTimezone(),
+  ]);
 
   if (!result.success) {
     notFound();
@@ -90,12 +82,16 @@ export default async function StaffDetailPage({
 
   const user = result.data;
 
+  // Only show edit controls if the viewer outranks the viewed user
+  const canManageThisUser = await canManageRole(userRoleId, user.roleDefinitionId ?? "", isSuperAdmin, salonId);
+  const canEdit = hasEditPermission && canManageThisUser;
+
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
   };
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -103,6 +99,7 @@ export default async function StaffDetailPage({
             <Button variant="ghost" size="icon" asChild>
               <Link href="/dashboard/staff">
                 <ArrowLeft className="h-5 w-5" />
+                <span className="sr-only">Back to staff</span>
               </Link>
             </Button>
             <Avatar className="h-16 w-16">
@@ -127,10 +124,23 @@ export default async function StaffDetailPage({
                   </Badge>
                 )}
               </div>
-              <Badge className={`mt-1 ${ROLE_COLORS[user.role]}`}>
-                <Shield className="h-3 w-3 mr-1" />
-                {ROLE_LABELS[user.role]}
-              </Badge>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge
+                  className="border"
+                  style={{
+                    backgroundColor: `${user.roleColor}20`,
+                    color: user.roleColor,
+                    borderColor: `${user.roleColor}40`,
+                  }}
+                >
+                  {user.roleLabel || user.role}
+                </Badge>
+                {user.isServiceProvider && (
+                  <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                    Service Provider
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
           {canEdit && (
@@ -287,7 +297,16 @@ export default async function StaffDetailPage({
             </Table>
           </CardContent>
         </Card>
+        {/* Permission Overrides (Owner/settings:manage only) */}
+        {canManagePermissions && canManageThisUser && <UserPermissionsSection userId={user.id} />}
       </div>
     </DashboardLayout>
   );
 }
+
+async function UserPermissionsSection({ userId }: { userId: string }) {
+  const result = await getUserPermissionOverrides(userId);
+  if (!result.success) return null;
+  return <UserPermissionsEditor data={result.data} />;
+}
+

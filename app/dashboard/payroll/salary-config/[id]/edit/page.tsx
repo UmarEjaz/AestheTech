@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -9,6 +8,7 @@ import { SalaryConfigForm } from "@/components/payroll/salary-config-form";
 import { getSalaryConfig, getBranchStaff } from "@/lib/actions/salary-config";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -22,12 +22,13 @@ export default async function EditSalaryConfigPage({ params }: PageProps) {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!hasPermission(userRole, "salary-config:manage", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRoleId, "salary-config:update", isSuperAdmin, salonId, session.user.id))) {
+    redirectAccessDenied(["salary-config:update"]);
   }
 
   const { id } = await params;
@@ -40,7 +41,7 @@ export default async function EditSalaryConfigPage({ params }: PageProps) {
 
   if (!configResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{configResult.error}</p>
           <Button asChild className="mt-4">
@@ -56,7 +57,7 @@ export default async function EditSalaryConfigPage({ params }: PageProps) {
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>

@@ -1,14 +1,15 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/products/product-form";
-import { getProduct, getAllProductCategories } from "@/lib/actions/product";
+import { getProduct } from "@/lib/actions/product";
+import { getAllProductCategories } from "@/lib/actions/product-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -23,14 +24,20 @@ export default async function EditProductPage({ params }: PageProps) {
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canManage = hasPermission(userRole, "products:manage", isSuperAdmin);
-
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!isSuperAdmin) {
+    // Category dropdown is just form data — the category-fetch server action
+    // guards itself, so don't require the category-management view permission here.
+    // hasPermission applies :view inference, so :update implicitly grants :view —
+    // no need to check :view explicitly.
+    const canUpdate = await hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, session.user.id);
+    if (!canUpdate) {
+      redirectAccessDenied(["products:update"]);
+    }
   }
 
   const [productResult, categoriesResult, settingsResult] = await Promise.all([
@@ -44,16 +51,21 @@ export default async function EditProductPage({ params }: PageProps) {
   }
 
   const product = productResult.data;
-  const categories = categoriesResult.success ? categoriesResult.data : [];
+  // Pass id/name/isActive so the form can pin the product's current category at the top
+  // and hide other inactive ones. See ProductForm for the dropdown rendering rule.
+  const categories = categoriesResult.success
+    ? categoriesResult.data.map((c) => ({ id: c.id, name: c.name, isActive: c.isActive }))
+    : [];
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/products">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to products</span>
             </Link>
           </Button>
           <div>
@@ -76,7 +88,7 @@ export default async function EditProductPage({ params }: PageProps) {
             stock: product.stock,
             lowStockThreshold: product.lowStockThreshold,
             points: product.points,
-            category: product.category,
+            categoryId: product.categoryId,
             isActive: product.isActive,
           }}
           categories={categories}

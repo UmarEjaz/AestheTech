@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
@@ -23,24 +23,26 @@ export default async function ReportsPage({
 
   const { user } = session;
   if (!user.salonRole && !user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (user.salonRole ?? null) as Role | null;
+  const userRoleId = user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const isOwner = userRole === "OWNER" || isSuperAdmin;
 
   // Check permission to view reports
-  if (!hasPermission(userRole, "reports:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, session.user.id))) {
+    redirectAccessDenied(["reports:view"]);
   }
 
+  const canViewAllBranches = await hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, session.user.id);
+
   const params = await searchParams;
-  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = canViewAllBranches && params.branch === "all" ? "all" as const : "current" as const;
 
   // Get timezone first, then compute month range for initial report data
   const [tz, branchesResult] = await Promise.all([
     getTimezone(),
-    isOwner ? getBranches() : Promise.resolve(null),
+    canViewAllBranches ? getBranches() : Promise.resolve(null),
   ]);
   const { start: startDate, end: endDate } = getMonthRange(tz);
   const reportResult = await getReportData({ startDate, endDate, branchFilter });
@@ -52,7 +54,7 @@ export default async function ReportsPage({
 
   if (!reportResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="space-y-6">
           <div>
             <h2 className="text-3xl font-bold">Reports & Analytics</h2>
@@ -75,7 +77,7 @@ export default async function ReportsPage({
   }
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>

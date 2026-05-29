@@ -7,7 +7,7 @@ export interface TierThresholds {
 }
 
 export interface TierMultipliers {
-  silverMultiplier: number;
+  memberMultiplier: number;
   goldMultiplier: number;
   platinumMultiplier: number;
 }
@@ -16,7 +16,7 @@ export interface TierMultipliers {
 export function calculateTier(balance: number, thresholds: TierThresholds): LoyaltyTier {
   if (balance >= thresholds.platinumThreshold) return "PLATINUM";
   if (balance >= thresholds.goldThreshold) return "GOLD";
-  return "SILVER";
+  return "MEMBER";
 }
 
 /** Returns the points earning multiplier for the given tier. */
@@ -26,15 +26,15 @@ export function getTierMultiplier(tier: LoyaltyTier, multipliers: TierMultiplier
       return multipliers.platinumMultiplier;
     case "GOLD":
       return multipliers.goldMultiplier;
-    case "SILVER":
-      return multipliers.silverMultiplier;
+    case "MEMBER":
+      return multipliers.memberMultiplier;
   }
 }
 
 /** Returns the next tier above the current one, or null if already at PLATINUM. */
 export function getNextTier(tier: LoyaltyTier): LoyaltyTier | null {
   switch (tier) {
-    case "SILVER":
+    case "MEMBER":
       return "GOLD";
     case "GOLD":
       return "PLATINUM";
@@ -50,7 +50,7 @@ export function getPointsToNextTier(
   thresholds: TierThresholds
 ): number | null {
   switch (tier) {
-    case "SILVER":
+    case "MEMBER":
       return Math.max(0, thresholds.goldThreshold - balance);
     case "GOLD":
       return Math.max(0, thresholds.platinumThreshold - balance);
@@ -69,7 +69,7 @@ export function getTierProgress(
   thresholds: TierThresholds
 ): number {
   switch (tier) {
-    case "SILVER": {
+    case "MEMBER": {
       const range = thresholds.goldThreshold;
       return range > 0 ? Math.min(100, Math.round((balance / range) * 100)) : 100;
     }

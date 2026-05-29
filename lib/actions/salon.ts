@@ -5,7 +5,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
-import { Role } from "@prisma/client";
 
 // ============================================
 // Types
@@ -44,7 +43,9 @@ export type SalonDetail = {
     lastName: string;
     email: string;
     phone: string | null;
-    role: Role | null;
+    role: string | null;       // Slug (e.g., "owner") — for matching/logic
+    roleName: string | null;   // Display name (e.g., "Owner") — for UI
+    roleColor: string | null;  // Hex color (e.g., "#9333EA") — for badge styling
     isActive: boolean;
     createdAt: Date;
   }[];
@@ -109,7 +110,8 @@ export async function getSalonById(
             lastName: true,
             email: true,
             phone: true,
-            role: true,
+            roleDefinitionId: true,
+            roleDefinition: { select: { slug: true, name: true, color: true } },
             isActive: true,
             createdAt: true,
           },
@@ -121,7 +123,24 @@ export async function getSalonById(
       return { success: false, error: "Salon not found" };
     }
 
-    return { success: true, data: salon };
+    // Map users to include role name from roleDefinition relation
+    const mappedSalon: SalonDetail = {
+      ...salon,
+      users: salon.users.map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        phone: u.phone,
+        role: u.roleDefinition?.slug ?? null,
+        roleName: u.roleDefinition?.name ?? null,
+        roleColor: u.roleDefinition?.color ?? null,
+        isActive: u.isActive,
+        createdAt: u.createdAt,
+      })),
+    };
+
+    return { success: true, data: mappedSalon };
   } catch {
     return { success: false, error: "Failed to fetch salon" };
   }
@@ -152,24 +171,37 @@ export async function createSalon(data: {
       return { success: false, error: "A salon with this slug already exists" };
     }
 
-    const salon = await prisma.salon.create({
-      data: {
-        name: data.name,
-        slug: data.slug,
-        email: data.email || null,
-        phone: data.phone || null,
-        address: data.address || null,
-        subscriptionPlan: data.subscriptionPlan || null,
-        subscriptionStatus: "TRIAL",
-        settings: {
-          create: {
-            salonName: data.name,
-            salonEmail: data.email || null,
-            salonPhone: data.phone || null,
-            salonAddress: data.address || null,
+    // Create salon + settings + per-salon roles + permissions atomically so a failure
+    // at any step rolls back everything. Prevents a half-built salon with rows but
+    // no permissions seeded.
+    const { seedDefaultSalonRoles } = await import("@/lib/actions/role");
+    const { seedPermissionsForSalon } = await import("@/lib/seed-permissions");
+    const salon = await prisma.$transaction(async (tx) => {
+      const newSalon = await tx.salon.create({
+        data: {
+          name: data.name,
+          slug: data.slug,
+          email: data.email || null,
+          phone: data.phone || null,
+          address: data.address || null,
+          subscriptionPlan: data.subscriptionPlan || null,
+          subscriptionStatus: "TRIAL",
+          settings: {
+            create: {
+              salonName: data.name,
+              salonEmail: data.email || null,
+              salonPhone: data.phone || null,
+              salonAddress: data.address || null,
+            },
           },
         },
-      },
+      });
+
+      // Owner stays global; only Admin/Staff/Receptionist are created per-salon.
+      await seedDefaultSalonRoles(newSalon.id, tx);
+      await seedPermissionsForSalon(newSalon.id, tx);
+
+      return newSalon;
     });
 
     await logAudit({

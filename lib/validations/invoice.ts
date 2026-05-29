@@ -28,7 +28,7 @@ export const updateInvoiceStatusSchema = z.object({
 export const createRefundSchema = z.object({
   invoiceId: z.string().min(1, "Invoice ID is required"),
   amount: z.number().min(0.01, "Refund amount must be positive"),
-  reason: z.string().max(500, "Reason must be less than 500 characters").optional(),
+  reason: z.string().trim().max(500, "Reason must be less than 500 characters").optional(),
 });
 
 // Types

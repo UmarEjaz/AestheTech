@@ -388,6 +388,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
             />
             <Button type="button" onClick={addTag} variant="outline">
               <Plus className="h-4 w-4" />
+              <span className="sr-only">Add tag</span>
             </Button>
           </div>
           {tags.length > 0 && (
@@ -399,6 +400,7 @@ export function ClientForm({ client, mode }: ClientFormProps) {
                     type="button"
                     onClick={() => removeTag(tag)}
                     className="hover:text-destructive"
+                    aria-label={`Remove tag ${tag}`}
                   >
                     <X className="h-3 w-3" />
                   </button>

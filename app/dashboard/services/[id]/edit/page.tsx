@@ -1,14 +1,15 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceForm } from "@/components/services/service-form";
-import { getService, getAllCategories } from "@/lib/actions/service";
+import { getService } from "@/lib/actions/service";
+import { getAllServiceCategories } from "@/lib/actions/service-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -23,19 +24,25 @@ export default async function EditServicePage({ params }: PageProps) {
 
   const { id } = await params;
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canManage = hasPermission(userRole, "services:manage", isSuperAdmin);
-
-  if (!canManage) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!isSuperAdmin) {
+    // Category dropdown is just form data — the category-fetch server action
+    // guards itself, so don't require the category-management view permission here.
+    // hasPermission applies :view inference, so :update implicitly grants :view —
+    // no need to check :view explicitly.
+    const canUpdate = await hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id);
+    if (!canUpdate) {
+      redirectAccessDenied(["services:update"]);
+    }
   }
 
   const [serviceResult, categoriesResult, settingsResult] = await Promise.all([
     getService(id),
-    getAllCategories(),
+    getAllServiceCategories(),
     getSettings(),
   ]);
 
@@ -44,16 +51,21 @@ export default async function EditServicePage({ params }: PageProps) {
   }
 
   const service = serviceResult.data;
-  const categories = categoriesResult.success ? categoriesResult.data : [];
+  // Pass id/name/isActive so the form can pin the service's current category at the top
+  // and hide other inactive ones. See ServiceForm for the dropdown rendering rule.
+  const categories = categoriesResult.success
+    ? categoriesResult.data.map((c) => ({ id: c.id, name: c.name, isActive: c.isActive }))
+    : [];
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout isSuperAdmin={isSuperAdmin}>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/services">
               <ArrowLeft className="h-4 w-4" />
+              <span className="sr-only">Back to services</span>
             </Link>
           </Button>
           <div>
@@ -74,7 +86,7 @@ export default async function EditServicePage({ params }: PageProps) {
             price: Number(service.price),
             cost: service.cost ? Number(service.cost) : null,
             points: service.points,
-            category: service.category,
+            categoryId: service.categoryId,
             isActive: service.isActive,
           }}
           categories={categories}

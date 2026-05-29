@@ -14,13 +14,6 @@ datasource db {
 // ENUMS
 // ============================================
 
-enum Role {
-  OWNER
-  ADMIN
-  STAFF
-  RECEPTIONIST
-}
-
 enum AppointmentStatus {
   SCHEDULED
   CONFIRMED
@@ -54,7 +47,7 @@ enum ShiftType {
 }
 
 enum LoyaltyTier {
-  SILVER
+  MEMBER
   GOLD
   PLATINUM
 }
@@ -102,6 +95,11 @@ enum PayrollEntryStatus {
   CANCELLED
 }
 
+enum OverrideType {
+  GRANT
+  REVOKE
+}
+
 // ============================================
 // MODELS
 // ============================================
@@ -141,10 +139,15 @@ model Salon {
   loyaltyTransactions        LoyaltyTransaction[]
   recurringAppointmentSeries RecurringAppointmentSeries[]
   auditLogs                  AuditLog[]
+  serviceCategories          ServiceCategory[]
+  productCategories          ProductCategory[]
   expenseCategories          ExpenseCategory[]
   expenses                   Expense[]
   salaryConfigs              SalaryConfig[]
   payrollRuns                PayrollRun[]
+  rolePermissions            RolePermission[]
+  userPermissions            UserPermission[]
+  roleDefinitions            RoleDefinition[]
 
   @@index([parentSalonId])
   @@map("salons")
@@ -158,15 +161,17 @@ model User {
   firstName    String
   lastName     String
   phone        String?
-  salonId      String? // Current/active salon (denormalized from UserSalon)
-  role         Role // Current role at active salon (denormalized from UserSalon)
-  isSuperAdmin Boolean  @default(false)
-  isActive     Boolean  @default(true)
+  salonId          String?  // Current/active salon (denormalized from UserSalon)
+  roleDefinitionId String?  // Current role at active salon (denormalized from UserSalon)
+  isSuperAdmin     Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  isServiceProvider Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
   salon           Salon?                       @relation(fields: [salonId], references: [id], onDelete: SetNull)
+  roleDefinition  RoleDefinition?              @relation(fields: [roleDefinitionId], references: [id], onDelete: SetNull)
   userSalons      UserSalon[]
   appointments    Appointment[]                @relation("StaffAppointments")
   schedules       Schedule[]
@@ -180,27 +185,31 @@ model User {
   payrollRunsCreated PayrollRun[]                 @relation("PayrollRunCreator")
   payrollRunsPaid    PayrollRun[]                 @relation("PayrollRunPayer")
   payrollEntries     PayrollEntry[]               @relation("PayrollEntries")
+  userPermissions    UserPermission[]
 
   @@index([salonId])
+  @@index([roleDefinitionId])
   @@map("users")
 }
 
 // Junction table: User ↔ Salon (many-to-many with per-salon role)
 model UserSalon {
-  id        String   @id @default(cuid())
-  userId    String
-  salonId   String
-  role      Role
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(cuid())
+  userId           String
+  salonId          String
+  roleDefinitionId String
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id], onDelete: Restrict)
 
   @@unique([userId, salonId])
   @@index([userId])
   @@index([salonId])
+  @@index([roleDefinitionId])
   @@map("user_salons")
 }
 
@@ -249,18 +258,20 @@ model Service {
   price       Decimal  @db.Decimal(10, 2)
   cost        Decimal? @db.Decimal(10, 2) // cost to deliver this service (for profit tracking)
   points      Int      @default(0) // loyalty points earned
-  category    String?
+  categoryId  String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relations
   salon           Salon                        @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  category        ServiceCategory?             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   appointments    Appointment[]
   saleItems       SaleItem[]
   recurringSeries RecurringAppointmentSeries[]
 
   @@index([salonId])
+  @@index([categoryId])
   @@map("services")
 }
 
@@ -276,20 +287,67 @@ model Product {
   stock             Int      @default(0)
   lowStockThreshold Int      @default(5)
   points            Int      @default(0) // loyalty points earned
-  category          String?
+  categoryId        String?
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   // Relations
-  salon     Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  salon     Salon            @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  category  ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   saleItems SaleItem[]
 
   @@unique([salonId, sku])
   @@index([salonId])
-  @@index([category])
+  @@index([categoryId])
   @@index([isActive])
   @@map("products")
+}
+
+// ServiceCategory model — org-wide (stored with org root salonId)
+model ServiceCategory {
+  id        String    @id @default(cuid())
+  salonId   String // org root salon ID — shared across all branches
+  name      String
+  icon      String? // Lucide icon name
+  color     String? // Hex color for UI display
+  isDefault Boolean   @default(false) // True for system-seeded defaults
+  isActive  Boolean   @default(true)
+  deletedAt DateTime? // Set when soft-deleted; null means visible
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  services Service[]
+
+  @@unique([salonId, name])
+  @@index([salonId])
+  @@index([salonId, deletedAt])
+  @@map("service_categories")
+}
+
+// ProductCategory model — org-wide (stored with org root salonId)
+model ProductCategory {
+  id        String    @id @default(cuid())
+  salonId   String // org root salon ID — shared across all branches
+  name      String
+  icon      String? // Lucide icon name
+  color     String? // Hex color for UI display
+  isDefault Boolean   @default(false) // True for system-seeded defaults
+  isActive  Boolean   @default(true)
+  deletedAt DateTime? // Set when soft-deleted; null means visible
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([salonId, name])
+  @@index([salonId])
+  @@index([salonId, deletedAt])
+  @@map("product_categories")
 }
 
 // Appointment model
@@ -311,8 +369,8 @@ model Appointment {
   // Relations — simple FKs (composite FKs removed to allow cross-branch client/service sharing)
   salon   Salon                       @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client  Client                      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  service Service                     @relation(fields: [serviceId], references: [id])
-  staff   User                        @relation("StaffAppointments", fields: [staffId], references: [id])
+  service Service                     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  staff   User                        @relation("StaffAppointments", fields: [staffId], references: [id], onDelete: Restrict)
   series  RecurringAppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
   @@index([salonId])
@@ -339,8 +397,8 @@ model Sale {
 
   // Relations — simple FKs (composite FKs removed to allow cross-branch client sharing)
   salon               Salon                @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  client              Client               @relation(fields: [clientId], references: [id])
-  staff               User                 @relation(fields: [staffId], references: [id])
+  client              Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  staff               User                 @relation(fields: [staffId], references: [id], onDelete: Restrict)
   items               SaleItem[]
   invoice             Invoice?
   loyaltyTransactions LoyaltyTransaction[]
@@ -376,9 +434,9 @@ model SaleItem {
   // Relations — simple FKs (composite FKs removed to allow cross-branch service/product sharing)
   salon   Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
   sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  service Service? @relation(fields: [serviceId], references: [id])
-  staff   User?    @relation(fields: [staffId], references: [id])
-  product Product? @relation(fields: [productId], references: [id])
+  service Service? @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  staff   User?    @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  product Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([salonId])
   @@index([saleId])
@@ -406,8 +464,8 @@ model Invoice {
 
   // Relations — simple FKs (composite FKs removed to allow cross-branch client sharing)
   salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  sale     Sale      @relation(fields: [saleId], references: [id])
-  client   Client    @relation(fields: [clientId], references: [id])
+  sale     Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  client   Client    @relation(fields: [clientId], references: [id], onDelete: Restrict)
   payments Payment[]
   refunds  Refund[]
 
@@ -428,7 +486,7 @@ model Payment {
   createdAt DateTime      @default(now())
 
   // Relations
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
   @@map("payments")
@@ -445,8 +503,8 @@ model Refund {
   createdAt      DateTime @default(now())
 
   // Relations
-  invoice    Invoice @relation(fields: [invoiceId], references: [id])
-  refundedBy User    @relation(fields: [refundedById], references: [id])
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  refundedBy User    @relation(fields: [refundedById], references: [id], onDelete: Restrict)
 
   @@index([invoiceId])
   @@map("refunds")
@@ -480,7 +538,7 @@ model LoyaltyPoints {
   salonId   String
   clientId  String      @unique
   balance   Int         @default(0)
-  tier      LoyaltyTier @default(SILVER)
+  tier      LoyaltyTier @default(MEMBER)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -507,7 +565,7 @@ model LoyaltyTransaction {
   // Relations
   salon  Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  sale   Sale?  @relation(fields: [saleId], references: [id])
+  sale   Sale?  @relation(fields: [saleId], references: [id], onDelete: SetNull)
 
   @@index([salonId])
   @@index([clientId])
@@ -559,8 +617,8 @@ model RecurringAppointmentSeries {
   // Relations — simple FKs (composite FKs removed to allow cross-branch client/service sharing)
   salon        Salon                      @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client       Client                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  service      Service                    @relation(fields: [serviceId], references: [id])
-  staff        User                       @relation("RecurringStaffAppointments", fields: [staffId], references: [id])
+  service      Service                    @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  staff        User                       @relation("RecurringStaffAppointments", fields: [staffId], references: [id], onDelete: Restrict)
   appointments Appointment[]
   exceptions   RecurringSeriesException[]
   auditLogs    RecurringSeriesAuditLog[]
@@ -632,15 +690,16 @@ model AuditLog {
 
 // ExpenseCategory model — org-wide (stored with org root salonId)
 model ExpenseCategory {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   salonId   String // org root salon ID — shared across all branches
   name      String
   icon      String? // Lucide icon name
   color     String? // Hex color for UI display
-  isDefault Boolean  @default(false) // True for system-seeded defaults
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isDefault Boolean   @default(false) // True for system-seeded defaults
+  isActive  Boolean   @default(true)
+  deletedAt DateTime? // Set when soft-deleted; null means visible
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Relations
   salon    Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
@@ -648,6 +707,7 @@ model ExpenseCategory {
 
   @@unique([salonId, name])
   @@index([salonId])
+  @@index([salonId, deletedAt])
   @@map("expense_categories")
 }
 
@@ -667,8 +727,8 @@ model Expense {
 
   // Relations
   salon     Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  category  ExpenseCategory @relation(fields: [categoryId], references: [id])
-  createdBy User            @relation("UserExpenses", fields: [createdById], references: [id])
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdBy User            @relation("UserExpenses", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([salonId, date])
   @@index([categoryId])
@@ -690,8 +750,9 @@ model SalaryConfig {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payrollEntries PayrollEntry[]
 
   @@unique([salonId, userId, effectiveDate])
   @@index([salonId])
@@ -719,7 +780,7 @@ model PayrollRun {
   updatedAt       DateTime         @updatedAt
 
   salon     Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  createdBy User           @relation("PayrollRunCreator", fields: [createdById], references: [id])
+  createdBy User           @relation("PayrollRunCreator", fields: [createdById], references: [id], onDelete: Restrict)
   paidBy    User?          @relation("PayrollRunPayer", fields: [paidById], references: [id], onDelete: SetNull)
   entries   PayrollEntry[]
 
@@ -734,27 +795,32 @@ model PayrollRun {
 
 // PayrollEntry model — individual staff payment within a payroll run
 model PayrollEntry {
-  id             String             @id @default(cuid())
-  payrollRunId   String
-  userId         String
-  basePay        Decimal            @db.Decimal(10, 2)
-  bonus          Decimal            @default(0) @db.Decimal(10, 2)
-  deductions     Decimal            @default(0) @db.Decimal(10, 2)
-  deductionNotes String?
-  netPay         Decimal            @db.Decimal(10, 2)
-  status         PayrollEntryStatus @default(PENDING)
-  notes          String?
-  paidAt         DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  id              String             @id @default(cuid())
+  payrollRunId    String
+  userId          String
+  // Audit reference to the salary config used to compute basePay. Nullable so deleting a
+  // config doesn't break payroll history — basePay is already snapshotted to the row.
+  salaryConfigId  String?
+  basePay         Decimal            @db.Decimal(10, 2)
+  bonus           Decimal            @default(0) @db.Decimal(10, 2)
+  deductions      Decimal            @default(0) @db.Decimal(10, 2)
+  deductionNotes  String?
+  netPay          Decimal            @db.Decimal(10, 2)
+  status          PayrollEntryStatus @default(PENDING)
+  notes           String?
+  paidAt          DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
-  user       User       @relation("PayrollEntries", fields: [userId], references: [id])
+  payrollRun   PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  user         User          @relation("PayrollEntries", fields: [userId], references: [id], onDelete: Restrict)
+  salaryConfig SalaryConfig? @relation(fields: [salaryConfigId], references: [id], onDelete: SetNull)
 
   @@unique([payrollRunId, userId])
   @@index([payrollRunId])
   @@index([userId])
   @@index([status])
+  @@index([salaryConfigId])
   @@map("payroll_entries")
 }
 
@@ -782,7 +848,7 @@ model Settings {
   platinumThreshold Int @default(1000)
 
   // Tier benefit multipliers
-  silverMultiplier   Decimal @default(1.0) @db.Decimal(4, 2)
+  memberMultiplier   Decimal @default(1.0) @db.Decimal(4, 2)
   goldMultiplier     Decimal @default(1.5) @db.Decimal(4, 2)
   platinumMultiplier Decimal @default(2.0) @db.Decimal(4, 2)
 
@@ -804,4 +870,86 @@ model Settings {
   salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
 
   @@map("settings")
+}
+
+// Permission registry — global list of all permission codes
+model Permission {
+  id          String   @id @default(cuid())
+  code        String   @unique // e.g., "clients:view", "sales:create"
+  module      String            // e.g., "clients", "sales" — used for UI grouping
+  label       String            // Human-readable label, e.g., "View Clients"
+  description String?           // Optional description
+  sortOrder   Int      @default(0) // Display ordering within a module
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+// Salon-scoped role-permission assignment: "Role X has permission Y in salon Z"
+model RolePermission {
+  id               String   @id @default(cuid())
+  salonId          String
+  roleDefinitionId String
+  permissionId     String
+  createdAt        DateTime @default(now())
+
+  salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  roleDefinition RoleDefinition @relation(fields: [roleDefinitionId], references: [id], onDelete: Cascade)
+  permission     Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, roleDefinitionId, permissionId])
+  @@index([salonId])
+  @@index([salonId, roleDefinitionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// User-level permission overrides: "User X has GRANT/REVOKE on permission Y in salon Z"
+model UserPermission {
+  id           String       @id @default(cuid())
+  salonId      String
+  userId       String
+  permissionId String
+  overrideType OverrideType
+  createdAt    DateTime     @default(now())
+
+  salon      Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, userId, permissionId])
+  @@index([salonId, userId])
+  @@index([permissionId])
+  @@map("user_permissions")
+}
+
+// Role definitions — system roles (global) + custom roles (salon-scoped)
+model RoleDefinition {
+  id             String   @id @default(cuid())
+  name           String              // Display name: "Owner", "Admin", "Senior Stylist" (what users see and type)
+  slug           String              // Internal identifier: "owner", "admin", "senior-stylist" (used for system-role matching, URLs, lookups)
+  description    String?             // e.g., "Full access to all features"
+  color          String   @default("#6B7280") // Hex color for badges
+  hierarchyLevel Int                 // OWNER=100, ADMIN=75, STAFF=50, RECEPTIONIST=25
+  isSystem       Boolean  @default(false) // true for the 4 built-in roles
+  salonId        String?             // null for system roles, set for custom roles
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  salon Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  // Reverse relations
+  userSalons      UserSalon[]
+  rolePermissions RolePermission[]
+  users           User[]
+
+  @@unique([salonId, slug])
+  @@index([salonId])
+  @@index([isSystem])
+  @@map("role_definitions")
 }

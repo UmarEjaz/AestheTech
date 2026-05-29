@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -12,6 +11,7 @@ import { PayrollRunActions } from "./payroll-run-actions";
 import { getPayrollRun } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatInTz, formatDateOnly } from "@/lib/utils/timezone";
 
@@ -27,17 +27,21 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  if (!hasPermission(userRole, "payroll:view", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
+    redirectAccessDenied(["payroll:view"]);
   }
 
   const { id } = await params;
-  const canManage = hasPermission(userRole, "payroll:manage", isSuperAdmin);
-  const canPay = hasPermission(userRole, "payroll:pay", isSuperAdmin);
+  const [canUpdate, canCancel, canPay] = await Promise.all([
+    hasPermission(userRoleId, "payroll:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:pay", isSuperAdmin, salonId, session.user.id),
+  ]);
 
   const [result, settingsResult] = await Promise.all([
     getPayrollRun(id),
@@ -49,7 +53,7 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
           <Button asChild className="mt-4">
@@ -70,7 +74,7 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
   };
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -98,7 +102,8 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
           <PayrollRunActions
             runId={run.id}
             status={run.status}
-            canManage={canManage}
+            canUpdate={canUpdate}
+            canCancel={canCancel}
             canPay={canPay}
           />
         </div>

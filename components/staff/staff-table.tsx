@@ -15,12 +15,10 @@ import {
   Mail,
   Loader2,
   Users,
-  Shield,
   UserCheck,
   UserX,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Role } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +51,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { UserListItem, deleteUser, toggleUserActive } from "@/lib/actions/user";
+import { useRoles } from "@/lib/roles-context";
 
 interface StaffTableProps {
   initialUsers: UserListItem[];
@@ -65,7 +64,7 @@ interface StaffTableProps {
   timezone: string;
   fetchUsers: (params: {
     query?: string;
-    role?: Role;
+    role?: string;
     isActive?: boolean;
     page?: number;
     limit?: number;
@@ -80,20 +79,6 @@ interface StaffTableProps {
     error?: string;
   }>;
 }
-
-const ROLE_COLORS: Record<Role, string> = {
-  OWNER: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-  ADMIN: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  STAFF: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  RECEPTIONIST: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-};
-
-const ROLE_LABELS: Record<Role, string> = {
-  OWNER: "Owner",
-  ADMIN: "Admin",
-  STAFF: "Staff",
-  RECEPTIONIST: "Receptionist",
-};
 
 export function StaffTable({
   initialUsers,
@@ -111,8 +96,9 @@ export function StaffTable({
   const [total, setTotal] = useState(initialTotal);
   const [page, setPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(initialTotalPages);
+  const roles = useRoles();
   const [searchTerm, setSearchTerm] = useState("");
-  const [roleFilter, setRoleFilter] = useState<Role | "ALL">("ALL");
+  const [roleFilter, setRoleFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [loading, setLoading] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -120,7 +106,7 @@ export function StaffTable({
   const [toggleAction, setToggleAction] = useState<"activate" | "deactivate">("deactivate");
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const loadUsers = useCallback(async (search: string, pageNum: number, role?: Role, isActive?: boolean) => {
+  const loadUsers = useCallback(async (search: string, pageNum: number, role?: string, isActive?: boolean) => {
     setLoading(true);
     try {
       const result = await fetchUsers({
@@ -173,9 +159,8 @@ export function StaffTable({
 
   // Handle filter changes
   const handleRoleFilterChange = (value: string) => {
-    const role = value as Role | "ALL";
-    setRoleFilter(role);
-    const roleValue = role === "ALL" ? undefined : role;
+    setRoleFilter(value);
+    const roleValue = value === "ALL" ? undefined : value;
     const isActive = statusFilter === "ALL" ? undefined : statusFilter === "ACTIVE";
     loadUsers(searchTerm, 1, roleValue, isActive);
   };
@@ -302,10 +287,9 @@ export function StaffTable({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Roles</SelectItem>
-                <SelectItem value="OWNER">Owner</SelectItem>
-                <SelectItem value="ADMIN">Admin</SelectItem>
-                <SelectItem value="STAFF">Staff</SelectItem>
-                <SelectItem value="RECEPTIONIST">Receptionist</SelectItem>
+                {roles.map((r) => (
+                  <SelectItem key={r.slug} value={r.slug}>{r.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
@@ -407,10 +391,7 @@ export function StaffTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge className={ROLE_COLORS[user.role]}>
-                        <Shield className="h-3 w-3 mr-1" />
-                        {ROLE_LABELS[user.role]}
-                      </Badge>
+                      <RoleBadge label={user.roleName} color={user.roleColor} />
                     </TableCell>
                     <TableCell>
                       {user.isActive ? (
@@ -574,5 +555,20 @@ export function StaffTable({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function RoleBadge({ label, color }: { label: string; color: string }) {
+  return (
+    <Badge
+      className="border"
+      style={{
+        backgroundColor: `${color}20`,
+        color: color,
+        borderColor: `${color}40`,
+      }}
+    >
+      {label}
+    </Badge>
   );
 }

@@ -139,11 +139,12 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
           </Text>
         </View>
 
-        {/* Summary Cards */}
+        {/* Summary Cards — PDF is only generated when caller has `reports:financial`,
+            so the `?? 0` fallbacks are defensive (satisfy the type checker; never fire). */}
         <View style={styles.summaryGrid}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Total Revenue</Text>
-            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.revenue)}</Text>
+            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.revenue ?? 0)}</Text>
           </View>
           {canViewProfit && (
             <View style={styles.summaryCard}>
@@ -153,7 +154,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
           )}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Expenses</Text>
-            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.expenses)}</Text>
+            <Text style={styles.summaryValue}>{fmtCurrency(data.totals.expenses ?? 0)}</Text>
           </View>
           {canViewProfit && (
             <View style={styles.summaryCard}>
@@ -164,7 +165,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
         </View>
 
         {/* Revenue by Item */}
-        {data.revenueByItem.length > 0 && (
+        {(data.revenueByItem ?? []).length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{canViewProfit ? "Profitability by Item" : "Revenue by Item"}</Text>
             <View style={styles.table}>
@@ -179,7 +180,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
                   </>
                 )}
               </View>
-              {data.revenueByItem.map((entry, index) => (
+              {(data.revenueByItem ?? []).map((entry, index) => (
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
                   <Text style={styles.tableCell}>{entry.item}</Text>
                   <Text style={styles.tableCellRight}>{fmtCurrency(entry.revenue)}</Text>
@@ -197,7 +198,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
         )}
 
         {/* Staff Performance */}
-        {data.revenueByStaff.length > 0 && (
+        {(data.revenueByStaff ?? []).length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Staff Performance</Text>
             <View style={styles.table}>
@@ -207,7 +208,7 @@ function ReportPDFDocument({ data, startDate, endDate, salonName = "AestheTech S
                 <Text style={styles.tableCellRight}>Revenue</Text>
                 {canViewProfit && <Text style={styles.tableCellRight}>Profit</Text>}
               </View>
-              {data.revenueByStaff.map((item, index) => (
+              {(data.revenueByStaff ?? []).map((item, index) => (
                 <View key={index} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
                   <Text style={styles.tableCell}>{item.staff}</Text>
                   <Text style={styles.tableCellRight}>{item.appointments}</Text>

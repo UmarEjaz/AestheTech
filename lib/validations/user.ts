@@ -1,17 +1,19 @@
 import { z } from "zod";
-import { Role } from "@prisma/client";
 
 export const userSchema = z.object({
   firstName: z
     .string()
+    .trim()
     .min(1, "First name is required")
     .max(50, "First name must be less than 50 characters"),
   lastName: z
     .string()
+    .trim()
     .min(1, "Last name is required")
     .max(50, "Last name must be less than 50 characters"),
   email: z
     .string()
+    .trim()
     .min(1, "Email is required")
     .email("Invalid email address"),
   password: z
@@ -25,13 +27,13 @@ export const userSchema = z.object({
   confirmPassword: z.string().min(1, "Please confirm password"),
   phone: z
     .string()
+    .trim()
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()
     .or(z.literal("")),
-  role: z.nativeEnum(Role, {
-    message: "Please select a valid role",
-  }),
+  role: z.string().min(1, "Please select a role"),
+  isServiceProvider: z.boolean().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -41,26 +43,29 @@ export const userUpdateSchema = z.object({
   id: z.string().min(1, "User ID is required"),
   firstName: z
     .string()
+    .trim()
     .min(1, "First name is required")
     .max(50, "First name must be less than 50 characters"),
   lastName: z
     .string()
+    .trim()
     .min(1, "Last name is required")
     .max(50, "Last name must be less than 50 characters"),
   email: z
     .string()
+    .trim()
     .min(1, "Email is required")
     .email("Invalid email address"),
   phone: z
     .string()
+    .trim()
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()
     .or(z.literal("")),
-  role: z.nativeEnum(Role, {
-    message: "Please select a valid role",
-  }),
+  role: z.string().min(1, "Please select a role"),
   isActive: z.boolean().optional(),
+  isServiceProvider: z.boolean().optional(),
 });
 
 export const passwordChangeSchema = z.object({
@@ -81,7 +86,7 @@ export const passwordChangeSchema = z.object({
 
 export const userSearchSchema = z.object({
   query: z.string().optional(),
-  role: z.nativeEnum(Role).optional(),
+  role: z.string().optional(),
   isActive: z.boolean().optional(),
   page: z.number().int().positive().optional(),
   limit: z.number().int().positive().max(100).optional(),

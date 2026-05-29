@@ -1,148 +1,380 @@
-import { Role } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { cacheGet, cacheSet } from "@/lib/redis";
+import { DEFAULT_PERMISSION_ROLES } from "./permissions-defaults";
 
-// Permission definitions — salon-level roles only (SUPER_ADMIN bypasses all checks)
-export const permissions: Record<string, Role[]> = {
-  // Client Management
-  "clients:view": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "clients:create": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  "clients:update": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  "clients:delete": [Role.OWNER, Role.ADMIN],
+export type Permission = string;
 
-  // Appointments
-  "appointments:view": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "appointments:create": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  "appointments:update": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  "appointments:delete": [Role.OWNER, Role.ADMIN],
+const PERMISSION_CACHE_TTL = 300; // 5 minutes
 
-  // Sales
-  "sales:view": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "sales:create": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "sales:update": [Role.OWNER, Role.ADMIN],
-  "sales:delete": [Role.OWNER],
-
-  // Invoices
-  "invoices:view": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "invoices:create": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  "invoices:update": [Role.OWNER, Role.ADMIN],
-  "invoices:delete": [Role.OWNER],
-  "invoices:refund": [Role.OWNER, Role.ADMIN],
-
-  // Staff Management
-  "staff:view": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  "staff:create": [Role.OWNER, Role.ADMIN],
-  "staff:update": [Role.OWNER, Role.ADMIN],
-  "staff:delete": [Role.OWNER],
-
-  // Schedules
-  "schedules:view": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "schedules:manage": [Role.OWNER, Role.ADMIN],
-
-  // Reports
-  "reports:view": [Role.OWNER, Role.ADMIN],
-  "reports:financial": [Role.OWNER],
-
-  // Settings
-  "settings:view": [Role.OWNER, Role.ADMIN],
-  "settings:manage": [Role.OWNER],
-
-  // Services
-  "services:view": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "services:manage": [Role.OWNER, Role.ADMIN],
-
-  // Products
-  "products:view": [Role.OWNER, Role.ADMIN, Role.STAFF, Role.RECEPTIONIST],
-  "products:manage": [Role.OWNER, Role.ADMIN],
-
-  // Loyalty
-  "loyalty:view": [Role.OWNER, Role.ADMIN, Role.RECEPTIONIST],
-  "loyalty:manage": [Role.OWNER, Role.ADMIN],
-
-  // Branches
-  "branches:view": [Role.OWNER],
-  "branches:manage": [Role.OWNER],
-
-  // Expenses
-  "expenses:view": [Role.OWNER, Role.ADMIN],
-  "expenses:create": [Role.OWNER, Role.ADMIN],
-  "expenses:update": [Role.OWNER, Role.ADMIN],
-  "expenses:delete": [Role.OWNER],
-
-  // Expense Categories
-  "expense-categories:view": [Role.OWNER, Role.ADMIN],
-  "expense-categories:manage": [Role.OWNER, Role.ADMIN],
-
-  // Payroll
-  "payroll:view": [Role.OWNER, Role.ADMIN],
-  "payroll:manage": [Role.OWNER, Role.ADMIN],
-  "payroll:pay": [Role.OWNER],
-  "payroll:delete": [Role.OWNER],
-  "salary-config:view": [Role.OWNER, Role.ADMIN],
-  "salary-config:manage": [Role.OWNER, Role.ADMIN],
-
-  // Profit & Cost Analytics
-  "profit:view": [Role.OWNER],
-
-  // Audit
-  "audit:view": [Role.OWNER],
-};
-
-export type Permission = keyof typeof permissions;
+// ============================================
+// Role-level permission loading
+// ============================================
 
 /**
- * Check if a role has a specific permission.
- * SUPER_ADMIN (isSuperAdmin) bypasses all permission checks.
+ * Request-level dedup to avoid multiple Redis/DB calls for the same salon+role
+ * within a single server request.
  */
-export function hasPermission(role: Role | null, permission: Permission, isSuperAdmin = false): boolean {
-  if (isSuperAdmin) return true;
-  if (!role) return false;
-  const allowedRoles = permissions[permission];
-  if (!allowedRoles) return false;
-  return allowedRoles.includes(role);
-}
+const requestCache = new Map<string, Promise<Set<string>>>();
 
-/**
- * Check if a role has any of the specified permissions
- */
-export function hasAnyPermission(role: Role | null, perms: Permission[], isSuperAdmin = false): boolean {
-  if (isSuperAdmin) return true;
-  return perms.some((permission) => hasPermission(role, permission));
-}
+async function loadPermissionsFromDB(salonId: string, roleDefinitionId: string): Promise<Set<string>> {
+  const cacheKey = `salon:${salonId}:perms:${roleDefinitionId}`;
 
-/**
- * Check if a role has all of the specified permissions
- */
-export function hasAllPermissions(role: Role | null, perms: Permission[], isSuperAdmin = false): boolean {
-  if (isSuperAdmin) return true;
-  return perms.every((permission) => hasPermission(role, permission));
-}
+  // Check Redis first
+  const cached = await cacheGet<string[]>(cacheKey);
+  if (cached) return new Set(cached);
 
-/**
- * Get all permissions for a role
- */
-export function getPermissionsForRole(role: Role | null, isSuperAdmin = false): Permission[] {
-  if (isSuperAdmin) {
-    return Object.keys(permissions) as Permission[];
+  // Query DB using roleDefinitionId FK
+  const rolePerms = await prisma.rolePermission.findMany({
+    where: { salonId, roleDefinitionId },
+    include: { permission: { select: { code: true } } },
+  });
+
+  const permCodes = rolePerms.map((rp) => rp.permission.code);
+
+  // If this role has no permissions, check if the salon has been provisioned at all
+  if (permCodes.length === 0) {
+    // Check if ANY role has permissions for this salon
+    const salonHasAnyPerms = await prisma.rolePermission.count({
+      where: { salonId },
+    });
+
+    if (salonHasAnyPerms === 0) {
+      // Salon hasn't been provisioned yet — use hardcoded defaults
+      // Resolve roleDefinitionId → role name for fallback lookup
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleDefinitionId },
+        select: { slug: true },
+      });
+      if (!roleDef) return new Set();
+
+      const defaults = Object.entries(DEFAULT_PERMISSION_ROLES)
+        .filter(([, roles]) => roles.includes(roleDef.slug))
+        .map(([code]) => code);
+      return new Set(defaults);
+    }
+
+    // Salon IS provisioned but this role has zero permissions — intentional, keep empty
+    return new Set();
   }
-  if (!role) return [];
-  return (Object.keys(permissions) as Permission[]).filter((permission) =>
-    permissions[permission]?.includes(role)
-  );
+
+  // Cache in Redis
+  await cacheSet(cacheKey, permCodes, PERMISSION_CACHE_TTL);
+
+  return new Set(permCodes);
 }
 
 /**
- * Check if a role can manage other roles (for user management within a salon).
+ * Dedup wrapper — ensures only one DB/Redis call per salon+role per request.
+ * Returns the raw set of granted permission codes (no implicit-view inference applied).
+ * Use this when you need the literal stored permissions; use hasPermission() for access checks.
+ */
+export function getPermissionSet(salonId: string, roleDefinitionId: string): Promise<Set<string>> {
+  const key = `${salonId}:${roleDefinitionId}`;
+  if (!requestCache.has(key)) {
+    const promise = loadPermissionsFromDB(salonId, roleDefinitionId);
+    requestCache.set(key, promise);
+    // Clean up after promise resolves to prevent memory leak across requests in dev
+    promise.finally(() => {
+      setTimeout(() => requestCache.delete(key), 100);
+    });
+  }
+  return requestCache.get(key)!;
+}
+
+// ============================================
+// User-level override loading
+// ============================================
+
+const userOverrideCache = new Map<string, Promise<Map<string, "GRANT" | "REVOKE">>>();
+
+async function loadUserOverridesFromDB(
+  salonId: string,
+  userId: string
+): Promise<Map<string, "GRANT" | "REVOKE">> {
+  const cacheKey = `salon:${salonId}:userperms:${userId}`;
+
+  // Check Redis first
+  const cached = await cacheGet<Array<{ code: string; type: "GRANT" | "REVOKE" }>>(cacheKey);
+  if (cached) return new Map(cached.map((c) => [c.code, c.type]));
+
+  // Query DB
+  const userPerms = await prisma.userPermission.findMany({
+    where: { salonId, userId },
+    include: { permission: { select: { code: true } } },
+  });
+
+  if (userPerms.length === 0) return new Map();
+
+  const entries = userPerms.map((up) => ({
+    code: up.permission.code,
+    type: up.overrideType as "GRANT" | "REVOKE",
+  }));
+
+  // Cache in Redis
+  await cacheSet(cacheKey, entries, PERMISSION_CACHE_TTL);
+
+  return new Map(entries.map((e) => [e.code, e.type]));
+}
+
+/**
+ * Dedup wrapper for user overrides.
+ */
+function getUserOverrides(salonId: string, userId: string): Promise<Map<string, "GRANT" | "REVOKE">> {
+  const key = `${salonId}:user:${userId}`;
+  if (!userOverrideCache.has(key)) {
+    const promise = loadUserOverridesFromDB(salonId, userId);
+    userOverrideCache.set(key, promise);
+    promise.finally(() => {
+      setTimeout(() => userOverrideCache.delete(key), 100);
+    });
+  }
+  return userOverrideCache.get(key)!;
+}
+
+// ============================================
+// Role hierarchy loading
+// ============================================
+
+const hierarchyCache = new Map<string, Promise<Record<string, number>>>();
+
+/**
+ * Load role hierarchy levels from DB, with fallback to system defaults.
+ * Returns a map of roleDefinitionId → hierarchyLevel.
+ */
+async function loadHierarchyLevels(salonId?: string | null): Promise<Record<string, number>> {
+  const cacheKey = salonId ? `roles:hierarchy:${salonId}` : "roles:hierarchy:system";
+
+  // Check Redis
+  const cached = await cacheGet<Record<string, number>>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    // Query role definitions: system roles (salonId=null) + salon custom roles
+    const where = salonId
+      ? { OR: [{ salonId: null }, { salonId }], isActive: true }
+      : { isSystem: true, isActive: true };
+
+    const roleDefs = await prisma.roleDefinition.findMany({
+      where,
+      select: { id: true, hierarchyLevel: true },
+    });
+
+    if (roleDefs.length === 0) {
+      return {};
+    }
+
+    const levels: Record<string, number> = {};
+    for (const rd of roleDefs) {
+      levels[rd.id] = rd.hierarchyLevel;
+    }
+
+    // Cache in Redis
+    await cacheSet(cacheKey, levels, PERMISSION_CACHE_TTL);
+
+    return levels;
+  } catch {
+    return {};
+  }
+}
+
+export function getHierarchyLevels(salonId?: string | null): Promise<Record<string, number>> {
+  const key = salonId || "system";
+  if (!hierarchyCache.has(key)) {
+    const promise = loadHierarchyLevels(salonId);
+    hierarchyCache.set(key, promise);
+    promise.finally(() => {
+      setTimeout(() => hierarchyCache.delete(key), 100);
+    });
+  }
+  return hierarchyCache.get(key)!;
+}
+
+// ============================================
+// Public API
+// ============================================
+
+/**
+ * Check if a role has a specific permission at a given salon.
+ * Resolution order: SUPER_ADMIN bypass -> user overrides -> role permissions -> hardcoded defaults.
+ *
+ * @param roleId - The roleDefinitionId (not the role name)
+ */
+export async function hasPermission(
+  roleId: string | null,
+  permission: Permission,
+  isSuperAdmin = false,
+  salonId?: string | null,
+  userId?: string | null
+): Promise<boolean> {
+  if (isSuperAdmin) return true;
+  if (!roleId) return false;
+
+  // Check user-level overrides first (short-circuit layer)
+  if (salonId && userId) {
+    const overrides = await getUserOverrides(salonId, userId);
+    const override = overrides.get(permission);
+    if (override === "GRANT") return true;
+    if (override === "REVOKE") return false;
+    // No override — fall through to role permissions
+  }
+
+  // When no salonId, fall back to hardcoded defaults by resolving ID → name
+  if (!salonId) {
+    try {
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleId },
+        select: { slug: true },
+      });
+      if (!roleDef) return false;
+      const defaults = DEFAULT_PERMISSION_ROLES[permission];
+      if (defaults && defaults.includes(roleDef.slug)) return true;
+
+      // Implicit-view: if checking X:view and not directly granted, treat as granted
+      // when any X:create/X:update/X:delete is granted by default for this role.
+      // Rationale: "you can edit it, of course you can see it."
+      if (permission.endsWith(":view")) {
+        const prefix = permission.slice(0, -":view".length);
+        for (const op of [`${prefix}:create`, `${prefix}:update`, `${prefix}:delete`] as Permission[]) {
+          const ds = DEFAULT_PERMISSION_ROLES[op];
+          if (ds && ds.includes(roleDef.slug)) return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  const permSet = await getPermissionSet(salonId, roleId);
+  if (permSet.has(permission)) return true;
+
+  // Implicit-view: if checking X:view and not directly granted, treat as granted
+  // when the user effectively has any X:create/X:update/X:delete (via role or override).
+  // The recursive call cannot loop because the recursive permission doesn't end in :view.
+  if (permission.endsWith(":view")) {
+    const prefix = permission.slice(0, -":view".length);
+    for (const op of [`${prefix}:create`, `${prefix}:update`, `${prefix}:delete`] as Permission[]) {
+      if (await hasPermission(roleId, op, isSuperAdmin, salonId, userId)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if a role has any of the specified permissions.
+ *
+ * Delegates each permission to `hasPermission` so the same implicit-`:view` inference
+ * (granted via `:create`/`:update`/`:delete`) applies consistently to bulk checks.
+ */
+export async function hasAnyPermission(
+  roleId: string | null,
+  perms: Permission[],
+  isSuperAdmin = false,
+  salonId?: string | null,
+  userId?: string | null
+): Promise<boolean> {
+  if (isSuperAdmin) return true;
+  if (!roleId) return false;
+  for (const p of perms) {
+    if (await hasPermission(roleId, p, isSuperAdmin, salonId, userId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if a role has all of the specified permissions.
+ *
+ * Delegates each permission to `hasPermission` so the same implicit-`:view` inference
+ * (granted via `:create`/`:update`/`:delete`) applies consistently to bulk checks.
+ */
+export async function hasAllPermissions(
+  roleId: string | null,
+  perms: Permission[],
+  isSuperAdmin = false,
+  salonId?: string | null,
+  userId?: string | null
+): Promise<boolean> {
+  if (isSuperAdmin) return true;
+  if (!roleId) return false;
+  for (const p of perms) {
+    if (!(await hasPermission(roleId, p, isSuperAdmin, salonId, userId))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Get all permissions for a role at a given salon, with user overrides merged.
+ */
+export async function getPermissionsForRole(
+  roleId: string | null,
+  isSuperAdmin = false,
+  salonId?: string | null,
+  userId?: string | null
+): Promise<string[]> {
+  if (isSuperAdmin) {
+    return Object.keys(DEFAULT_PERMISSION_ROLES);
+  }
+  if (!roleId) return [];
+
+  let permSet: Set<string>;
+  if (!salonId) {
+    try {
+      const roleDef = await prisma.roleDefinition.findUnique({
+        where: { id: roleId },
+        select: { slug: true },
+      });
+      if (!roleDef) return [];
+      permSet = new Set(
+        Object.entries(DEFAULT_PERMISSION_ROLES)
+          .filter(([, roles]) => roles.includes(roleDef.slug))
+          .map(([code]) => code)
+      );
+    } catch {
+      return [];
+    }
+  } else {
+    permSet = new Set(await getPermissionSet(salonId, roleId));
+  }
+
+  // Apply user overrides
+  if (salonId && userId) {
+    const overrides = await getUserOverrides(salonId, userId);
+    for (const [code, type] of overrides) {
+      if (type === "GRANT") permSet.add(code);
+      if (type === "REVOKE") permSet.delete(code);
+    }
+  }
+
+  return Array.from(permSet);
+}
+
+/**
+ * Check if a role can manage other roles (role hierarchy).
+ * Now uses roleDefinitionIds instead of role names.
  * SUPER_ADMIN can manage all roles.
  */
-export function canManageRole(managerRole: Role | null, targetRole: Role, isSuperAdmin = false): boolean {
+export async function canManageRole(
+  managerRoleId: string | null,
+  targetRoleId: string,
+  isSuperAdmin = false,
+  salonId?: string | null
+): Promise<boolean> {
   if (isSuperAdmin) return true;
-  if (!managerRole) return false;
+  if (!managerRoleId) return false;
 
-  const roleHierarchy: Record<Role, number> = {
-    [Role.OWNER]: 4,
-    [Role.ADMIN]: 3,
-    [Role.STAFF]: 2,
-    [Role.RECEPTIONIST]: 1,
-  };
+  const levels = await getHierarchyLevels(salonId);
 
-  return roleHierarchy[managerRole] > roleHierarchy[targetRole];
+  const managerLevel = levels[managerRoleId];
+  const targetLevel = levels[targetRoleId];
+  if (managerLevel === undefined || targetLevel === undefined) {
+    return false;
+  }
+
+  return managerLevel > targetLevel;
 }

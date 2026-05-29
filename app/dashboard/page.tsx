@@ -10,8 +10,8 @@ import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getDashboardStats } from "@/lib/actions/dashboard";
 import { getTimezone } from "@/lib/actions/settings";
 import { getBranches } from "@/lib/actions/branch";
-import { Role } from "@prisma/client";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function DashboardPage({
   searchParams,
@@ -26,20 +26,28 @@ export default async function DashboardPage({
 
   const { user } = session;
   if (!user.salonRole && !user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (user.salonRole ?? null) as Role | null;
+  const userRoleId = user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
-  const canViewReports = hasPermission(userRole, "reports:view", isSuperAdmin);
-  const isOwner = userRole === "OWNER" || isSuperAdmin;
+  const salonId = user.salonId;
+  const [canViewReports, canCreateAppointments, canCreateSales, canCreateClients, canManageServices, canViewSchedules, canViewAllBranches] = await Promise.all([
+    hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, user.id),
+  ]);
 
   const params = await searchParams;
-  const branchFilter = isOwner && params.branch === "all" ? "all" as const : "current" as const;
+  const branchFilter = canViewAllBranches && params.branch === "all" ? "all" as const : "current" as const;
 
   const [statsResult, tz, branchesResult] = await Promise.all([
     getDashboardStats({ branchFilter }),
     getTimezone(),
-    isOwner ? getBranches() : Promise.resolve(null),
+    canViewAllBranches ? getBranches() : Promise.resolve(null),
   ]);
 
   const hasMultipleBranches = branchesResult?.success && branchesResult.data.length > 1;
@@ -48,7 +56,7 @@ export default async function DashboardPage({
     : undefined;
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -65,18 +73,22 @@ export default async function DashboardPage({
                 currentSalonName={currentSalonName}
               />
             )}
+            {canCreateAppointments && (
             <Button asChild>
               <Link href="/dashboard/appointments/new">
                 <Calendar className="h-4 w-4 mr-2" />
                 New Appointment
               </Link>
             </Button>
+            )}
+            {canCreateSales && (
             <Button variant="outline" asChild>
               <Link href="/dashboard/sales/new">
                 <DollarSign className="h-4 w-4 mr-2" />
                 New Sale
               </Link>
             </Button>
+            )}
           </div>
         </div>
 
@@ -95,6 +107,7 @@ export default async function DashboardPage({
         <div>
           <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {canCreateClients && (
             <Link href="/dashboard/clients/new">
               <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
                 <CardHeader className="pb-2">
@@ -110,7 +123,9 @@ export default async function DashboardPage({
                 </CardContent>
               </Card>
             </Link>
+            )}
 
+            {canManageServices && (
             <Link href="/dashboard/services/new">
               <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
                 <CardHeader className="pb-2">
@@ -126,7 +141,9 @@ export default async function DashboardPage({
                 </CardContent>
               </Card>
             </Link>
+            )}
 
+            {canViewSchedules && (
             <Link href="/dashboard/schedules">
               <Card className="hover:bg-accent transition-colors cursor-pointer h-full">
                 <CardHeader className="pb-2">
@@ -142,6 +159,7 @@ export default async function DashboardPage({
                 </CardContent>
               </Card>
             </Link>
+            )}
 
             {canViewReports && (
               <Link href="/dashboard/reports">

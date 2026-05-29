@@ -3,10 +3,12 @@ import { z } from "zod";
 export const branchSchema = z.object({
   name: z
     .string()
+    .trim()
     .min(1, "Branch name is required")
     .max(100, "Branch name must be less than 100 characters"),
   slug: z
     .string()
+    .trim()
     .min(1, "Slug is required")
     .max(100, "Slug must be less than 100 characters")
     .regex(
@@ -15,17 +17,20 @@ export const branchSchema = z.object({
     ),
   address: z
     .string()
+    .trim()
     .max(255, "Address must be less than 255 characters")
     .optional()
     .or(z.literal("")),
   phone: z
     .string()
+    .trim()
     .max(20, "Phone number must be less than 20 characters")
     .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
     .optional()
     .or(z.literal("")),
   email: z
     .string()
+    .trim()
     .email("Invalid email address")
     .optional()
     .or(z.literal("")),

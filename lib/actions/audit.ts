@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/permissions";
-import { Role, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { getOrganizationSalonIds } from "./branch";
 
@@ -69,14 +69,15 @@ export async function getAuditLogs(
 ): Promise<ActionResult<{ logs: AuditLogEntry[]; total: number; page: number; pageSize: number }>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
-  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole && !session.user.isSuperAdmin) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, "audit:view")) {
+  const roleId = session.user.salonRoleId ?? null;
+  const salonId = session.user.salonId;
+  const userId = session.user.id;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(roleId, "audit:view", isSuperAdmin, salonId, userId)) {
     return { success: false, error: "Unauthorized" };
   }
-
-  const salonId = session.user.salonId;
 
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 50;
@@ -84,9 +85,10 @@ export async function getAuditLogs(
 
   const where: Record<string, unknown> = {};
 
-  // Filter by current branch or all branches in the organization (owner-only)
+  // Filter by current branch or all branches in the organization (data:all-branches required)
   if (salonId) {
-    if (params.branchFilter === "all" && role === "OWNER") {
+    const canViewAllBranches = await hasPermission(roleId, "data:all-branches", isSuperAdmin, salonId, userId);
+    if (params.branchFilter === "all" && canViewAllBranches) {
       const orgSalonIds = await getOrganizationSalonIds(salonId);
       where.salonId = { in: orgSalonIds };
     } else {
@@ -140,19 +142,21 @@ export async function getAuditLogs(
 export async function getAuditActions(branchFilter: "current" | "all" = "current"): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
-  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole && !session.user.isSuperAdmin) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, "audit:view")) {
+  const roleId = session.user.salonRoleId ?? null;
+  const salonId = session.user.salonId;
+  const userId = session.user.id;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(roleId, "audit:view", isSuperAdmin, salonId, userId)) {
     return { success: false, error: "Unauthorized" };
   }
-
-  const salonId = session.user.salonId;
 
   try {
     let salonFilter: { salonId: string | { in: string[] } } | undefined;
     if (salonId) {
-      if (branchFilter === "all" && role === "OWNER") {
+      const canViewAllBranches = await hasPermission(roleId, "data:all-branches", isSuperAdmin, salonId, userId);
+      if (branchFilter === "all" && canViewAllBranches) {
         const orgSalonIds = await getOrganizationSalonIds(salonId);
         salonFilter = { salonId: { in: orgSalonIds } };
       } else {
@@ -177,19 +181,21 @@ export async function getAuditActions(branchFilter: "current" | "all" = "current
 export async function getAuditEntityTypes(branchFilter: "current" | "all" = "current"): Promise<ActionResult<string[]>> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Unauthorized" };
-  if (!session.user.salonRole) return { success: false, error: "Unauthorized" };
+  if (!session.user.salonRole && !session.user.isSuperAdmin) return { success: false, error: "Unauthorized" };
 
-  const role = session.user.salonRole as Role;
-  if (!hasPermission(role, "audit:view")) {
+  const roleId = session.user.salonRoleId ?? null;
+  const salonId = session.user.salonId;
+  const userId = session.user.id;
+  const isSuperAdmin = session.user.isSuperAdmin === true;
+  if (!await hasPermission(roleId, "audit:view", isSuperAdmin, salonId, userId)) {
     return { success: false, error: "Unauthorized" };
   }
-
-  const salonId = session.user.salonId;
 
   try {
     let salonFilter: { salonId: string | { in: string[] } } | undefined;
     if (salonId) {
-      if (branchFilter === "all" && role === "OWNER") {
+      const canViewAllBranches = await hasPermission(roleId, "data:all-branches", isSuperAdmin, salonId, userId);
+      if (branchFilter === "all" && canViewAllBranches) {
         const orgSalonIds = await getOrganizationSalonIds(salonId);
         salonFilter = { salonId: { in: orgSalonIds } };
       } else {

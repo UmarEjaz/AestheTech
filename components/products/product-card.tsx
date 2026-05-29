@@ -18,11 +18,11 @@ import { formatCurrency } from "@/lib/utils/currency";
 interface ProductCardProps {
   product: ProductListItem;
   onDelete?: (id: string) => void;
-  canManage?: boolean;
+  canUpdate?: boolean;
   currencyCode?: string;
 }
 
-export function ProductCard({ product, onDelete, canManage = false, currencyCode = "USD" }: ProductCardProps) {
+export function ProductCard({ product, onDelete, canUpdate = false, currencyCode = "USD" }: ProductCardProps) {
   const isOutOfStock = product.stock === 0;
   const isLowStock = product.stock > 0 && product.stock <= product.lowStockThreshold;
 
@@ -33,9 +33,9 @@ export function ProductCard({ product, onDelete, canManage = false, currencyCode
           <div className="space-y-1">
             <CardTitle className="text-lg">{product.name}</CardTitle>
             <div className="flex items-center gap-2">
-              {product.category && (
+              {product.category?.name && (
                 <Badge variant="secondary" className="text-xs">
-                  {product.category}
+                  {product.category.name}
                 </Badge>
               )}
               {isOutOfStock && (
@@ -51,7 +51,7 @@ export function ProductCard({ product, onDelete, canManage = false, currencyCode
               )}
             </div>
           </div>
-          {canManage && (
+          {(canUpdate || onDelete) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -60,12 +60,14 @@ export function ProductCard({ product, onDelete, canManage = false, currencyCode
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link href={`/dashboard/products/${product.id}/edit`}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Edit
-                  </Link>
-                </DropdownMenuItem>
+                {canUpdate && (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/dashboard/products/${product.id}/edit`}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      Edit
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 {onDelete && (
                   <>
                     <DropdownMenuSeparator />

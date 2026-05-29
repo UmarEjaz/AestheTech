@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { CheckoutForm } from "@/components/sales/checkout-form";
 import { getClients } from "@/lib/actions/client";
@@ -9,6 +8,7 @@ import { getActiveProducts } from "@/lib/actions/product";
 import { getStaffForAppointments } from "@/lib/actions/appointment";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 
 export default async function NewSalePage() {
   const session = await auth();
@@ -18,13 +18,14 @@ export default async function NewSalePage() {
   }
 
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
-    redirect("/dashboard/access-denied");
+    redirectAccessDenied();
   }
-  const userRole = (session.user.salonRole ?? null) as Role | null;
+  const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
-  if (!hasPermission(userRole, "sales:create", isSuperAdmin)) {
-    redirect("/dashboard/access-denied");
+  const salonId = session.user.salonId;
+  if (!(await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, session.user.id))) {
+    redirectAccessDenied(["sales:create"]);
   }
 
   // Fetch all required data in parallel
@@ -38,7 +39,7 @@ export default async function NewSalePage() {
 
   if (!clientsResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{clientsResult.error}</p>
         </div>
@@ -48,7 +49,7 @@ export default async function NewSalePage() {
 
   if (!servicesResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{servicesResult.error}</p>
         </div>
@@ -58,7 +59,7 @@ export default async function NewSalePage() {
 
   if (!staffResult.success) {
     return (
-      <DashboardLayout userRole={userRole}>
+      <DashboardLayout>
         <div className="text-center py-12">
           <p className="text-destructive">{staffResult.error}</p>
         </div>
@@ -90,7 +91,7 @@ export default async function NewSalePage() {
     name: service.name,
     price: Number(service.price),
     duration: service.duration,
-    category: service.category,
+    category: service.category?.name ?? null,
     points: service.points,
   }));
 
@@ -98,7 +99,7 @@ export default async function NewSalePage() {
   const products = productsResult.success ? productsResult.data : [];
 
   return (
-    <DashboardLayout userRole={userRole}>
+    <DashboardLayout>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">New Sale</h1>

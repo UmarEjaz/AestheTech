@@ -24,7 +24,8 @@ interface ProductListProps {
   totalPages: number;
   total: number;
   pageSize?: number;
-  canManage?: boolean;
+  canUpdate?: boolean;
+  canDelete?: boolean;
   currencyCode?: string;
 }
 
@@ -34,7 +35,8 @@ export function ProductList({
   totalPages,
   total,
   pageSize = 12,
-  canManage = false,
+  canUpdate = false,
+  canDelete = false,
   currencyCode = "USD",
 }: ProductListProps) {
   const router = useRouter();
@@ -77,8 +79,8 @@ export function ProductList({
           <ProductCard
             key={product.id}
             product={product}
-            onDelete={canManage ? setDeleteId : undefined}
-            canManage={canManage}
+            onDelete={canDelete ? setDeleteId : undefined}
+            canUpdate={canUpdate}
             currencyCode={currencyCode}
           />
         ))}
