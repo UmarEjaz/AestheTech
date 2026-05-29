@@ -469,17 +469,39 @@ export async function getRoleBySlug(slug: string): Promise<
       const existing = await prisma.roleDefinition.findFirst({
         where: { salonId: null, slug: systemDef.slug },
       });
-      roleDef = existing ?? await prisma.roleDefinition.create({
-        data: {
-          name: systemDef.name,
-          slug: systemDef.slug,
-          description: systemDef.description,
-          color: systemDef.color,
-          hierarchyLevel: systemDef.hierarchyLevel,
-          isSystem: true,
-          salonId: null,
-        },
-      });
+      if (existing) {
+        roleDef = existing;
+      } else {
+        // Race-safe create: a concurrent self-heal can win the create between our
+        // findFirst and our create. The partial unique index on (slug WHERE salonId IS
+        // NULL) makes the second create fail with P2002; we recover by re-querying
+        // for the row the winner just inserted.
+        try {
+          roleDef = await prisma.roleDefinition.create({
+            data: {
+              name: systemDef.name,
+              slug: systemDef.slug,
+              description: systemDef.description,
+              color: systemDef.color,
+              hierarchyLevel: systemDef.hierarchyLevel,
+              isSystem: true,
+              salonId: null,
+            },
+          });
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+            const winner = await prisma.roleDefinition.findFirst({
+              where: { salonId: null, slug: systemDef.slug },
+            });
+            if (!winner) {
+              return { success: false, error: "Role not found" };
+            }
+            roleDef = winner;
+          } else {
+            throw err;
+          }
+        }
+      }
     }
 
     // Get all permissions
@@ -576,17 +598,27 @@ export async function seedSystemRoles(): Promise<void> {
       },
     });
   } else {
-    await prisma.roleDefinition.create({
-      data: {
-        name: ownerDef.name,
-        slug: ownerDef.slug,
-        description: ownerDef.description,
-        color: ownerDef.color,
-        hierarchyLevel: ownerDef.hierarchyLevel,
-        isSystem: true,
-        salonId: null,
-      },
-    });
+    // Race-safe create: a concurrent seed run can win between our findFirst and
+    // our create. The partial unique index on (slug WHERE salonId IS NULL) makes
+    // the second create fail with P2002. Swallow that — the winning row is
+    // already what we wanted to insert, so there's nothing more to do here.
+    try {
+      await prisma.roleDefinition.create({
+        data: {
+          name: ownerDef.name,
+          slug: ownerDef.slug,
+          description: ownerDef.description,
+          color: ownerDef.color,
+          hierarchyLevel: ownerDef.hierarchyLevel,
+          isSystem: true,
+          salonId: null,
+        },
+      });
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) {
+        throw err;
+      }
+    }
   }
 }
 
