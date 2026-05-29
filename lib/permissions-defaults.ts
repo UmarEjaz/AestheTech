@@ -240,10 +240,10 @@ export const PERMISSION_REGISTRY: Array<{
   { code: "payroll:cancel", module: "payroll", label: "Cancel Payroll Runs", description: "Cancel a payroll run (preserves record for audit; does not delete data)", sortOrder: 3 },
   { code: "payroll:pay", module: "payroll", label: "Process Payroll Payment", sortOrder: 4 },
   { code: "payroll:delete", module: "payroll", label: "Delete Payroll", sortOrder: 5 },
-  { code: "salary-config:view", module: "payroll", label: "View Salary Config", sortOrder: 5 },
-  { code: "salary-config:create", module: "payroll", label: "Create Salary Config", sortOrder: 6 },
-  { code: "salary-config:update", module: "payroll", label: "Update Salary Config", sortOrder: 7 },
-  { code: "salary-config:delete", module: "payroll", label: "Delete Salary Config", sortOrder: 8 },
+  { code: "salary-config:view", module: "payroll", label: "View Salary Config", sortOrder: 6 },
+  { code: "salary-config:create", module: "payroll", label: "Create Salary Config", sortOrder: 7 },
+  { code: "salary-config:update", module: "payroll", label: "Update Salary Config", sortOrder: 8 },
+  { code: "salary-config:delete", module: "payroll", label: "Delete Salary Config", sortOrder: 9 },
 
   // Profit & Cost Analytics
   { code: "profit:view", module: "profit", label: "View Profit Analytics", sortOrder: 0 },

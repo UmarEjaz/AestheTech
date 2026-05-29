@@ -459,15 +459,18 @@ export async function getRoleBySlug(slug: string): Promise<
 
     // Self-heal: if a known system role is missing from the DB (incomplete seed),
     // create it on demand so downstream callers receive a real DB ID instead of a slug stand-in.
+    // Prisma doesn't support `null` in a composite-unique `where` clause (the cast was a TS
+    // workaround, not a runtime fix), so do an explicit find-then-create instead.
     if (!roleDef) {
       const systemDef = SYSTEM_ROLE_DEFINITIONS.find((rd) => rd.slug === slug);
       if (!systemDef) {
         return { success: false, error: "Role not found" };
       }
-      roleDef = await prisma.roleDefinition.upsert({
-        where: { salonId_slug: { salonId: null as unknown as string, slug: systemDef.slug } },
-        update: {},
-        create: {
+      const existing = await prisma.roleDefinition.findFirst({
+        where: { salonId: null, slug: systemDef.slug },
+      });
+      roleDef = existing ?? await prisma.roleDefinition.create({
+        data: {
           name: systemDef.name,
           slug: systemDef.slug,
           description: systemDef.description,
@@ -557,24 +560,34 @@ export async function seedSystemRoles(): Promise<void> {
   if (!ownerDef) {
     throw new Error(`Owner role definition missing from SYSTEM_ROLE_DEFINITIONS`);
   }
-  await prisma.roleDefinition.upsert({
-    where: { salonId_slug: { salonId: null as unknown as string, slug: ownerDef.slug } },
-    update: {
-      name: ownerDef.name,
-      description: ownerDef.description,
-      color: ownerDef.color,
-      hierarchyLevel: ownerDef.hierarchyLevel,
-    },
-    create: {
-      name: ownerDef.name,
-      slug: ownerDef.slug,
-      description: ownerDef.description,
-      color: ownerDef.color,
-      hierarchyLevel: ownerDef.hierarchyLevel,
-      isSystem: true,
-      salonId: null,
-    },
+  // Prisma doesn't support `null` in a composite-unique `where` clause for upsert,
+  // so do an explicit find-then-update-or-create instead.
+  const existingOwner = await prisma.roleDefinition.findFirst({
+    where: { salonId: null, slug: ownerDef.slug },
   });
+  if (existingOwner) {
+    await prisma.roleDefinition.update({
+      where: { id: existingOwner.id },
+      data: {
+        name: ownerDef.name,
+        description: ownerDef.description,
+        color: ownerDef.color,
+        hierarchyLevel: ownerDef.hierarchyLevel,
+      },
+    });
+  } else {
+    await prisma.roleDefinition.create({
+      data: {
+        name: ownerDef.name,
+        slug: ownerDef.slug,
+        description: ownerDef.description,
+        color: ownerDef.color,
+        hierarchyLevel: ownerDef.hierarchyLevel,
+        isSystem: true,
+        salonId: null,
+      },
+    });
+  }
 }
 
 /**

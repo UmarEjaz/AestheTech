@@ -235,8 +235,10 @@ export async function updateSalaryConfig(
       }
     }
 
-    const config = await prisma.salaryConfig.update({
-      where: { id },
+    // Atomic write: keep the branch predicate in the WHERE so a concurrent salonId
+    // change between the preflight and the write can't slip through.
+    const updateResult = await prisma.salaryConfig.updateMany({
+      where: { id, salonId: authResult.salonId },
       data: {
         userId,
         payType,
@@ -245,6 +247,10 @@ export async function updateSalaryConfig(
         notes: notes || null,
       },
     });
+    if (updateResult.count === 0) {
+      return { success: false, error: "Salary configuration not found" };
+    }
+    const config = { id };
 
     await logAudit({
       action: "SALARY_CONFIG_UPDATED",
@@ -295,10 +301,14 @@ export async function toggleSalaryConfigActive(id: string): Promise<ActionResult
       return { success: false, error: "Salary configuration not found" };
     }
 
-    await prisma.salaryConfig.update({
-      where: { id },
+    // Atomic write: keep the branch predicate in the WHERE.
+    const toggleResult = await prisma.salaryConfig.updateMany({
+      where: { id, salonId: authResult.salonId },
       data: { isActive: !existing.isActive },
     });
+    if (toggleResult.count === 0) {
+      return { success: false, error: "Salary configuration not found" };
+    }
 
     await logAudit({
       action: existing.isActive ? "SALARY_CONFIG_DEACTIVATED" : "SALARY_CONFIG_RESTORED",
@@ -343,7 +353,13 @@ export async function deleteSalaryConfig(id: string): Promise<ActionResult<void>
       return { success: false, error: "Salary configuration not found" };
     }
 
-    await prisma.salaryConfig.delete({ where: { id } });
+    // Atomic delete: keep the branch predicate in the WHERE.
+    const deleteResult = await prisma.salaryConfig.deleteMany({
+      where: { id, salonId: authResult.salonId },
+    });
+    if (deleteResult.count === 0) {
+      return { success: false, error: "Salary configuration not found" };
+    }
 
     await logAudit({
       action: "SALARY_CONFIG_DELETED",

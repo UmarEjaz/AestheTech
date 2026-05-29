@@ -27,14 +27,16 @@ export default async function ProductCategoriesPage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
 
-  const canView = isSuperAdmin || await hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id);
+  // hasPermission already short-circuits on isSuperAdmin internally (third arg) —
+  // the outer `isSuperAdmin || ` was duplicated logic.
+  const canView = await hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id);
   if (!canView) {
     redirectAccessDenied(["product-categories:view"]);
   }
 
-  const canCreate = isSuperAdmin || await hasPermission(userRoleId, "product-categories:create", isSuperAdmin, salonId, session.user.id);
-  const canUpdate = isSuperAdmin || await hasPermission(userRoleId, "product-categories:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = isSuperAdmin || await hasPermission(userRoleId, "product-categories:delete", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "product-categories:create", isSuperAdmin, salonId, session.user.id);
+  const canUpdate = await hasPermission(userRoleId, "product-categories:update", isSuperAdmin, salonId, session.user.id);
+  const canDelete = await hasPermission(userRoleId, "product-categories:delete", isSuperAdmin, salonId, session.user.id);
 
   const result = await getAllProductCategories();
   if (!result.success) {

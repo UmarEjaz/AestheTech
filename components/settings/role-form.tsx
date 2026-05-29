@@ -85,6 +85,8 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g., Senior Stylist, Branch Manager"
+          pattern="^[A-Za-z0-9 _-]+$"
+          title="Use letters, numbers, spaces, underscores, and hyphens only."
           required
         />
         <p className="text-xs text-muted-foreground">

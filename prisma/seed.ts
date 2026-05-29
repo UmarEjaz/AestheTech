@@ -1016,11 +1016,13 @@ async function main() {
     { salonId: branchSalon.id, roleMap: branchSalonRoles },
   ];
   // Track missing references so a typo in DEFAULT_PERMISSION_ROLES doesn't silently
-  // produce a partially-seeded salon. Same fail-fast pattern as seed-permissions.ts.
+  // produce a partially-seeded salon. Validate all references FIRST, then write —
+  // otherwise an unresolved reference in salon #2 would leave salon #1 partially
+  // seeded by the time we throw. Same fail-fast pattern as seed-permissions.ts.
   const missingPermCodes = new Set<string>();
   const missingRoleSlugs = new Set<string>();
+  const allRolePermData: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
   for (const { salonId: sId, roleMap } of salonRoleMaps) {
-    const rolePermData: Array<{ salonId: string; roleDefinitionId: string; permissionId: string }> = [];
     for (const [code, roles] of Object.entries(DEFAULT_PERMISSION_ROLES)) {
       const permId = permissionIdMap.get(code);
       if (!permId) {
@@ -1033,10 +1035,9 @@ async function main() {
           missingRoleSlugs.add(roleSlug);
           continue;
         }
-        rolePermData.push({ salonId: sId, roleDefinitionId: rdId, permissionId: permId });
+        allRolePermData.push({ salonId: sId, roleDefinitionId: rdId, permissionId: permId });
       }
     }
-    await prisma.rolePermission.createMany({ data: rolePermData });
   }
   if (missingPermCodes.size > 0 || missingRoleSlugs.size > 0) {
     throw new Error(
@@ -1045,6 +1046,7 @@ async function main() {
         `Missing role slugs: [${[...missingRoleSlugs].join(", ")}].`
     );
   }
+  await prisma.rolePermission.createMany({ data: allRolePermData });
 
   console.log("Created permissions and default role assignments");
 

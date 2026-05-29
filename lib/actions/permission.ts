@@ -446,6 +446,18 @@ export async function getUserPermissionOverrides(
       return { success: false, error: "User not found in this salon" };
     }
 
+    // Hierarchy guard: same check applied by updateUserPermissions/clearUserPermissionOverrides.
+    // The read path needs it too so a caller can't peek at override state for higher-level users.
+    const { canManageRole } = await import("@/lib/permissions");
+    if (!(await canManageRole(
+      authResult.roleId,
+      membership.roleDefinitionId,
+      authResult.isSuperAdmin,
+      authResult.salonId
+    ))) {
+      return { success: false, error: "You cannot view permissions for this user" };
+    }
+
     const targetUser = { ...membership.user, role: membership.roleDefinition.slug };
 
     // Get all permissions

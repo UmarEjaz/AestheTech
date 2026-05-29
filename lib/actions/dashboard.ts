@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { checkAuthBasic } from "@/lib/auth-helpers";
 import { hasPermission } from "@/lib/permissions";
 import { subDays, startOfDay, endOfDay } from "date-fns";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, Prisma } from "@prisma/client";
 import { getSettings } from "./settings";
 import {
   getNow,
@@ -575,27 +575,35 @@ export async function getReportData(params: {
       return { success: true, data: cached };
     }
 
-    // Fetch all report data in parallel
+    // Fetch all report data in parallel. Money-bearing queries (sale, saleItem, expense
+     // full rows) are skipped for callers without `reports:financial` — the redacted
+     // response never reads them, so paying to fetch them is pure waste at scale.
+     // For non-financial callers we still need the SALES COUNT (for totals.sales), so
+     // we run a cheap `count` instead of the full findMany.
+    const salesWhere = {
+      salonId: salonFilter,
+      createdAt: { gte: startDate, lte: endDate },
+      invoice: { isNot: null },
+    };
     const [
       salesData,
       appointmentsData,
       clientsData,
       saleItemsData,
       expensesData,
+      redactedSalesCount,
     ] = await Promise.all([
-      // Sales in date range
-      prisma.sale.findMany({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: startDate, lte: endDate },
-          invoice: { isNot: null },
-        },
-        select: {
-          createdAt: true,
-          finalAmount: true,
-        },
-        orderBy: { createdAt: "asc" },
-      }),
+      // Sales in date range — full rows only when financial.
+      canViewFinancial
+        ? prisma.sale.findMany({
+            where: salesWhere,
+            select: {
+              createdAt: true,
+              finalAmount: true,
+            },
+            orderBy: { createdAt: "asc" },
+          })
+        : Promise.resolve([] as { createdAt: Date; finalAmount: Prisma.Decimal }[]),
 
       // Appointments in date range
       prisma.appointment.findMany({
@@ -616,35 +624,52 @@ export async function getReportData(params: {
         orderBy: { createdAt: "asc" },
       }),
 
-      // Sale items for service/product breakdown (filter by sale.createdAt to match revenue bucketing)
-      prisma.saleItem.findMany({
-        where: {
-          salonId: salonFilter,
-          sale: {
-            createdAt: { gte: startDate, lte: endDate },
-            invoice: { isNot: null },
-          },
-        },
-        include: {
-          service: { select: { id: true, name: true } },
-          product: { select: { id: true, name: true } },
-          staff: { select: { id: true, firstName: true, lastName: true } },
-          sale: { select: { createdAt: true, clientId: true, client: { select: { firstName: true, lastName: true } } } },
-        },
-      }),
+      // Sale items — fully skipped when not financial (only feeds money breakdowns).
+      canViewFinancial
+        ? prisma.saleItem.findMany({
+            where: {
+              salonId: salonFilter,
+              sale: {
+                createdAt: { gte: startDate, lte: endDate },
+                invoice: { isNot: null },
+              },
+            },
+            include: {
+              service: { select: { id: true, name: true } },
+              product: { select: { id: true, name: true } },
+              staff: { select: { id: true, firstName: true, lastName: true } },
+              sale: { select: { createdAt: true, clientId: true, client: { select: { firstName: true, lastName: true } } } },
+            },
+          })
+        : Promise.resolve([] as Prisma.SaleItemGetPayload<{
+            include: {
+              service: { select: { id: true; name: true } };
+              product: { select: { id: true; name: true } };
+              staff: { select: { id: true; firstName: true; lastName: true } };
+              sale: { select: { createdAt: true; clientId: true; client: { select: { firstName: true; lastName: true } } } };
+            };
+          }>[]),
 
-      // Expenses in date range
-      prisma.expense.findMany({
-        where: {
-          salonId: salonFilter,
-          date: { gte: startDate, lte: endDate },
-        },
-        select: {
-          amount: true,
-          date: true,
-          category: { select: { name: true, color: true } },
-        },
-      }),
+      // Expenses — fully skipped when not financial (only feeds money breakdowns).
+      canViewFinancial
+        ? prisma.expense.findMany({
+            where: {
+              salonId: salonFilter,
+              date: { gte: startDate, lte: endDate },
+            },
+            select: {
+              amount: true,
+              date: true,
+              category: { select: { name: true, color: true } },
+            },
+          })
+        : Promise.resolve([] as { amount: Prisma.Decimal; date: Date; category: { name: string; color: string } }[]),
+
+      // Cheap fallback: count of sales for redacted callers (so totals.sales is correct
+      // even though we didn't fetch full sale rows).
+      canViewFinancial
+        ? Promise.resolve(0)
+        : prisma.sale.count({ where: salesWhere }),
     ]);
 
     // Revenue by day
@@ -846,7 +871,9 @@ export async function getReportData(params: {
     const totalRevenue = salesData.reduce((sum, s) => sum + Number(s.finalAmount), 0);
     const totals: ReportData["totals"] = {
       revenue: totalRevenue,
-      sales: salesData.length,
+      // Financial users: salesData is the full sale rows so length is accurate.
+      // Redacted users: salesData was skipped; use the cheap count we ran instead.
+      sales: canViewFinancial ? salesData.length : redactedSalesCount,
       appointments: appointmentsData.length,
       newClients: clientsData.length,
       expenses: totalExpenses,
