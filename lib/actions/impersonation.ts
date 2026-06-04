@@ -25,15 +25,20 @@ async function closeActiveSessions(
   impersonatorUserId: string,
   opts: { audit: boolean }
 ): Promise<void> {
-  const active = await prisma.impersonationSession.findMany({
-    where: { impersonatorUserId, endedAt: null },
+  // Find + close atomically so two concurrent calls can't both pick up the same
+  // open sessions and emit duplicate IMPERSONATION_END audit logs.
+  const active = await prisma.$transaction(async (tx) => {
+    const open = await tx.impersonationSession.findMany({
+      where: { impersonatorUserId, endedAt: null },
+    });
+    if (open.length === 0) return open;
+    await tx.impersonationSession.updateMany({
+      where: { impersonatorUserId, endedAt: null },
+      data: { endedAt: new Date() },
+    });
+    return open;
   });
   if (active.length === 0) return;
-
-  await prisma.impersonationSession.updateMany({
-    where: { impersonatorUserId, endedAt: null },
-    data: { endedAt: new Date() },
-  });
 
   if (opts.audit) {
     for (const s of active) {

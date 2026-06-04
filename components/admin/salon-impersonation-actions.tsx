@@ -34,16 +34,21 @@ export function SalonImpersonationActions({
     successMsg: string
   ) {
     startTransition(async () => {
-      const res = await fn();
-      if (!res.success) {
-        toast.error(res.error);
-        return;
+      try {
+        const res = await fn();
+        if (!res.success) {
+          toast.error(res.error);
+          return;
+        }
+        // Activate the impersonation session in the token, then drop into the salon.
+        await update({ impersonation: { sessionId: res.data.sessionId } });
+        toast.success(successMsg);
+        router.push("/dashboard");
+        router.refresh();
+      } catch (error) {
+        console.error("Failed to start impersonation:", error);
+        toast.error("Failed to start impersonation. Please try again.");
       }
-      // Activate the impersonation session in the token, then drop into the salon.
-      await update({ impersonation: { sessionId: res.data.sessionId } });
-      toast.success(successMsg);
-      router.push("/dashboard");
-      router.refresh();
     });
   }
 

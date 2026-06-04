@@ -27,15 +27,20 @@ export function UserImpersonationAction({
 
   function handleClick() {
     startTransition(async () => {
-      const res = await loginAsUser(salonId, userId);
-      if (!res.success) {
-        toast.error(res.error);
-        return;
+      try {
+        const res = await loginAsUser(salonId, userId);
+        if (!res.success) {
+          toast.error(res.error);
+          return;
+        }
+        await update({ impersonation: { sessionId: res.data.sessionId } });
+        toast.success(`Logged in as ${userName}`);
+        router.push("/dashboard");
+        router.refresh();
+      } catch (error) {
+        console.error("Failed to log in as user:", error);
+        toast.error("Failed to log in as user. Please try again.");
       }
-      await update({ impersonation: { sessionId: res.data.sessionId } });
-      toast.success(`Logged in as ${userName}`);
-      router.push("/dashboard");
-      router.refresh();
     });
   }
 

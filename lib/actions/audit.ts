@@ -124,8 +124,11 @@ export async function getAuditLogs(
 
   const where: Record<string, unknown> = {};
 
-  // Hide support/platform actions from tenant-facing viewers. They are visible
-  // only to a super admin (e.g. when viewing the salon as Super Admin).
+  // Hide support/platform actions from tenant-facing viewers. Keyed on EFFECTIVE
+  // access (isSuperAdmin) on purpose: in "Login as Owner" (AS_USER) mode this is
+  // false, so the view stays 100% faithful to what the owner actually sees
+  // (platform/support rows hidden). They are visible in "Enter salon" (PLATFORM)
+  // mode, where isSuperAdmin is true.
   if (!isSuperAdmin) {
     where.isPlatformAction = false;
   }

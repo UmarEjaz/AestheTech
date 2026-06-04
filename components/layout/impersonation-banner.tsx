@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ShieldAlert, X } from "lucide-react";
@@ -50,9 +50,24 @@ export function ImpersonationBanner() {
     };
   }, [sessionId]);
 
+  // One-time latch so the auto-exit on expiry can only fire once, even though the
+  // interval keeps ticking until cleanup. A ref avoids re-running the timer effect.
+  const exitStartedRef = useRef(false);
+
   const handleExit = useCallback(() => {
     startTransition(async () => {
-      await exitImpersonation();
+      // Clearing the impersonation claim from the token is what actually ends
+      // access, so always do it — even if the server-side close fails (the DB
+      // row will still auto-expire via the time-box). Never leave the client
+      // "exited" while access silently persists.
+      try {
+        const result = await exitImpersonation();
+        if (!result.success) {
+          console.error("Failed to end impersonation session server-side:", result.error);
+        }
+      } catch (error) {
+        console.error("Error ending impersonation session:", error);
+      }
       await update({ impersonation: null });
       router.push("/admin");
       router.refresh();
@@ -66,7 +81,10 @@ export function ImpersonationBanner() {
     const tick = () => {
       const left = expiry - Date.now();
       setRemaining(left);
-      if (left <= 0) handleExit();
+      if (left <= 0 && !exitStartedRef.current) {
+        exitStartedRef.current = true;
+        handleExit();
+      }
     };
     tick();
     const id = setInterval(tick, 1000);

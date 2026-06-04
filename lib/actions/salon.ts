@@ -5,6 +5,12 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { cacheGet, cacheSet } from "@/lib/redis";
+
+// Platform dashboard stats are expensive (14 parallel aggregates) and tolerate
+// slight staleness — cache briefly. No-ops gracefully when Redis isn't configured.
+const PLATFORM_STATS_CACHE_KEY = "platform:stats";
+const PLATFORM_STATS_TTL = 60; // seconds
 
 // ============================================
 // Types
@@ -137,6 +143,12 @@ export async function getPlatformStats(): Promise<ActionResult<PlatformStats>> {
   }
 
   try {
+    // Serve a recent cached snapshot if available (short TTL — tolerates staleness).
+    const cached = await cacheGet<PlatformStats>(PLATFORM_STATS_CACHE_KEY);
+    if (cached) {
+      return { success: true, data: cached };
+    }
+
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const last30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -197,51 +209,52 @@ export async function getPlatformStats(): Promise<ActionResult<PlatformStats>> {
       planGroups.find((g) => g.subscriptionPlan === p)?._count._all ?? 0;
     const knownStatuses = ["ACTIVE", "TRIAL", "SUSPENDED", "CANCELLED"];
 
-    return {
-      success: true,
-      data: {
-        totalSalons,
-        activeSalons,
-        inactiveSalons: totalSalons - activeSalons,
-        rootSalons,
-        branchSalons: totalSalons - rootSalons,
-        newSalonsThisMonth,
-        subscriptionStatus: {
-          active: statusCount("ACTIVE"),
-          trial: statusCount("TRIAL"),
-          suspended: statusCount("SUSPENDED"),
-          cancelled: statusCount("CANCELLED"),
-          other: statusGroups
-            .filter((g) => !knownStatuses.includes(g.subscriptionStatus))
-            .reduce((sum, g) => sum + g._count._all, 0),
-        },
-        subscriptionPlan: {
-          basic: planCount("BASIC"),
-          pro: planCount("PRO"),
-          enterprise: planCount("ENTERPRISE"),
-          none: planGroups
-            .filter((g) => g.subscriptionPlan === null)
-            .reduce((sum, g) => sum + g._count._all, 0),
-        },
-        totalUsers,
-        newUsersThisMonth,
-        totalClients,
-        salesLast30dCount: salesAgg._count._all,
-        salesLast30dRevenue: Number(salesAgg._sum.finalAmount ?? 0),
-        appointmentsLast30d,
-        activeImpersonationSessions,
-        impersonationsLast30d,
-        recentSalons: recentSalonsRaw.map((s) => ({
-          id: s.id,
-          name: s.name,
-          subscriptionStatus: s.subscriptionStatus,
-          subscriptionPlan: s.subscriptionPlan,
-          isActive: s.isActive,
-          createdAt: s.createdAt,
-          userCount: s._count.users,
-        })),
+    const stats: PlatformStats = {
+      totalSalons,
+      activeSalons,
+      inactiveSalons: totalSalons - activeSalons,
+      rootSalons,
+      branchSalons: totalSalons - rootSalons,
+      newSalonsThisMonth,
+      subscriptionStatus: {
+        active: statusCount("ACTIVE"),
+        trial: statusCount("TRIAL"),
+        suspended: statusCount("SUSPENDED"),
+        cancelled: statusCount("CANCELLED"),
+        other: statusGroups
+          .filter((g) => !knownStatuses.includes(g.subscriptionStatus))
+          .reduce((sum, g) => sum + g._count._all, 0),
       },
+      subscriptionPlan: {
+        basic: planCount("BASIC"),
+        pro: planCount("PRO"),
+        enterprise: planCount("ENTERPRISE"),
+        none: planGroups
+          .filter((g) => g.subscriptionPlan === null)
+          .reduce((sum, g) => sum + g._count._all, 0),
+      },
+      totalUsers,
+      newUsersThisMonth,
+      totalClients,
+      salesLast30dCount: salesAgg._count._all,
+      salesLast30dRevenue: Number(salesAgg._sum.finalAmount ?? 0),
+      appointmentsLast30d,
+      activeImpersonationSessions,
+      impersonationsLast30d,
+      recentSalons: recentSalonsRaw.map((s) => ({
+        id: s.id,
+        name: s.name,
+        subscriptionStatus: s.subscriptionStatus,
+        subscriptionPlan: s.subscriptionPlan,
+        isActive: s.isActive,
+        createdAt: s.createdAt,
+        userCount: s._count.users,
+      })),
     };
+
+    await cacheSet(PLATFORM_STATS_CACHE_KEY, stats, PLATFORM_STATS_TTL);
+
+    return { success: true, data: stats };
   } catch (error) {
     console.error("Failed to compute platform stats:", error);
     return { success: false, error: "Failed to load platform statistics" };

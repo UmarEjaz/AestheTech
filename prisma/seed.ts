@@ -1040,7 +1040,7 @@ async function main() {
   console.log("Seed completed successfully!");
   console.log("");
   console.log("Test Accounts:");
-  console.log("   Super Admin: itsumarejaz@gmail.com / umar111");
+  console.log("   Super Admin: Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in .env (min 12 char password)");
   console.log("   Owner: owner@aesthetech.com / password123");
   console.log("   Admin: admin@aesthetech.com / password123");
   console.log("   Staff: emma@aesthetech.com / password123");
