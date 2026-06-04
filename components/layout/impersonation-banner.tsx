@@ -76,6 +76,10 @@ export function ImpersonationBanner() {
 
   // Countdown + auto-exit on expiry.
   useEffect(() => {
+    // Reset the one-time latch whenever impersonation ends or a new session
+    // starts. The banner lives in the persistent header and never unmounts, so
+    // without this a later session would inherit a "true" latch and never auto-exit.
+    exitStartedRef.current = false;
     if (!info) return;
     const expiry = new Date(info.expiresAt).getTime();
     const tick = () => {
