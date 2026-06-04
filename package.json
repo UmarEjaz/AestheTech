@@ -4,7 +4,7 @@
   "private": true,
   "description": "A comprehensive salon management system designed to automate and streamline salon operations.",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

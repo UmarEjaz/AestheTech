@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/categories/category-manager";
 import {
@@ -39,7 +38,7 @@ export default async function ServiceCategoriesPage() {
   const categories = result.success ? result.data : [];
 
   return (
-    <DashboardLayout isSuperAdmin={isSuperAdmin}>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -65,6 +64,6 @@ export default async function ServiceCategoriesPage() {
           onDelete={canDelete ? deleteServiceCategory : undefined}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

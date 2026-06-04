@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Plus, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { SalaryConfigList } from "@/components/payroll/salary-config-list";
 import { getSalaryConfigs } from "@/lib/actions/salary-config";
@@ -42,16 +41,16 @@ export default async function SalaryConfigPage() {
 
   if (!result.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
@@ -85,6 +84,6 @@ export default async function SalaryConfigPage() {
           currencyCode={currencyCode}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

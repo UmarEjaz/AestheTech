@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -53,14 +52,14 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
           <Button asChild className="mt-4">
             <Link href="/dashboard/payroll">Back to Payroll</Link>
           </Button>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -74,7 +73,7 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
   };
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -182,6 +181,6 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
           />
         </div>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

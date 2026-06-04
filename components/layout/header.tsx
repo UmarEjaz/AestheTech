@@ -17,6 +17,7 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet";
 import { MobileSidebar } from "@/components/layout/sidebar";
 import { SalonSwitcher } from "@/components/layout/salon-switcher";
+import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { useRoleLabel } from "@/lib/roles-context";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,9 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
     : "U";
 
   const userRole = session?.user?.salonRole || null;
-  const isSuperAdmin = session?.user?.isSuperAdmin || false;
+  // Real platform identity — a super admin is shown as such (and uses the
+  // impersonation flow) even while acting as a tenant user.
+  const isSuperAdmin = session?.user?.isPlatformAdmin || false;
   const roleDisplayLabel = useRoleLabel(userRole ?? "");
 
   return (
@@ -80,9 +83,17 @@ export function Header({ sidebarCollapsed = false, onToggleSidebar }: HeaderProp
         </Button>
       </div>
 
+      {/* Active impersonation indicator — centered over the whole viewport
+          (fixed to the screen, not the header which starts at the sidebar edge).
+          Vertically centered on the 64px-tall header. Only renders while impersonating. */}
+      <div className="pointer-events-none fixed left-1/2 top-8 z-40 -translate-x-1/2 -translate-y-1/2 [&>*]:pointer-events-auto">
+        <ImpersonationBanner />
+      </div>
+
       {/* Right side actions */}
       <div className="flex items-center gap-2">
-        <SalonSwitcher />
+        {/* Owner/member salon switcher — super admins use the impersonation flow instead */}
+        {!isSuperAdmin && <SalonSwitcher />}
         <ThemeToggle />
 
         {/* Notifications */}

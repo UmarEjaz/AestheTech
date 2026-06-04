@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getBranchDetail } from "@/lib/actions/branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,14 +34,14 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
 
   if (!result.success) {
     return (
-      <DashboardLayout isSuperAdmin={isSuperAdmin}>
+      <>
         <div className="space-y-6">
           <p className="text-destructive">{result.error}</p>
           <Link href="/dashboard/branches">
             <Button variant="outline">Back to Branches</Button>
           </Link>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -50,7 +49,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   const canManageStaff = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
 
   return (
-    <DashboardLayout isSuperAdmin={isSuperAdmin}>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Link href="/dashboard/branches">
@@ -107,6 +106,6 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
           canManageStaff={canManageStaff}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

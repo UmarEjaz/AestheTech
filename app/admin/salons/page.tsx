@@ -4,35 +4,13 @@ import { getSalons } from "@/lib/actions/salon";
 import Link from "next/link";
 import { ArrowLeft, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-
-function statusVariant(status: string) {
-  switch (status) {
-    case "ACTIVE":
-      return "success" as const;
-    case "TRIAL":
-      return "warning" as const;
-    case "SUSPENDED":
-    case "CANCELLED":
-      return "destructive" as const;
-    default:
-      return "secondary" as const;
-  }
-}
+import { SalonAdminTable } from "@/components/admin/salon-admin-table";
 
 export default async function AdminSalonsPage() {
   const session = await auth();
 
-  if (!session?.user?.isSuperAdmin) {
+  if (!session?.user?.isPlatformAdmin) {
     redirect("/dashboard");
   }
 
@@ -94,56 +72,7 @@ export default async function AdminSalonsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="hidden sm:table-cell">Slug</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="hidden md:table-cell">Plan</TableHead>
-                    <TableHead className="hidden md:table-cell">Staff</TableHead>
-                    <TableHead className="hidden lg:table-cell">Created</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {result.data.map((salon) => (
-                    <TableRow key={salon.id}>
-                      <TableCell>
-                        <Link
-                          href={`/admin/salons/${salon.id}`}
-                          className="font-medium text-primary hover:underline"
-                        >
-                          {salon.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell text-muted-foreground font-mono text-sm">
-                        {salon.slug}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(salon.subscriptionStatus)}>
-                          {salon.subscriptionStatus}
-                        </Badge>
-                        {!salon.isActive && (
-                          <Badge variant="destructive" className="ml-1">
-                            Inactive
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {salon.subscriptionPlan ?? (
-                          <span className="text-muted-foreground">--</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {salon._count.users}
-                      </TableCell>
-                      <TableCell className="hidden lg:table-cell text-muted-foreground">
-                        {new Date(salon.createdAt).toLocaleDateString()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <SalonAdminTable salons={result.data} />
             </CardContent>
           </Card>
         )}

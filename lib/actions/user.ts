@@ -101,21 +101,19 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
       salonId: authResult.salonId,
       isActive: true,
       ...(role && { roleDefinitionId: role }),
-      ...(query || isActive !== undefined
-        ? {
-            user: {
-              ...(isActive !== undefined && { isActive }),
-              ...(query && {
-                OR: [
-                  { firstName: { contains: query, mode: "insensitive" as const } },
-                  { lastName: { contains: query, mode: "insensitive" as const } },
-                  { email: { contains: query, mode: "insensitive" as const } },
-                  { phone: { contains: query } },
-                ],
-              }),
-            },
-          }
-        : {}),
+      user: {
+        // Platform-level super admins are never tenant staff — never list them.
+        isSuperAdmin: false,
+        ...(isActive !== undefined && { isActive }),
+        ...(query && {
+          OR: [
+            { firstName: { contains: query, mode: "insensitive" as const } },
+            { lastName: { contains: query, mode: "insensitive" as const } },
+            { email: { contains: query, mode: "insensitive" as const } },
+            { phone: { contains: query } },
+          ],
+        }),
+      },
     };
 
     const [userSalons, total] = await Promise.all([
@@ -198,6 +196,7 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
         roleDefinitionId: true,
         roleDefinition: { select: { name: true, slug: true, color: true } },
         salonId: true,
+        isSuperAdmin: true,
         isActive: true,
         isServiceProvider: true,
         createdAt: true,
@@ -243,7 +242,7 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       return { success: false, error: "User not found" };
     }
 
-    if (user.salonId !== authResult.salonId) {
+    if (user.isSuperAdmin || user.salonId !== authResult.salonId) {
       return { success: false, error: "User is not a member of this salon" };
     }
 

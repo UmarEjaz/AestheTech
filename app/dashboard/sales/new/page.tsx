@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { CheckoutForm } from "@/components/sales/checkout-form";
 import { getClients } from "@/lib/actions/client";
 import { getServices } from "@/lib/actions/service";
@@ -39,31 +38,31 @@ export default async function NewSalePage() {
 
   if (!clientsResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{clientsResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   if (!servicesResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{servicesResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   if (!staffResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{staffResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -99,7 +98,7 @@ export default async function NewSalePage() {
   const products = productsResult.success ? productsResult.data : [];
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">New Sale</h1>
@@ -119,6 +118,6 @@ export default async function NewSalePage() {
           loyaltyProgramEnabled={settings.loyaltyProgramEnabled}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

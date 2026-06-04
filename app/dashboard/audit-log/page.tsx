@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { getAuditLogs, getAuditActions, getAuditEntityTypes } from "@/lib/actions/audit";
@@ -69,16 +68,16 @@ export default async function AuditLogPage({
 
   if (!logsResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{logsResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout>
+    <>
       {hasMultipleBranches && (
         <div className="flex justify-end mb-4">
           <BranchFilter
@@ -103,6 +102,6 @@ export default async function AuditLogPage({
           to: params.to,
         }}
       />
-    </DashboardLayout>
+    </>
   );
 }

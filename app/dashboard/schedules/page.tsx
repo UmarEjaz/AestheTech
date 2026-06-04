@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getStaffWithSchedules } from "@/lib/actions/schedule";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
@@ -33,11 +32,11 @@ export default async function SchedulesPage() {
 
   if (!staffResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{staffResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -45,12 +44,12 @@ export default async function SchedulesPage() {
   const salonName = settingsResult.success ? settingsResult.data.salonName : "AestheTech Salon";
 
   return (
-    <DashboardLayout>
+    <>
       <SchedulePageClient
         staffWithSchedules={staffResult.data}
         canManage={canManage}
         salonName={salonName}
       />
-    </DashboardLayout>
+    </>
   );
 }

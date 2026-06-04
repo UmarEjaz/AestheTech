@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { SalaryConfigForm } from "@/components/payroll/salary-config-form";
 import { getBranchStaff } from "@/lib/actions/salary-config";
@@ -37,7 +36,7 @@ export default async function NewSalaryConfigPage() {
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -64,6 +63,6 @@ export default async function NewSalaryConfigPage() {
 
         <SalaryConfigForm mode="create" staff={staff} currencyCode={currencyCode} />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

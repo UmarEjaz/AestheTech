@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
 import { getUserById } from "@/lib/actions/user";
@@ -42,7 +41,7 @@ export default async function EditStaffPage({
   const user = result.data;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -77,6 +76,6 @@ export default async function EditStaffPage({
           isSuperAdmin={isSuperAdmin}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

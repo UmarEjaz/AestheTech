@@ -9,7 +9,7 @@ import { CreateSalonForm } from "./create-salon-form";
 export default async function NewSalonPage() {
   const session = await auth();
 
-  if (!session?.user?.isSuperAdmin) {
+  if (!session?.user?.isPlatformAdmin) {
     redirect("/dashboard");
   }
 

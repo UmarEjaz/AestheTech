@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ExpenseForm } from "@/components/expenses/expense-form";
 import { getExpense } from "@/lib/actions/expense";
@@ -53,11 +52,11 @@ export default async function EditExpensePage({ params }: PageProps) {
         ? undefined
         : settingsResult.error;
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{errorMsg || "Failed to load required data"}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -75,7 +74,7 @@ export default async function EditExpensePage({ params }: PageProps) {
   const expense = expenseResult.data;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -106,6 +105,6 @@ export default async function EditExpensePage({ params }: PageProps) {
           currencyCode={currencyCode}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

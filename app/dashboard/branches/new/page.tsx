@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { BranchForm } from "./branch-form";
 
 export default async function NewBranchPage() {
@@ -21,7 +20,7 @@ export default async function NewBranchPage() {
   }
 
   return (
-    <DashboardLayout isSuperAdmin={isSuperAdmin}>
+    <>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Create Branch</h1>
@@ -31,6 +30,6 @@ export default async function NewBranchPage() {
         </div>
         <BranchForm />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

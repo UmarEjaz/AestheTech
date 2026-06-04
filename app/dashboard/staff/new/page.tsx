@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
 import { hasPermission } from "@/lib/permissions";
@@ -28,7 +27,7 @@ export default async function NewStaffPage() {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -49,6 +48,6 @@ export default async function NewStaffPage() {
         {/* Form */}
         <StaffForm mode="create" currentUserRole={userRole} isSuperAdmin={isSuperAdmin} />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

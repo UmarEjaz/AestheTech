@@ -14,7 +14,6 @@ import {
   Briefcase,
   Clock,
 } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -91,7 +90,7 @@ export default async function StaffDetailPage({
   };
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -300,7 +299,7 @@ export default async function StaffDetailPage({
         {/* Permission Overrides (Owner/settings:manage only) */}
         {canManagePermissions && canManageThisUser && <UserPermissionsSection userId={user.id} />}
       </div>
-    </DashboardLayout>
+    </>
   );
 }
 

@@ -145,21 +145,10 @@ async function main() {
 
   // Create Users with role and salonId directly
   const hashedPassword = await bcrypt.hash("password123", 10);
-  const superAdminPassword = await bcrypt.hash("umar111", 10);
 
-  // Create Super Admin (platform-level flag + OWNER role at default salon)
-  const superAdmin = await prisma.user.create({
-    data: {
-      email: "itsumarejaz@gmail.com",
-      password: superAdminPassword,
-      firstName: "Umar",
-      lastName: "Ejaz",
-      phone: "+923001234567",
-      isSuperAdmin: true,
-      salonId: salon.id,
-      roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.OWNER),
-    },
-  });
+  // NOTE: The platform Super Admin is intentionally NOT seeded. Its credentials
+  // live only in env (SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD); its DB row is
+  // created lazily on first login. See lib/super-admin.ts.
 
   const owner = await prisma.user.create({
     data: {
@@ -223,9 +212,9 @@ async function main() {
 
   console.log("Created users");
 
-  // Create UserSalon records for the default salon (using per-salon role IDs)
+  // Create UserSalon records for the default salon (using per-salon role IDs).
+  // NOTE: superAdmin is intentionally excluded — it is platform-level only.
   const defaultSalonUsers = [
-    { user: superAdmin, roleSlug: SYSTEM_ROLES.OWNER },
     { user: owner, roleSlug: SYSTEM_ROLES.OWNER },
     { user: admin, roleSlug: SYSTEM_ROLES.ADMIN },
     { user: staff1, roleSlug: SYSTEM_ROLES.STAFF },
@@ -269,10 +258,8 @@ async function main() {
   const branchSalonRoles = await createDefaultSalonRoles(branchSalon.id);
   console.log("Created per-salon default roles for branch salon");
 
-  // Give Owner and SuperAdmin access to the branch (Owner is global, shared role row)
-  await prisma.userSalon.create({
-    data: { userId: superAdmin.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.OWNER) },
-  });
+  // Give Owner access to the branch (Owner is global, shared role row).
+  // superAdmin is intentionally excluded — platform-level only.
   await prisma.userSalon.create({
     data: { userId: owner.id, salonId: branchSalon.id, roleDefinitionId: requireRole(branchSalonRoles, SYSTEM_ROLES.OWNER) },
   });
@@ -1053,7 +1040,7 @@ async function main() {
   console.log("Seed completed successfully!");
   console.log("");
   console.log("Test Accounts:");
-  console.log("   Super Admin: itsumarejaz@gmail.com / umar111");
+  console.log("   Super Admin: Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in .env (min 12 char password)");
   console.log("   Owner: owner@aesthetech.com / password123");
   console.log("   Admin: admin@aesthetech.com / password123");
   console.log("   Staff: emma@aesthetech.com / password123");

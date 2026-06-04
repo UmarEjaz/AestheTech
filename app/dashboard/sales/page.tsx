@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { SalesTable } from "@/components/sales/sales-table";
 import { getSales, getTodaysSalesSummary } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
@@ -33,11 +32,11 @@ export default async function SalesPage() {
 
   if (!salesResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{salesResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -52,7 +51,7 @@ export default async function SalesPage() {
     : { count: 0, revenue: 0, averageTicket: 0 };
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -76,6 +75,6 @@ export default async function SalesPage() {
           todaysRevenue={todaySummary.revenue}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

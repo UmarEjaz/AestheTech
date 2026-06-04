@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceForm } from "@/components/services/service-form";
 import { getService } from "@/lib/actions/service";
@@ -59,7 +58,7 @@ export default async function EditServicePage({ params }: PageProps) {
   const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   return (
-    <DashboardLayout isSuperAdmin={isSuperAdmin}>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -93,6 +92,6 @@ export default async function EditServicePage({ params }: PageProps) {
           currencyCode={currencyCode}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }
