@@ -15,6 +15,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SalonImpersonationActions } from "@/components/admin/salon-impersonation-actions";
+import { UserImpersonationAction } from "@/components/admin/user-impersonation-action";
 function statusVariant(status: string) {
   switch (status) {
     case "ACTIVE":
@@ -38,7 +40,7 @@ interface SalonDetailPageProps {
 export default async function SalonDetailPage({ params }: SalonDetailPageProps) {
   const session = await auth();
 
-  if (!session?.user?.isSuperAdmin) {
+  if (!session?.user?.isPlatformAdmin) {
     redirect("/dashboard");
   }
 
@@ -93,13 +95,21 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={statusVariant(salon.subscriptionStatus)}>
-              {salon.subscriptionStatus}
-            </Badge>
-            {!salon.isActive && (
-              <Badge variant="destructive">Inactive</Badge>
-            )}
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex items-center gap-2">
+              <Badge variant={statusVariant(salon.subscriptionStatus)}>
+                {salon.subscriptionStatus}
+              </Badge>
+              {!salon.isActive && (
+                <Badge variant="destructive">Inactive</Badge>
+              )}
+            </div>
+            <SalonImpersonationActions
+              salonId={salon.id}
+              salonName={salon.name}
+              variant="detail"
+              disabled={!salon.isActive}
+            />
           </div>
         </div>
 
@@ -184,6 +194,7 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
                       <TableHead>Role</TableHead>
                       <TableHead className="hidden md:table-cell">Status</TableHead>
                       <TableHead className="hidden lg:table-cell">Joined</TableHead>
+                      <TableHead className="text-right">Access</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -216,6 +227,14 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
                         </TableCell>
                         <TableCell className="hidden lg:table-cell text-muted-foreground">
                           {new Date(user.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <UserImpersonationAction
+                            salonId={salon.id}
+                            userId={user.id}
+                            userName={`${user.firstName} ${user.lastName}`}
+                            disabled={!salon.isActive || !user.isActive}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}

@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { getRoleDefinitions, getRoleBySlug } from "@/lib/actions/role";
@@ -37,11 +36,11 @@ export default async function RolesPage() {
 
   if (!rolesResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{rolesResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -56,13 +55,13 @@ export default async function RolesPage() {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <RolesPageClient
         roles={rolesResult.data}
         initialPermData={initialPermData}
         canManageRoles={canManageRoles}
         canManagePermissions={canManagePermissions}
       />
-    </DashboardLayout>
+    </>
   );
 }

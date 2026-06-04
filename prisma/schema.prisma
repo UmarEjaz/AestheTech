@@ -139,6 +139,7 @@ model Salon {
   loyaltyTransactions        LoyaltyTransaction[]
   recurringAppointmentSeries RecurringAppointmentSeries[]
   auditLogs                  AuditLog[]
+  impersonationSessions      ImpersonationSession[]
   serviceCategories          ServiceCategory[]
   productCategories          ProductCategory[]
   expenseCategories          ExpenseCategory[]
@@ -179,7 +180,10 @@ model User {
   saleItems       SaleItem[]
   refunds         Refund[]
   recurringSeries RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
-  auditLogs       AuditLog[]
+  auditLogs       AuditLog[]                   @relation("AuditUser")
+  auditLogsAsImpersonator AuditLog[]           @relation("AuditImpersonator")
+  impersonatorSessions    ImpersonationSession[] @relation("ImpersonatorSessions")
+  actingAsSessions        ImpersonationSession[] @relation("ActingAsSessions")
   expenses           Expense[]                    @relation("UserExpenses")
   salaryConfigs      SalaryConfig[]
   payrollRunsCreated PayrollRun[]                 @relation("PayrollRunCreator")
@@ -671,21 +675,57 @@ model AuditLog {
   action     String // e.g. REFUND_CREATED, SALE_COMPLETED, SETTINGS_UPDATED, USER_CREATED
   entityType String // e.g. Invoice, Sale, Settings, User, Client, Product, Service, Appointment
   entityId   String? // ID of the affected entity (nullable for bulk/settings actions)
-  userId     String? // Who performed the action (nullable — preserved when user is deleted)
+  userId     String? // Who performed the action (the acting identity; nullable — preserved when user is deleted)
   userRole   String // Role at the time of action
   details    Json? // Additional context (before/after values, amounts, etc.)
+  impersonatorId   String? // Real super admin behind the action when performed during impersonation (AS_USER mode)
+  isPlatformAction Boolean @default(false) // Support/platform action — hidden from tenant-facing audit views
   createdAt  DateTime @default(now())
 
   // Relations
-  salon Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  salon        Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user         User?  @relation("AuditUser", fields: [userId], references: [id], onDelete: SetNull)
+  impersonator User?  @relation("AuditImpersonator", fields: [impersonatorId], references: [id], onDelete: SetNull)
 
   @@index([salonId])
   @@index([action])
   @@index([entityType])
   @@index([userId])
   @@index([createdAt])
+  @@index([impersonatorId])
+  @@index([salonId, isPlatformAction])
   @@map("audit_logs")
+}
+
+// Mode of an active impersonation / support session
+enum ImpersonationMode {
+  PLATFORM // "Enter salon" — super admin, unrestricted, nothing hidden
+  AS_USER // "Login as Owner"/user — see exactly what that user sees
+}
+
+// A super admin's active (or historical) support session inside a tenant salon.
+// Source of truth for time-box + force-revoke; per-action accountability lives on AuditLog.
+model ImpersonationSession {
+  id                 String            @id @default(cuid())
+  impersonatorUserId String // the real super admin
+  salonId            String // salon being accessed
+  actingAsUserId     String? // null = PLATFORM mode; set = AS_USER mode (the borrowed identity)
+  mode               ImpersonationMode
+  reason             String? // optional support note
+  startedAt          DateTime          @default(now())
+  expiresAt          DateTime // time-box: auto-expires
+  endedAt            DateTime? // set when exited or force-revoked
+  createdAt          DateTime          @default(now())
+
+  impersonator User  @relation("ImpersonatorSessions", fields: [impersonatorUserId], references: [id], onDelete: Cascade)
+  actingAsUser User? @relation("ActingAsSessions", fields: [actingAsUserId], references: [id], onDelete: SetNull)
+  salon        Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  @@index([impersonatorUserId])
+  @@index([salonId])
+  @@index([expiresAt])
+  @@index([endedAt])
+  @@map("impersonation_sessions")
 }
 
 // ExpenseCategory model — org-wide (stored with org root salonId)

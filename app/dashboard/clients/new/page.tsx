@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ClientForm } from "@/components/clients/client-form";
 import { hasPermission } from "@/lib/permissions";
@@ -28,7 +27,7 @@ export default async function NewClientPage() {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -47,6 +46,6 @@ export default async function NewClientPage() {
 
         <ClientForm mode="create" />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

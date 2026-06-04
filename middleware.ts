@@ -32,13 +32,20 @@ export default auth((req) => {
   }
 
   const user = req.auth?.user;
-  const isSuperAdmin = user?.isSuperAdmin ?? false;
-  const salonId = user?.salonId;
+  // Control-plane access keys off the REAL platform identity, regardless of
+  // whether the super admin is currently impersonating a tenant user.
+  const isPlatformAdmin = user?.isPlatformAdmin ?? false;
+
+  // An expired impersonation window no longer grants salon access — drop the
+  // active salon so the super admin is bounced back to the platform plane.
+  const impersonation = user?.impersonation;
+  const impersonationExpired = impersonation ? impersonation.expiresAt <= Date.now() : false;
+  const salonId = impersonationExpired ? null : user?.salonId;
 
   // SUPER_ADMIN routes (/admin/*)
   for (const route of superAdminRoutes) {
     if (pathname.startsWith(route)) {
-      if (!isSuperAdmin) {
+      if (!isPlatformAdmin) {
         return NextResponse.redirect(new URL("/dashboard", nextUrl));
       }
       return NextResponse.next();
@@ -50,7 +57,7 @@ export default auth((req) => {
     if (pathname.startsWith(prefix)) {
       if (!salonId) {
         // Super admins without a salon can access /admin instead
-        if (isSuperAdmin) {
+        if (isPlatformAdmin) {
           return NextResponse.redirect(new URL("/admin", nextUrl));
         }
         // User has no salon — sign them out to avoid infinite redirect loop

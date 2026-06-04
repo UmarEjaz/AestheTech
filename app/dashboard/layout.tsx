@@ -4,6 +4,7 @@ import { PermissionsProvider } from "@/lib/permissions-context";
 import { RolesProvider } from "@/lib/roles-context";
 import { prisma } from "@/lib/prisma";
 import { SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
+import { DashboardLayout as DashboardChrome } from "@/components/layout/dashboard-layout";
 
 export default async function DashboardLayout({
   children,
@@ -21,10 +22,12 @@ export default async function DashboardLayout({
     loadRoleDefinitions(salonId),
   ]);
 
+  // The chrome (sidebar + header) is mounted ONCE here so it persists across
+  // navigations within /dashboard — only the page content below remounts.
   return (
     <PermissionsProvider permissions={permissions}>
       <RolesProvider roles={roleDefs}>
-        {children}
+        <DashboardChrome isSuperAdmin={isSuperAdmin}>{children}</DashboardChrome>
       </RolesProvider>
     </PermissionsProvider>
   );

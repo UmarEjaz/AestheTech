@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ClientTable } from "@/components/clients/client-table";
 import { getClients } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
@@ -36,18 +35,18 @@ export default async function ClientsPage() {
 
   if (!clientsResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{clientsResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   const { clients, total, page, totalPages } = clientsResult.data;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -71,6 +70,6 @@ export default async function ClientsPage() {
           fetchClients={getClients}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

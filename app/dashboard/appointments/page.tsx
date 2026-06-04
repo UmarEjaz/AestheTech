@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { AppointmentCalendar } from "@/components/appointments/appointment-calendar";
 import { getAppointmentsForCalendar } from "@/lib/actions/appointment";
@@ -51,7 +50,7 @@ export default async function AppointmentsPage() {
 
   if (!appointmentsResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="space-y-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -63,14 +62,14 @@ export default async function AppointmentsPage() {
             {appointmentsResult.error}
           </div>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   const appointments = appointmentsResult.data;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -104,6 +103,6 @@ export default async function AppointmentsPage() {
           />
         </div>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

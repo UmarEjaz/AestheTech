@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { SettingsForm } from "@/components/settings/settings-form";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
@@ -35,16 +34,16 @@ export default async function SettingsPage() {
 
   if (!result.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -65,6 +64,6 @@ export default async function SettingsPage() {
 
         <SettingsForm settings={result.data} canManage={canManage} />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

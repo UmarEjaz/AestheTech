@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Calendar, Users, DollarSign, Scissors, Clock, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { DashboardWidgets } from "@/components/dashboard/dashboard-widgets";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getDashboardStats } from "@/lib/actions/dashboard";
@@ -56,7 +55,7 @@ export default async function DashboardPage({
     : undefined;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -181,6 +180,6 @@ export default async function DashboardPage({
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

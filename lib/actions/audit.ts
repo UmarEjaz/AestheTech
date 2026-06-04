@@ -15,13 +15,44 @@ interface LogAuditParams {
   userRole: string;
   salonId?: string | null;
   details?: Prisma.InputJsonValue | null;
+  /**
+   * Real super admin behind the action (AS_USER mode). Usually left unset — when
+   * omitted, it is auto-detected from an active impersonation session.
+   */
+  impersonatorId?: string | null;
+  /**
+   * Marks a support/platform action that is hidden from tenant-facing audit views.
+   * When omitted, auto-detected from the caller's active impersonation session.
+   */
+  isPlatformAction?: boolean;
 }
 
 /**
  * Log an audit event. Fire-and-forget — never throws.
+ *
+ * When `isPlatformAction` is not provided, the caller's active impersonation
+ * session (if any) is auto-detected so existing mutation call sites don't need
+ * to know about impersonation: a super admin acting inside a tenant is recorded
+ * as a hidden platform action, with the real actor preserved via impersonatorId.
  */
 export async function logAudit(params: LogAuditParams): Promise<void> {
   try {
+    let impersonatorId = params.impersonatorId ?? null;
+    let isPlatformAction = params.isPlatformAction;
+
+    if (isPlatformAction === undefined) {
+      const session = await auth();
+      if (session?.user?.impersonation) {
+        isPlatformAction = true;
+        // In AS_USER mode `userId` is the borrowed identity; record the real super admin.
+        if (session.user.impersonation.mode === "AS_USER") {
+          impersonatorId = session.user.id;
+        }
+      } else {
+        isPlatformAction = false;
+      }
+    }
+
     await prisma.auditLog.create({
       data: {
         action: params.action,
@@ -31,6 +62,8 @@ export async function logAudit(params: LogAuditParams): Promise<void> {
         userRole: params.userRole,
         salonId: params.salonId ?? null,
         details: params.details ?? undefined,
+        impersonatorId,
+        isPlatformAction,
       },
     });
   } catch (error) {
@@ -57,7 +90,13 @@ interface AuditLogEntry {
   userRole: string;
   details: unknown;
   createdAt: Date;
+  isPlatformAction: boolean;
   user: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  } | null;
+  impersonator: {
     id: string;
     firstName: string;
     lastName: string;
@@ -84,6 +123,12 @@ export async function getAuditLogs(
   const skip = (page - 1) * pageSize;
 
   const where: Record<string, unknown> = {};
+
+  // Hide support/platform actions from tenant-facing viewers. They are visible
+  // only to a super admin (e.g. when viewing the salon as Super Admin).
+  if (!isSuperAdmin) {
+    where.isPlatformAction = false;
+  }
 
   // Filter by current branch or all branches in the organization (data:all-branches required)
   if (salonId) {
@@ -118,6 +163,7 @@ export async function getAuditLogs(
         where,
         include: {
           user: { select: { id: true, firstName: true, lastName: true } },
+          impersonator: { select: { id: true, firstName: true, lastName: true } },
         },
         orderBy: { createdAt: "desc" },
         skip,

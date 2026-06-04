@@ -1,6 +1,5 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StaffTable } from "@/components/staff/staff-table";
 import { getUsers } from "@/lib/actions/user";
 import { getTimezone } from "@/lib/actions/settings";
@@ -37,18 +36,18 @@ export default async function StaffPage() {
 
   if (!usersResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{usersResult.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   const { users, total, page, totalPages } = usersResult.data;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -71,6 +70,6 @@ export default async function StaffPage() {
           fetchUsers={getUsers}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

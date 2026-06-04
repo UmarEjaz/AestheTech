@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getReportData } from "@/lib/actions/dashboard";
@@ -54,7 +53,7 @@ export default async function ReportsPage({
 
   if (!reportResult.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="space-y-6">
           <div>
             <h2 className="text-3xl font-bold">Reports & Analytics</h2>
@@ -66,7 +65,7 @@ export default async function ReportsPage({
             {reportResult.error}
           </div>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
@@ -77,7 +76,7 @@ export default async function ReportsPage({
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -100,6 +99,6 @@ export default async function ReportsPage({
           timezone={tz}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

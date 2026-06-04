@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getBranches } from "@/lib/actions/branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,7 +29,7 @@ export default async function BranchesPage() {
 
   if (!result.success) {
     return (
-      <DashboardLayout isSuperAdmin={isSuperAdmin}>
+      <>
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -42,14 +41,14 @@ export default async function BranchesPage() {
             {result.error}
           </div>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   const branches = result.data;
 
   return (
-    <DashboardLayout isSuperAdmin={isSuperAdmin}>
+    <>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -119,6 +118,6 @@ export default async function BranchesPage() {
           </div>
         )}
       </div>
-    </DashboardLayout>
+    </>
   );
 }

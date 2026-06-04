@@ -2,8 +2,24 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import {
+  isSuperAdminEmail,
+  verifySuperAdminPassword,
+  findOrCreateSuperAdminUser,
+} from "@/lib/super-admin";
 
 const prisma = new PrismaClient();
+
+// Active impersonation/support session carried in the token. Set only for super
+// admins who have "entered" a salon; null/absent otherwise. The DB
+// ImpersonationSession row is the source of truth — this is a fast-path mirror.
+export type ImpersonationClaim = {
+  sessionId: string;
+  mode: "PLATFORM" | "AS_USER";
+  salonId: string;
+  actingAsUserId: string | null;
+  expiresAt: number; // epoch ms
+} | null;
 
 declare module "next-auth" {
   interface User {
@@ -24,10 +40,22 @@ declare module "next-auth" {
       name: string;
       firstName: string;
       lastName: string;
+      /**
+       * EFFECTIVE elevated access. True for a real super admin who is NOT acting
+       * as a tenant user (i.e. logged out of impersonation, or in PLATFORM
+       * "Enter salon" mode). False while impersonating a user (AS_USER), so the
+       * whole app treats them exactly like that user. Use this for permission/data gating.
+       */
       isSuperAdmin: boolean;
+      /**
+       * REAL platform identity, regardless of impersonation mode. Use this only for
+       * control-plane surfaces (/admin, salon management, the impersonation flow).
+       */
+      isPlatformAdmin: boolean;
       salonId: string | null;
       salonRole: string | null;
       salonRoleId: string | null;
+      impersonation: ImpersonationClaim;
     };
   }
 }
@@ -38,10 +66,11 @@ interface CustomJWT {
   email: string;
   firstName: string;
   lastName: string;
-  isSuperAdmin: boolean;
+  isPlatformAdmin: boolean;
   salonId: string | null;
   salonRole: string | null;
   salonRoleId: string | null;
+  impersonation: ImpersonationClaim;
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -59,6 +88,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const email = credentials.email as string;
         const password = credentials.password as string;
+
+        // Super admin: credentials live ONLY in env. Validate against env
+        // (timing-safe), then lazily resolve the FK-anchor DB row. The DB
+        // password column is never consulted for this account.
+        if (isSuperAdminEmail(email)) {
+          if (!verifySuperAdminPassword(password)) {
+            return null;
+          }
+          const sa = await findOrCreateSuperAdminUser(prisma);
+          return {
+            id: sa.id,
+            email: sa.email,
+            firstName: sa.firstName,
+            lastName: sa.lastName,
+            isSuperAdmin: true,
+            salonId: null,
+            salonRole: null,
+            salonRoleId: null,
+          };
+        }
 
         const user = await prisma.user.findUnique({
           where: { email },
@@ -106,10 +155,59 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.email = user.email!;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
-        token.isSuperAdmin = user.isSuperAdmin;
+        token.isPlatformAdmin = user.isSuperAdmin;
         token.salonId = user.salonId;
         token.salonRole = user.salonRole;
         token.salonRoleId = user.salonRoleId;
+        token.impersonation = null;
+      }
+
+      // Impersonation enter/exit — super admins only. The client sends just a
+      // session id (or null); everything else is read from the DB row, never trusted
+      // from the client.
+      if (trigger === "update" && updateData?.impersonation !== undefined) {
+        const payload = updateData.impersonation as { sessionId: string } | null;
+        if (payload === null) {
+          // Exit: drop back to the platform plane (no active salon)
+          token.salonId = null;
+          token.salonRole = null;
+          token.salonRoleId = null;
+          token.impersonation = null;
+        } else if (token.isPlatformAdmin) {
+          const sess = await prisma.impersonationSession.findUnique({
+            where: { id: payload.sessionId },
+          });
+          if (
+            sess &&
+            sess.impersonatorUserId === token.id &&
+            !sess.endedAt &&
+            sess.expiresAt.getTime() > Date.now()
+          ) {
+            token.salonId = sess.salonId;
+            token.impersonation = {
+              sessionId: sess.id,
+              mode: sess.mode,
+              salonId: sess.salonId,
+              actingAsUserId: sess.actingAsUserId,
+              expiresAt: sess.expiresAt.getTime(),
+            };
+            if (sess.mode === "AS_USER" && sess.actingAsUserId) {
+              // Borrow the acting user's role AT THIS SALON
+              const us = await prisma.userSalon.findUnique({
+                where: {
+                  userId_salonId: { userId: sess.actingAsUserId, salonId: sess.salonId },
+                },
+                include: { roleDefinition: { select: { slug: true, id: true } } },
+              });
+              token.salonRole = us?.roleDefinition.slug ?? null;
+              token.salonRoleId = us?.roleDefinitionId ?? null;
+            } else {
+              // PLATFORM ("Enter salon") — unrestricted, no borrowed role
+              token.salonRole = null;
+              token.salonRoleId = null;
+            }
+          }
+        }
       }
 
       // Salon switch — verify against DB instead of trusting client values
@@ -145,10 +243,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.firstName = t.firstName;
         session.user.lastName = t.lastName;
         session.user.name = `${t.firstName} ${t.lastName}`;
-        session.user.isSuperAdmin = t.isSuperAdmin;
+        // Real platform identity (control plane).
+        session.user.isPlatformAdmin = t.isPlatformAdmin;
+        // Effective access (data plane): a real super admin acting AS_USER is
+        // treated as that tenant user everywhere downstream.
+        const actingAsUser = t.impersonation?.mode === "AS_USER";
+        session.user.isSuperAdmin = t.isPlatformAdmin && !actingAsUser;
         session.user.salonId = t.salonId;
         session.user.salonRole = t.salonRole;
         session.user.salonRoleId = t.salonRoleId;
+        session.user.impersonation = t.impersonation ?? null;
       }
       return session;
     },
@@ -161,4 +265,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
+  // DEV ONLY: trust the incoming request host so auth redirects work on whatever
+  // port `next dev` actually binds to (3000, 3001, …) without hardcoding a URL.
+  // In production this stays false and the canonical URL is pinned via env
+  // (NEXTAUTH_URL/AUTH_URL) — never trust a spoofable host header in prod.
+  trustHost: process.env.NODE_ENV !== "production",
 });

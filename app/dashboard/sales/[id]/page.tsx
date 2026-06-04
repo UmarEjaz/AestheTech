@@ -10,7 +10,6 @@ import {
   Clock,
   RotateCcw,
 } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -146,7 +145,7 @@ export default async function SaleDetailPage({
   const canIssueRefund = canRefund && sale.invoice?.status === "PAID" && maxRefundable > 0;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -447,6 +446,6 @@ export default async function SaleDetailPage({
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

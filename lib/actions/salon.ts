@@ -60,7 +60,7 @@ export type SalonDetail = {
  */
 export async function getSalons(): Promise<ActionResult<SalonListItem[]>> {
   const session = await auth();
-  if (!session?.user?.isSuperAdmin) {
+  if (!session?.user?.isPlatformAdmin) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -87,6 +87,167 @@ export async function getSalons(): Promise<ActionResult<SalonListItem[]>> {
   }
 }
 
+// ============================================
+// Platform dashboard (SUPER_ADMIN only)
+// ============================================
+
+export type PlatformStats = {
+  // Tenants
+  totalSalons: number;
+  activeSalons: number;
+  inactiveSalons: number;
+  rootSalons: number; // top-level orgs (no parent)
+  branchSalons: number; // child branches
+  newSalonsThisMonth: number;
+  // Subscriptions
+  subscriptionStatus: { active: number; trial: number; suspended: number; cancelled: number; other: number };
+  subscriptionPlan: { basic: number; pro: number; enterprise: number; none: number };
+  // People
+  totalUsers: number; // tenant users (excludes super admins)
+  newUsersThisMonth: number;
+  totalClients: number;
+  // Activity (platform-wide, last 30 days)
+  salesLast30dCount: number;
+  salesLast30dRevenue: number;
+  appointmentsLast30d: number;
+  // Support / impersonation
+  activeImpersonationSessions: number;
+  impersonationsLast30d: number;
+  // Recent tenants for the table
+  recentSalons: {
+    id: string;
+    name: string;
+    subscriptionStatus: string;
+    subscriptionPlan: string | null;
+    isActive: boolean;
+    createdAt: Date;
+    userCount: number;
+  }[];
+};
+
+/**
+ * Aggregate platform-wide metrics for the super admin dashboard. All figures are
+ * real (computed from the DB). Returns the org currency-agnostic numeric revenue;
+ * the page formats it.
+ */
+export async function getPlatformStats(): Promise<ActionResult<PlatformStats>> {
+  const session = await auth();
+  if (!session?.user?.isPlatformAdmin) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalSalons,
+      activeSalons,
+      rootSalons,
+      newSalonsThisMonth,
+      statusGroups,
+      planGroups,
+      totalUsers,
+      newUsersThisMonth,
+      totalClients,
+      salesAgg,
+      appointmentsLast30d,
+      activeImpersonationSessions,
+      impersonationsLast30d,
+      recentSalonsRaw,
+    ] = await Promise.all([
+      prisma.salon.count(),
+      prisma.salon.count({ where: { isActive: true } }),
+      prisma.salon.count({ where: { parentSalonId: null } }),
+      prisma.salon.count({ where: { createdAt: { gte: startOfMonth } } }),
+      prisma.salon.groupBy({ by: ["subscriptionStatus"], _count: { _all: true } }),
+      prisma.salon.groupBy({ by: ["subscriptionPlan"], _count: { _all: true } }),
+      prisma.user.count({ where: { isSuperAdmin: false } }),
+      prisma.user.count({ where: { isSuperAdmin: false, createdAt: { gte: startOfMonth } } }),
+      prisma.client.count(),
+      prisma.sale.aggregate({
+        where: { createdAt: { gte: last30d } },
+        _count: { _all: true },
+        _sum: { finalAmount: true },
+      }),
+      prisma.appointment.count({ where: { createdAt: { gte: last30d } } }),
+      prisma.impersonationSession.count({
+        where: { endedAt: null, expiresAt: { gt: now } },
+      }),
+      prisma.impersonationSession.count({ where: { startedAt: { gte: last30d } } }),
+      prisma.salon.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 6,
+        select: {
+          id: true,
+          name: true,
+          subscriptionStatus: true,
+          subscriptionPlan: true,
+          isActive: true,
+          createdAt: true,
+          _count: { select: { users: true } },
+        },
+      }),
+    ]);
+
+    const statusCount = (s: string) =>
+      statusGroups.find((g) => g.subscriptionStatus === s)?._count._all ?? 0;
+    const planCount = (p: string) =>
+      planGroups.find((g) => g.subscriptionPlan === p)?._count._all ?? 0;
+    const knownStatuses = ["ACTIVE", "TRIAL", "SUSPENDED", "CANCELLED"];
+
+    return {
+      success: true,
+      data: {
+        totalSalons,
+        activeSalons,
+        inactiveSalons: totalSalons - activeSalons,
+        rootSalons,
+        branchSalons: totalSalons - rootSalons,
+        newSalonsThisMonth,
+        subscriptionStatus: {
+          active: statusCount("ACTIVE"),
+          trial: statusCount("TRIAL"),
+          suspended: statusCount("SUSPENDED"),
+          cancelled: statusCount("CANCELLED"),
+          other: statusGroups
+            .filter((g) => !knownStatuses.includes(g.subscriptionStatus))
+            .reduce((sum, g) => sum + g._count._all, 0),
+        },
+        subscriptionPlan: {
+          basic: planCount("BASIC"),
+          pro: planCount("PRO"),
+          enterprise: planCount("ENTERPRISE"),
+          none: planGroups
+            .filter((g) => g.subscriptionPlan === null)
+            .reduce((sum, g) => sum + g._count._all, 0),
+        },
+        totalUsers,
+        newUsersThisMonth,
+        totalClients,
+        salesLast30dCount: salesAgg._count._all,
+        salesLast30dRevenue: Number(salesAgg._sum.finalAmount ?? 0),
+        appointmentsLast30d,
+        activeImpersonationSessions,
+        impersonationsLast30d,
+        recentSalons: recentSalonsRaw.map((s) => ({
+          id: s.id,
+          name: s.name,
+          subscriptionStatus: s.subscriptionStatus,
+          subscriptionPlan: s.subscriptionPlan,
+          isActive: s.isActive,
+          createdAt: s.createdAt,
+          userCount: s._count.users,
+        })),
+      },
+    };
+  } catch (error) {
+    console.error("Failed to compute platform stats:", error);
+    return { success: false, error: "Failed to load platform statistics" };
+  }
+}
+
 /**
  * Get a single salon by ID with its users (SUPER_ADMIN only).
  */
@@ -94,7 +255,7 @@ export async function getSalonById(
   id: string
 ): Promise<ActionResult<SalonDetail>> {
   const session = await auth();
-  if (!session?.user?.isSuperAdmin) {
+  if (!session?.user?.isPlatformAdmin) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -158,7 +319,7 @@ export async function createSalon(data: {
   subscriptionPlan?: string;
 }): Promise<ActionResult<{ id: string }>> {
   const session = await auth();
-  if (!session?.user?.isSuperAdmin) {
+  if (!session?.user?.isPlatformAdmin) {
     return { success: false, error: "Unauthorized" };
   }
 

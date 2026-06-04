@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { CategoryManager } from "@/components/categories/category-manager";
 import { CategoryErrorState } from "@/components/categories/category-error-state";
@@ -47,7 +46,7 @@ export default async function ExpenseCategoriesPage() {
   const result = await getAllExpenseCategories();
   if (!result.success) {
     return (
-      <DashboardLayout isSuperAdmin={isSuperAdmin}>
+      <>
         <CategoryErrorState
           title="Expense Categories"
           description="Manage expense categories for your organization"
@@ -55,13 +54,13 @@ export default async function ExpenseCategoriesPage() {
           backLabel="Back to expenses"
           error={result.error}
         />
-      </DashboardLayout>
+      </>
     );
   }
   const categories = result.data;
 
   return (
-    <DashboardLayout isSuperAdmin={isSuperAdmin}>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -89,6 +88,6 @@ export default async function ExpenseCategoriesPage() {
           onDelete={canDelete ? deleteExpenseCategory : undefined}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

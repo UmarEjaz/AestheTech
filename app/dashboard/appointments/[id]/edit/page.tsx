@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { getAppointment } from "@/lib/actions/appointment";
@@ -95,7 +94,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   const staff = staffRows.map((row) => row.user);
 
   return (
-    <DashboardLayout isSuperAdmin={isSuperAdmin}>
+    <>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -126,6 +125,6 @@ export default async function EditAppointmentPage({ params }: PageProps) {
           staff={staff}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

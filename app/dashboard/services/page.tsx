@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Plus, FolderOpen } from "lucide-react";
 import Link from "next/link";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { ServiceSearch } from "@/components/services/service-search";
 import { ServiceList } from "@/components/services/service-list";
@@ -50,18 +49,18 @@ export default async function ServicesPage({ searchParams }: PageProps) {
 
   if (!result.success) {
     return (
-      <DashboardLayout>
+      <>
         <div className="text-center py-12">
           <p className="text-destructive">{result.error}</p>
         </div>
-      </DashboardLayout>
+      </>
     );
   }
 
   const { services, total, totalPages, categories } = result.data;
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -104,6 +103,6 @@ export default async function ServicesPage({ searchParams }: PageProps) {
           canDelete={canDelete}
         />
       </div>
-    </DashboardLayout>
+    </>
   );
 }

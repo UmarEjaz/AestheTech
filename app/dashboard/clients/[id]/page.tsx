@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { formatInTz } from "@/lib/utils/timezone";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -80,7 +79,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const initials = `${client.firstName[0]}${client.lastName?.[0] || ""}`.toUpperCase();
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -418,6 +417,6 @@ export default async function ClientDetailPage({ params }: PageProps) {
           </CardContent>
         </Card>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

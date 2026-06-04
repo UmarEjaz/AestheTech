@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -52,7 +51,7 @@ export default async function AccessDeniedPage({ searchParams }: PageProps) {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="flex min-h-[400px] items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
@@ -88,6 +87,6 @@ export default async function AccessDeniedPage({ searchParams }: PageProps) {
           </CardFooter>
         </Card>
       </div>
-    </DashboardLayout>
+    </>
   );
 }
