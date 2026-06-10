@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ClientForm } from "@/components/clients/client-form";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function NewClientPage() {
   const session = await auth();
@@ -20,6 +21,7 @@ export default async function NewClientPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("clients");
   const canCreate = await hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, session.user.id);
 
   if (!canCreate) {

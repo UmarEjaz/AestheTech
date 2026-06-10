@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions/service-category";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function ServiceCategoriesPage() {
   const session = await auth();
@@ -24,6 +25,7 @@ export default async function ServiceCategoriesPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("services");
 
   const canView = isSuperAdmin || await hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id);
   if (!canView) {

@@ -9,6 +9,7 @@ import { getAllExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -24,6 +25,7 @@ export default async function EditExpensePage({ params }: PageProps) {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("expenses");
   if (!isSuperAdmin) {
     // hasPermission applies :view inference, so :update implicitly grants :view —
     // no need to check :view explicitly.

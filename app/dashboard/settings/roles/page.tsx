@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { getRoleDefinitions, getRoleBySlug } from "@/lib/actions/role";
 import { RolesPageClient } from "./roles-client";
 
@@ -19,6 +20,8 @@ export default async function RolesPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+
+  await requireModule("roles");
 
   const [canManageRoles, canManagePermissions] = await Promise.all([
     hasPermission(userRoleId, "roles:manage", isSuperAdmin, salonId, session.user.id),

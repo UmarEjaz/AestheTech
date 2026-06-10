@@ -24,6 +24,7 @@ import { getClient } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { calculateTier, getNextTier, getPointsToNextTier, getTierProgress } from "@/lib/utils/loyalty";
 import { Progress } from "@/components/ui/progress";
 import { RecurringSeriesCard } from "@/components/clients/recurring-series-card";
@@ -53,6 +54,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("clients");
   const [canEdit, canUpdateAppointments, canCancelAppointments] = await Promise.all([
     hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id),

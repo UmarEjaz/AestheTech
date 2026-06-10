@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getUserById } from "@/lib/actions/user";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function EditStaffPage({
   params,
@@ -28,6 +29,7 @@ export default async function EditStaffPage({
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   const salonId = session.user.salonId;
+  await requireModule("staff");
   if (!(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["staff:update"]);
   }

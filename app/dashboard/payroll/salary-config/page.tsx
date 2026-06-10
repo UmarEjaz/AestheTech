@@ -8,6 +8,7 @@ import { getSalaryConfigs } from "@/lib/actions/salary-config";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function SalaryConfigPage() {
   const session = await auth();
@@ -22,6 +23,7 @@ export default async function SalaryConfigPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("payroll");
   if (!await hasPermission(userRoleId, "salary-config:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["salary-config:view"]);
   }

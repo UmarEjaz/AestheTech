@@ -8,6 +8,7 @@ import { ServiceList } from "@/components/services/service-list";
 import { getServices } from "@/lib/actions/service";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   searchParams: Promise<{
@@ -34,6 +35,7 @@ export default async function ServicesPage({ searchParams }: PageProps) {
   if (!await hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["services:view"]);
   }
+  await requireModule("services");
   const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([
     hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id),

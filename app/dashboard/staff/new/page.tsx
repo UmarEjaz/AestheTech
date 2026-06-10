@@ -6,6 +6,7 @@ import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function NewStaffPage() {
   const session = await auth();
@@ -22,6 +23,7 @@ export default async function NewStaffPage() {
   const userRoleId = session.user.salonRoleId ?? null;
 
   const salonId = session.user.salonId;
+  await requireModule("staff");
   if (!(await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["staff:create"]);
   }

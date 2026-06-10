@@ -8,6 +8,7 @@ import { getActiveProductCategories } from "@/lib/actions/product-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function NewProductPage() {
   const session = await auth();
@@ -19,6 +20,7 @@ export default async function NewProductPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("products");
   if (!isSuperAdmin) {
     // Category dropdown is just form data — the category-fetch server action
     // guards itself, so don't require the category-management view permission here.

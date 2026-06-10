@@ -11,6 +11,7 @@ import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   searchParams: Promise<{
@@ -39,6 +40,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   if (!await hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["expenses:view"]);
   }
+  await requireModule("expenses");
 
   const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id);
   const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);

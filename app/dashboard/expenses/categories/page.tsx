@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/expense-category";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function ExpenseCategoriesPage() {
   const session = await auth();
@@ -25,6 +26,7 @@ export default async function ExpenseCategoriesPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId ?? null;
+  await requireModule("expenses");
 
   const canView =
     isSuperAdmin ||

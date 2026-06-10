@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getStaffWithSchedules } from "@/lib/actions/schedule";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { getSettings } from "@/lib/actions/settings";
 import { SchedulePageClient } from "@/components/schedules/schedule-page-client";
 
@@ -22,6 +23,7 @@ export default async function SchedulesPage() {
   if (!await hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["schedules:view"]);
   }
+  await requireModule("schedules");
   const [canCreate, canUpdate] = await Promise.all([
     hasPermission(userRoleId, "schedules:create", isSuperAdmin, salonId, session.user.id),
     hasPermission(userRoleId, "schedules:update", isSuperAdmin, salonId, session.user.id),

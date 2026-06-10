@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { getBranchDetail } from "@/lib/actions/branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("branches");
 
   if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["branches:view"]);

@@ -8,6 +8,7 @@ import { getSalaryConfig, getBranchStaff } from "@/lib/actions/salary-config";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -26,6 +27,7 @@ export default async function EditSalaryConfigPage({ params }: PageProps) {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("payroll");
   if (!(await hasPermission(userRoleId, "salary-config:update", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["salary-config:update"]);
   }

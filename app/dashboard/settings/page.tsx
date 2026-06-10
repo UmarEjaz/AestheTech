@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SettingsForm } from "@/components/settings/settings-form";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
+import { isModuleEnabled } from "@/lib/actions/modules";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,11 @@ export default async function SettingsPage() {
     redirectAccessDenied(["settings:view"]);
   }
 
+  // Roles & Permissions is an independently toggleable module. Effective super
+  // admins ("Enter salon") always see it; otherwise respect the salon's toggle.
+  const rolesModuleEnabled =
+    isSuperAdmin || !salonId || (await isModuleEnabled(salonId, "roles"));
+
   const result = await getSettings();
 
   if (!result.success) {
@@ -52,7 +58,7 @@ export default async function SettingsPage() {
               Manage your salon settings and preferences
             </p>
           </div>
-          {(canManageRoles || canManagePermissions) && (
+          {rolesModuleEnabled && (canManageRoles || canManagePermissions) && (
             <Link href="/dashboard/settings/roles">
               <Button variant="outline">
                 <Shield className="h-4 w-4 mr-2" />

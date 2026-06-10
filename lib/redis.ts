@@ -103,6 +103,17 @@ export async function invalidateUserPermissionCache(salonId: string, userId: str
   }
 }
 
+export async function invalidateSalonModuleCache(salonId: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+
+  try {
+    await redis.unlink(`salon:${salonId}:modules`);
+  } catch {
+    // Silent failure
+  }
+}
+
 export async function invalidateRoleCache(salonId?: string): Promise<void> {
   const redis = getRedis();
   if (!redis) return;

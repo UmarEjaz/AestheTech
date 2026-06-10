@@ -7,6 +7,7 @@ import { ClientForm } from "@/components/clients/client-form";
 import { getClient } from "@/lib/actions/client";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -26,6 +27,7 @@ export default async function EditClientPage({ params }: PageProps) {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("clients");
   const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
 
   if (!canEdit) {

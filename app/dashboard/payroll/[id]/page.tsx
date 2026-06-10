@@ -11,6 +11,7 @@ import { getPayrollRun } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatInTz, formatDateOnly } from "@/lib/utils/timezone";
 
@@ -31,6 +32,7 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("payroll");
   if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["payroll:view"]);
   }

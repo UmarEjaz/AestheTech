@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/product-category";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function ProductCategoriesPage() {
   const session = await auth();
@@ -25,6 +26,7 @@ export default async function ProductCategoriesPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("products");
 
   // hasPermission already short-circuits on isSuperAdmin internally (third arg) —
   // the outer `isSuperAdmin || ` was duplicated logic.

@@ -2,6 +2,8 @@
 
 import { auth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/permissions";
+import { isModuleEnabled } from "@/lib/actions/modules";
+import { moduleKeyForPermission } from "@/lib/modules";
 import { SYSTEM_ROLES } from "@/lib/roles";
 import type { Session } from "next-auth";
 
@@ -77,6 +79,17 @@ export async function checkAuth(permission: Permission): Promise<AuthResult | nu
 
   const actor = resolveActor(session.user);
   if (!actor) return null;
+
+  // Module gating: if the permission belongs to a toggleable module that is
+  // disabled for this salon, deny — UNLESS the caller has bypass (a real super
+  // admin in "Enter salon"/PLATFORM mode), who sees everything for support.
+  // "Login as Owner" (AS_USER) has bypass=false, so it respects module toggles.
+  if (!actor.bypass) {
+    const moduleKey = moduleKeyForPermission(permission);
+    if (moduleKey && !(await isModuleEnabled(actor.salonId, moduleKey))) {
+      return null;
+    }
+  }
 
   if (!(await hasPermission(actor.roleId, permission, actor.bypass, actor.salonId, actor.userId))) {
     return null;

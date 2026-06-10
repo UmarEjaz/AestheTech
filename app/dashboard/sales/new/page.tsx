@@ -8,6 +8,7 @@ import { getStaffForAppointments } from "@/lib/actions/appointment";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function NewSalePage() {
   const session = await auth();
@@ -23,6 +24,7 @@ export default async function NewSalePage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   const salonId = session.user.salonId;
+  await requireModule("sales");
   if (!(await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["sales:create"]);
   }

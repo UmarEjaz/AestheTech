@@ -13,6 +13,7 @@ import {
 import { Prisma, ShiftType } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { isModuleEnabled } from "./modules";
 
 // Include relations for schedule list
 const scheduleListInclude = Prisma.validator<Prisma.ScheduleInclude>()({
@@ -452,6 +453,9 @@ export async function setWeekSchedule(data: WeekScheduleFormData): Promise<Actio
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
+  if (!authResult.isSuperAdmin && !(await isModuleEnabled(authResult.salonId, "schedules"))) {
+    return { success: false, error: "Schedules is not enabled for this salon." };
+  }
 
   const validationResult = weekScheduleSchema.safeParse(data);
   if (!validationResult.success) {
@@ -561,6 +565,9 @@ export async function copySchedule(
   const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
+  }
+  if (!authResult.isSuperAdmin && !(await isModuleEnabled(authResult.salonId, "schedules"))) {
+    return { success: false, error: "Schedules is not enabled for this salon." };
   }
 
   try {

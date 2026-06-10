@@ -5,6 +5,7 @@ import { getSales, getTodaysSalesSummary } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function SalesPage() {
   const session = await auth();
@@ -22,6 +23,7 @@ export default async function SalesPage() {
   if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["sales:view"]);
   }
+  await requireModule("sales");
   const canCreate = await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, session.user.id);
 
   const [salesResult, settingsResult, todaySummaryResult] = await Promise.all([

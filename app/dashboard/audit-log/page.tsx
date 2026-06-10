@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { getAuditLogs, getAuditActions, getAuditEntityTypes } from "@/lib/actions/audit";
 import { getActiveStaff } from "@/lib/actions/user";
 import { getBranches } from "@/lib/actions/branch";
@@ -37,6 +38,7 @@ export default async function AuditLogPage({
   if (!(await hasPermission(userRoleId, "audit:view", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["audit:view"]);
   }
+  await requireModule("audit");
 
   const canViewAllBranches = await hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, session.user.id);
 

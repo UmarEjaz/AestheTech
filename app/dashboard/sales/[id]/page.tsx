@@ -27,6 +27,7 @@ import { getSale } from "@/lib/actions/sale";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
@@ -50,6 +51,7 @@ export default async function SaleDetailPage({
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("sales");
 
   if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["sales:view"]);

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { prisma } from "@/lib/prisma";
 import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
@@ -27,6 +28,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("appointments");
   const canCreate = await hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id);
 
   if (!canCreate) {

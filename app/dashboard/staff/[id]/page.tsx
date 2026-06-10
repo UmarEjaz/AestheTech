@@ -29,6 +29,7 @@ import {
 import { getUserById } from "@/lib/actions/user";
 import { hasPermission, canManageRole } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { PasswordResetDialog } from "@/components/staff/password-reset-dialog";
 import { UserPermissionsEditor } from "@/components/staff/user-permissions-editor";
 import { getUserPermissionOverrides } from "@/lib/actions/permission";
@@ -62,6 +63,7 @@ export default async function StaffDetailPage({
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("staff");
 
   if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["staff:view"]);

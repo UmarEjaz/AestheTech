@@ -17,6 +17,8 @@ import {
 import bcrypt from "bcryptjs";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { getStaffUsage } from "./staff-cap";
+import { isModuleEnabled } from "./modules";
 
 export type UserListItem = {
   id: string;
@@ -296,6 +298,18 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
     return { success: false, error: "You cannot create a user with this role" };
   }
 
+  // Enforce the organization staff-seat limit. Effective super admins (Enter
+  // salon / platform) bypass it; everyone else is capped.
+  if (!authResult.isSuperAdmin) {
+    const usage = await getStaffUsage(authResult.salonId);
+    if (!usage.canAdd) {
+      return {
+        success: false,
+        error: `This salon has reached its staff limit (${usage.limit}). Increase the limit in admin to add more staff.`,
+      };
+    }
+  }
+
   // Check if email already exists
   const existingUser = await prisma.user.findUnique({
     where: { email: userData.email },
@@ -352,6 +366,9 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
   const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
+  }
+  if (!authResult.isSuperAdmin && !(await isModuleEnabled(authResult.salonId, "staff"))) {
+    return { success: false, error: "Staff is not enabled for this salon." };
   }
 
   // Validate input

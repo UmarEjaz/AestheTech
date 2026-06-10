@@ -52,8 +52,7 @@ export default async function AdminDashboardPage() {
   const result = await getPlatformStats();
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto max-w-6xl p-4 md:p-8">
+    <div className="container mx-auto max-w-6xl p-4 md:p-8">
         {/* Header */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -291,7 +290,6 @@ export default async function AdminDashboardPage() {
             );
           })()
         )}
-      </div>
     </div>
   );
 }

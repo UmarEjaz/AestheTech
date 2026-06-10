@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getReportData } from "@/lib/actions/dashboard";
@@ -32,6 +33,7 @@ export default async function ReportsPage({
   if (!(await hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["reports:view"]);
   }
+  await requireModule("reports");
 
   const canViewAllBranches = await hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, session.user.id);
 

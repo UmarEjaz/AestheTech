@@ -10,6 +10,7 @@ import { getPayrollRuns, getPayrollSummary } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { PayrollRunStatus } from "@prisma/client";
 
 interface PageProps {
@@ -38,6 +39,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
   if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["payroll:view"]);
   }
+  await requireModule("payroll");
 
   const [canCreate, canCancel, canDelete] = await Promise.all([
     hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id),

@@ -5,6 +5,7 @@ import { getClients } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function ClientsPage() {
   const session = await auth();
@@ -22,6 +23,7 @@ export default async function ClientsPage() {
   if (!await hasPermission(userRoleId, "clients:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["clients:view"]);
   }
+  await requireModule("clients");
   const canCreate = await hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, session.user.id);
   const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
   const canDelete = await hasPermission(userRoleId, "clients:delete", isSuperAdmin, salonId, session.user.id);

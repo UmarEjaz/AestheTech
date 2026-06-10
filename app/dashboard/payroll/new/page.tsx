@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { PayrollRunForm } from "@/components/payroll/payroll-run-form";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function NewPayrollRunPage() {
   const session = await auth();
@@ -20,6 +21,7 @@ export default async function NewPayrollRunPage() {
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
   const salonId = session.user.salonId;
+  await requireModule("payroll");
   if (!(await hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["payroll:create"]);
   }

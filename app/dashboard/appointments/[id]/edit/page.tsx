@@ -7,6 +7,7 @@ import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { getAppointment } from "@/lib/actions/appointment";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { prisma } from "@/lib/prisma";
 import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
@@ -27,6 +28,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   }
   const userRoleId = session.user.salonRoleId ?? null;
   const isSuperAdmin = session.user.isSuperAdmin === true;
+  await requireModule("appointments");
 
   // Fetch appointment first so we know which branch it belongs to.
   // All subsequent checks/loads use appointment.salonId — not the caller's current branch.

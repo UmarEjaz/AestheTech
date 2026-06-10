@@ -395,3 +395,53 @@ export async function createSalon(data: {
     return { success: false, error: "Failed to create salon" };
   }
 }
+
+// ============================================
+// Staff seat limit (SUPER_ADMIN only)
+// ============================================
+
+/**
+ * Set the organization staff-seat limit. The limit is stored on the org-ROOT
+ * salon and applies to the whole organization (root + branches). Passing null
+ * (or a non-positive number) clears the limit (unlimited).
+ */
+export async function setSalonMaxStaff(
+  salonId: string,
+  maxStaff: number | null
+): Promise<ActionResult<{ maxStaff: number | null }>> {
+  const session = await auth();
+  if (!session?.user?.isPlatformAdmin) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const salon = await prisma.salon.findUnique({
+    where: { id: salonId },
+    select: { id: true, parentSalonId: true },
+  });
+  if (!salon) {
+    return { success: false, error: "Salon not found" };
+  }
+
+  // Always store the limit on the org root so branches inherit it.
+  const rootId = salon.parentSalonId ?? salon.id;
+  const normalized =
+    maxStaff != null && Number.isFinite(maxStaff) && maxStaff > 0 ? Math.floor(maxStaff) : null;
+
+  await prisma.salon.update({
+    where: { id: rootId },
+    data: { maxStaff: normalized },
+  });
+
+  await logAudit({
+    action: "SALON_MAX_STAFF_UPDATED",
+    entityType: "Salon",
+    entityId: rootId,
+    userId: session.user.id,
+    userRole: "SUPER_ADMIN",
+    salonId: null,
+    isPlatformAction: true,
+    details: { maxStaff: normalized },
+  });
+
+  return { success: true, data: { maxStaff: normalized } };
+}

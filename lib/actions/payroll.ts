@@ -944,6 +944,10 @@ export async function getStaffPayrollHistory(
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
+  const { isModuleEnabled } = await import("./modules");
+  if (!authResult.isSuperAdmin && !(await isModuleEnabled(authResult.salonId, "payroll"))) {
+    return { success: false, error: "Payroll is not enabled for this salon." };
+  }
 
   // If viewing someone else's history, require payroll:view permission
   const targetUserId = userId || authResult.userId;

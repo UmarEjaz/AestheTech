@@ -17,6 +17,7 @@ import {
 import { ActionResult } from "@/lib/types";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { getOrganizationSalonIds, getOrgRootSalonId } from "./branch";
+import { getDisabledModulesForSalon } from "./modules";
 
 // Dashboard stats
 export interface DashboardStats {
@@ -99,7 +100,7 @@ export async function getDashboardStats(params?: {
 
   try {
     const branchFilter = params?.branchFilter || "current";
-    const [canViewAppointments, canViewSales, canViewClients, canViewStaff, canViewExpenses, canViewPayroll, canViewProfit, canViewAllBranches] = await Promise.all([
+    const [rawApt, rawSal, rawCli, rawStf, rawExp, rawPay, rawPft, canViewAllBranches] = await Promise.all([
       hasPermission(authResult.roleId, "appointments:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
       hasPermission(authResult.roleId, "sales:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
       hasPermission(authResult.roleId, "clients:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
@@ -109,6 +110,20 @@ export async function getDashboardStats(params?: {
       hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
       hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId),
     ]);
+
+    // Respect per-salon module toggles: a disabled module's widgets are hidden
+    // (and its data isn't computed). Effective super admin ("Enter salon") bypasses.
+    const disabledModules = authResult.isSuperAdmin
+      ? new Set<string>()
+      : new Set(await getDisabledModulesForSalon(authResult.salonId));
+    const canViewAppointments = rawApt && !disabledModules.has("appointments");
+    const canViewSales = rawSal && !disabledModules.has("sales");
+    const canViewClients = rawCli && !disabledModules.has("clients");
+    const canViewStaff = rawStf && !disabledModules.has("staff");
+    const canViewExpenses = rawExp && !disabledModules.has("expenses");
+    const canViewPayroll = rawPay && !disabledModules.has("payroll");
+    // Profit analytics belongs to the Reports module.
+    const canViewProfit = rawPft && !disabledModules.has("reports");
 
     // Determine which salon IDs to query (only users with data:all-branches can view across all branches)
     let salonIds: string[];

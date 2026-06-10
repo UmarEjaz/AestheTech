@@ -9,6 +9,7 @@ import { getSettings } from "@/lib/actions/settings";
 import { getWeekRange } from "@/lib/utils/timezone";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function AppointmentsPage() {
   const session = await auth();
@@ -34,6 +35,7 @@ export default async function AppointmentsPage() {
   if (!canView) {
     redirectAccessDenied(["appointments:view"]);
   }
+  await requireModule("appointments");
 
   // Get settings first to determine timezone, then compute week range
   const settingsResult = await getSettings();

@@ -17,6 +17,10 @@ import {
 } from "@/components/ui/table";
 import { SalonImpersonationActions } from "@/components/admin/salon-impersonation-actions";
 import { UserImpersonationAction } from "@/components/admin/user-impersonation-action";
+import { SalonModuleToggles } from "@/components/admin/salon-module-toggles";
+import { SalonStaffLimit } from "@/components/admin/salon-staff-limit";
+import { getSalonModuleStates } from "@/lib/actions/modules";
+import { getStaffUsage } from "@/lib/actions/staff-cap";
 function statusVariant(status: string) {
   switch (status) {
     case "ACTIVE":
@@ -45,12 +49,15 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
   }
 
   const { id } = await params;
-  const result = await getSalonById(id);
+  const [result, moduleStates, staffUsage] = await Promise.all([
+    getSalonById(id),
+    getSalonModuleStates(id),
+    getStaffUsage(id),
+  ]);
 
   if (!result.success) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="container mx-auto max-w-4xl p-4 md:p-8">
+      <div className="container mx-auto max-w-4xl p-4 md:p-8">
           <Button variant="ghost" size="sm" asChild className="mb-4">
             <Link href="/admin/salons">
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -63,15 +70,13 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
             </CardContent>
           </Card>
         </div>
-      </div>
     );
   }
 
   const salon = result.data;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto max-w-4xl p-4 md:p-8">
+    <div className="container mx-auto max-w-4xl p-4 md:p-8">
         {/* Back nav */}
         <Button variant="ghost" size="sm" asChild className="mb-4">
           <Link href="/admin/salons">
@@ -173,6 +178,38 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
             </CardContent>
           </Card>
 
+          {/* Staff seats */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Staff Seats</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SalonStaffLimit
+                salonId={salon.id}
+                initialLimit={staffUsage.limit}
+                used={staffUsage.used}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Modules */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Modules</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {moduleStates.success ? (
+                <SalonModuleToggles
+                  salonId={salon.id}
+                  initial={moduleStates.data}
+                  disabled={!salon.isActive}
+                />
+              ) : (
+                <p className="text-sm text-destructive">{moduleStates.error}</p>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Staff */}
           <Card>
             <CardHeader>
@@ -245,6 +282,5 @@ export default async function SalonDetailPage({ params }: SalonDetailPageProps) 
           </Card>
         </div>
       </div>
-    </div>
   );
 }

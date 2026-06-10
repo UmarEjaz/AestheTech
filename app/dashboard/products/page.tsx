@@ -9,6 +9,7 @@ import { getProducts } from "@/lib/actions/product";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   searchParams: Promise<{
@@ -37,6 +38,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   if (!await hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["products:view"]);
   }
+  await requireModule("products");
 
   const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([
     hasPermission(userRoleId, "products:create", isSuperAdmin, salonId, session.user.id),

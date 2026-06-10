@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { BranchForm } from "./branch-form";
 
 export default async function NewBranchPage() {
@@ -15,6 +16,7 @@ export default async function NewBranchPage() {
   const isSuperAdmin = session.user.isSuperAdmin === true;
 
   const salonId = session.user.salonId;
+  await requireModule("branches");
   if (!(await hasPermission(userRoleId, "branches:create", isSuperAdmin, salonId, session.user.id))) {
     redirectAccessDenied(["branches:create"]);
   }

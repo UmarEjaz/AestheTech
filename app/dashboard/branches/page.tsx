@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { getBranches } from "@/lib/actions/branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ export default async function BranchesPage() {
   if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
     redirectAccessDenied(["branches:view"]);
   }
+  await requireModule("branches");
 
   const result = await getBranches();
   const canManage = await hasPermission(userRoleId, "branches:create", isSuperAdmin, salonId, session.user.id);
