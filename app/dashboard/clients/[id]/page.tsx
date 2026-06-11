@@ -58,6 +58,9 @@ export default async function ClientDetailPage({ params }: PageProps) {
   const salonId = actor.salonId;
   await requireModule("clients");
   const permUserId = actor.userId;
+  if (!(await hasPermission(userRoleId, "clients:view", isSuperAdmin, salonId, permUserId))) {
+    redirectAccessDenied(["clients:view"]);
+  }
   const [canEdit, canUpdateAppointments, canCancelAppointments] = await Promise.all([
     hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, permUserId),
     hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, permUserId),

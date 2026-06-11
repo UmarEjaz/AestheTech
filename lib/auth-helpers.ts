@@ -43,6 +43,9 @@ function resolveActor(u: Session["user"]): ResolvedActor | null {
   if (a.expired) return null; // expired support session → no access
   if (!a.salonId) return null; // must have an active salon
   if (!a.role) return null; // borrowed/own identity must resolve a role at this salon
+  // Non-bypass (tenant) actors must have a concrete salon role id — only a
+  // bypassing super admin (PLATFORM) is allowed through without one.
+  if (!a.isSuperAdmin && !a.roleId) return null;
 
   return {
     userId: a.userId,

@@ -33,8 +33,22 @@ export function getEffectiveActor(user: Session["user"]): EffectiveActor {
 
   // "Login as Owner": behave exactly as the borrowed tenant user — no bypass.
   if (imp?.mode === "AS_USER") {
+    // A legitimate AS_USER session always carries the borrowed user's id (set and
+    // validated when the session is created). If it's missing, the token is
+    // malformed — FAIL CLOSED: return an actor with no role/id so every downstream
+    // permission check denies, rather than falling back to the super admin's id.
+    if (!imp.actingAsUserId) {
+      return {
+        userId: "",
+        roleId: null,
+        role: null,
+        salonId: user.salonId,
+        isSuperAdmin: false,
+        expired,
+      };
+    }
     return {
-      userId: imp.actingAsUserId ?? user.id,
+      userId: imp.actingAsUserId,
       roleId: user.salonRoleId ?? null,
       role: user.salonRole ?? null,
       salonId: user.salonId,
