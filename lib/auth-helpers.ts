@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/permissions";
 import { isModuleEnabled } from "@/lib/actions/modules";
 import { moduleKeyForPermission } from "@/lib/modules";
-import { SYSTEM_ROLES } from "@/lib/roles";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import type { Session } from "next-auth";
 
 export interface AuthResult {
@@ -29,42 +29,27 @@ interface ResolvedActor {
 }
 
 /**
- * Resolve the effective actor for the current request, accounting for an active
- * impersonation session:
+ * Resolve the effective actor for the current request from the shared
+ * `getEffectiveActor` source of truth, then apply the access guards specific to
+ * server actions: deny (null) when the impersonation window has expired, there is
+ * no active salon, or no role can be resolved.
  *  - PLATFORM ("Enter salon"): the super admin acts as themselves, unrestricted.
- *  - AS_USER ("Login as Owner/user"): the super admin sees exactly what that
- *    tenant user sees — no bypass, actions attributed to the borrowed identity.
+ *  - AS_USER ("Login as Owner/user"): behaves exactly as the borrowed tenant user.
  *  - No impersonation: ordinary tenant user (or legacy super admin pinned to a salon).
- * Returns null when there is no active salon or the impersonation window expired.
  */
 function resolveActor(u: Session["user"]): ResolvedActor | null {
-  const imp = u.impersonation;
+  const a = getEffectiveActor(u);
 
-  // Expired support session → no access (caller is bounced to /admin upstream).
-  if (imp && imp.expiresAt <= Date.now()) return null;
-  if (!u.salonId) return null;
+  if (a.expired) return null; // expired support session → no access
+  if (!a.salonId) return null; // must have an active salon
+  if (!a.role) return null; // borrowed/own identity must resolve a role at this salon
 
-  if (imp?.mode === "AS_USER") {
-    if (!u.salonRole) return null; // borrowed identity must have a role at this salon
-    return {
-      userId: imp.actingAsUserId ?? u.id,
-      role: u.salonRole,
-      roleId: u.salonRoleId ?? null,
-      salonId: u.salonId,
-      bypass: false,
-    };
-  }
-
-  // PLATFORM impersonation, or a legacy super admin still pinned to a salon.
-  const bypass = u.isSuperAdmin && (!imp || imp.mode === "PLATFORM");
-  const role = u.salonRole ?? (bypass ? SYSTEM_ROLES.OWNER : null);
-  if (!role) return null;
   return {
-    userId: u.id,
-    role,
-    roleId: u.salonRoleId ?? null,
-    salonId: u.salonId,
-    bypass,
+    userId: a.userId,
+    role: a.role,
+    roleId: a.roleId,
+    salonId: a.salonId,
+    bypass: a.isSuperAdmin,
   };
 }
 

@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -15,16 +16,18 @@ export default async function NewStaffPage() {
     redirect("/login");
   }
 
-  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const actor = getEffectiveActor(session.user);
+  const isSuperAdmin = actor.isSuperAdmin;
   if (!session.user.salonRole && !isSuperAdmin) {
     redirectAccessDenied();
   }
   const userRole = session.user.salonRole ?? null;
-  const userRoleId = session.user.salonRoleId ?? null;
+  const userRoleId = actor.roleId;
 
-  const salonId = session.user.salonId;
+  const salonId = actor.salonId;
   await requireModule("staff");
-  if (!(await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id))) {
+  const permUserId = actor.userId;
+  if (!(await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["staff:create"]);
   }
 

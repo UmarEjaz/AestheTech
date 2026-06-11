@@ -17,7 +17,7 @@ import {
 import { ActionResult } from "@/lib/types";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { getOrganizationSalonIds, getOrgRootSalonId } from "./branch";
-import { getDisabledModulesForSalon } from "./modules";
+import { getDisabledModulesForSalon, isModuleEnabled } from "./modules";
 
 // Dashboard stats
 export interface DashboardStats {
@@ -539,6 +539,13 @@ export async function getReportData(params: {
   const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
+  }
+
+  // Module gate: Reports must be enabled for this salon (effective super admin
+  // "Enter salon" bypasses). checkAuthBasic skips the checkAuth module-fold, so
+  // enforce it explicitly here before any permission/data work.
+  if (!authResult.isSuperAdmin && !(await isModuleEnabled(authResult.salonId, "reports"))) {
+    return { success: false, error: "Reports is not enabled for this salon." };
   }
 
   if (!(await hasPermission(authResult.roleId, "reports:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId))) {

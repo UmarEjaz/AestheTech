@@ -21,7 +21,7 @@ export function SalonStaffLimit({ salonId, initialLimit, used }: SalonStaffLimit
   const [isPending, startTransition] = useTransition();
 
   const parsed = value.trim() === "" ? null : Number(value);
-  const invalid = parsed != null && (!Number.isFinite(parsed) || parsed < 1);
+  const invalid = parsed != null && (!Number.isInteger(parsed) || parsed < 1);
   const dirty = (parsed ?? null) !== (savedLimit ?? null);
 
   function save() {
@@ -61,6 +61,7 @@ export function SalonStaffLimit({ salonId, initialLimit, used }: SalonStaffLimit
             id="maxStaff"
             type="number"
             min={1}
+            step={1}
             inputMode="numeric"
             placeholder="Unlimited"
             value={value}

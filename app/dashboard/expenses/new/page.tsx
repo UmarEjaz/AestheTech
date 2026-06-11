@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -17,14 +18,16 @@ export default async function NewExpensePage() {
     redirect("/login");
   }
 
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
   await requireModule("expenses");
   if (!isSuperAdmin) {
     // hasPermission applies :view inference, so :create implicitly grants :view —
     // no need to check :view explicitly.
-    const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id);
+    const permUserId = actor.userId;
+    const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, permUserId);
     if (!canCreate) {
       redirectAccessDenied(["expenses:create"]);
     }

@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { StaffTable } from "@/components/staff/staff-table";
 import { getUsers } from "@/lib/actions/user";
@@ -18,19 +19,21 @@ export default async function StaffPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
 
   // Check if user can view staff
-  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
+  await requireModule("staff");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["staff:view"]);
   }
-  await requireModule("staff");
 
-  const canCreatePerm = await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id);
-  const canEdit = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRoleId, "staff:delete", isSuperAdmin, salonId, session.user.id);
+  const canCreatePerm = await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, permUserId);
+  const canEdit = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId);
+  const canDelete = await hasPermission(userRoleId, "staff:delete", isSuperAdmin, salonId, permUserId);
 
   const [usersResult, tz, staffUsage] = await Promise.all([
     getUsers({ page: 1, limit: 15 }),

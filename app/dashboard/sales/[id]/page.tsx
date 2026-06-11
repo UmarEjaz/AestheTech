@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import { formatInTz } from "@/lib/utils/timezone";
 import { formatCurrency } from "@/lib/utils/currency";
@@ -48,12 +49,14 @@ export default async function SaleDetailPage({
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
   await requireModule("sales");
 
-  if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, session.user.id)) {
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["sales:view"]);
   }
 
@@ -140,7 +143,7 @@ export default async function SaleDetailPage({
   };
 
   // Calculate refund information
-  const canRefund = await hasPermission(userRoleId, "invoices:refund", isSuperAdmin, salonId, session.user.id);
+  const canRefund = await hasPermission(userRoleId, "invoices:refund", isSuperAdmin, salonId, permUserId);
   const invoiceRefunds = sale.invoice?.refunds || [];
   const totalRefunded = invoiceRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
   const maxRefundable = sale.invoice ? Number(sale.invoice.total) - totalRefunded : 0;

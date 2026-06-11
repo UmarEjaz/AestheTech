@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
@@ -33,18 +34,20 @@ export default async function PayrollPage({ searchParams }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("payroll");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["payroll:view"]);
   }
-  await requireModule("payroll");
 
   const [canCreate, canCancel, canDelete] = await Promise.all([
-    hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "payroll:delete", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "payroll:delete", isSuperAdmin, salonId, permUserId),
   ]);
 
   const page = parseInt(params.page || "1", 10);

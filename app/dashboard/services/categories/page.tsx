@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -22,19 +23,21 @@ export default async function ServiceCategoriesPage() {
     redirect("/login");
   }
 
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
   await requireModule("services");
 
-  const canView = isSuperAdmin || await hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id);
+  const permUserId = actor.userId;
+  const canView = isSuperAdmin || await hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, permUserId);
   if (!canView) {
     redirectAccessDenied(["service-categories:view"]);
   }
 
-  const canCreate = isSuperAdmin || await hasPermission(userRoleId, "service-categories:create", isSuperAdmin, salonId, session.user.id);
-  const canUpdate = isSuperAdmin || await hasPermission(userRoleId, "service-categories:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = isSuperAdmin || await hasPermission(userRoleId, "service-categories:delete", isSuperAdmin, salonId, session.user.id);
+  const canCreate = isSuperAdmin || await hasPermission(userRoleId, "service-categories:create", isSuperAdmin, salonId, permUserId);
+  const canUpdate = isSuperAdmin || await hasPermission(userRoleId, "service-categories:update", isSuperAdmin, salonId, permUserId);
+  const canDelete = isSuperAdmin || await hasPermission(userRoleId, "service-categories:delete", isSuperAdmin, salonId, permUserId);
 
   const result = await getAllServiceCategories();
   const categories = result.success ? result.data : [];

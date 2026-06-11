@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { Plus, FolderOpen } from "lucide-react";
 import Link from "next/link";
@@ -31,20 +32,22 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
 
-  if (!await hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, session.user.id)) {
+  await requireModule("products");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "products:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["products:view"]);
   }
-  await requireModule("products");
 
   const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([
-    hasPermission(userRoleId, "products:create", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "products:delete", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "products:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "products:delete", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, permUserId),
   ]);
 
   const page = parseInt(params.page || "1", 10);

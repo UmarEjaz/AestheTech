@@ -424,24 +424,31 @@ export async function setSalonMaxStaff(
 
   // Always store the limit on the org root so branches inherit it.
   const rootId = salon.parentSalonId ?? salon.id;
-  const normalized =
-    maxStaff != null && Number.isFinite(maxStaff) && maxStaff > 0 ? Math.floor(maxStaff) : null;
+  // Floor first, THEN check > 0, so fractional inputs like 0.5 become null
+  // (unlimited) rather than flooring to a hard 0-seat cap.
+  const floored = maxStaff != null && Number.isFinite(maxStaff) ? Math.floor(maxStaff) : null;
+  const normalized = floored != null && floored > 0 ? floored : null;
 
-  await prisma.salon.update({
-    where: { id: rootId },
-    data: { maxStaff: normalized },
-  });
+  try {
+    await prisma.salon.update({
+      where: { id: rootId },
+      data: { maxStaff: normalized },
+    });
 
-  await logAudit({
-    action: "SALON_MAX_STAFF_UPDATED",
-    entityType: "Salon",
-    entityId: rootId,
-    userId: session.user.id,
-    userRole: "SUPER_ADMIN",
-    salonId: null,
-    isPlatformAction: true,
-    details: { maxStaff: normalized },
-  });
+    await logAudit({
+      action: "SALON_MAX_STAFF_UPDATED",
+      entityType: "Salon",
+      entityId: rootId,
+      userId: session.user.id,
+      userRole: "SUPER_ADMIN",
+      salonId: null,
+      isPlatformAction: true,
+      details: { maxStaff: normalized },
+    });
+  } catch (error) {
+    console.error("Failed to update staff limit:", error);
+    return { success: false, error: "Failed to update staff limit" };
+  }
 
   return { success: true, data: { maxStaff: normalized } };
 }

@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -26,8 +27,9 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
   await requireModule("appointments");
 
   // Fetch appointment first so we know which branch it belongs to.
@@ -41,7 +43,8 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   const appointment = appointmentResult.data;
 
   // Permission check scoped to the appointment's branch
-  const canUpdate = await hasPermission(userRoleId, "appointments:update", isSuperAdmin, appointment.salonId, session.user.id);
+  const permUserId = actor.userId;
+  const canUpdate = await hasPermission(userRoleId, "appointments:update", isSuperAdmin, appointment.salonId, permUserId);
 
   if (!canUpdate) {
     redirectAccessDenied(["appointments:update"]);

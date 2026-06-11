@@ -131,23 +131,32 @@ export async function setSalonModules(
   // Keep only valid, toggleable keys (dedup). Always-on modules can never be disabled.
   const cleaned = [...new Set(disabledKeys.filter(isToggleableModuleKey))];
 
-  await prisma.settings.update({
-    where: { salonId },
-    data: { disabledModules: cleaned },
-  });
+  try {
+    await prisma.settings.upsert({
+      where: { salonId },
+      update: { disabledModules: cleaned },
+      create: { salonId, disabledModules: cleaned },
+    });
 
-  await invalidateSalonModuleCache(salonId);
+    await invalidateSalonModuleCache(salonId);
+    // Also clear the short-lived in-process cache so an immediate follow-up read
+    // in the same request/server doesn't serve the pre-save module state.
+    requestCache.delete(salonId);
 
-  await logAudit({
-    action: "SALON_MODULES_UPDATED",
-    entityType: "Settings",
-    entityId: salonId,
-    userId: session.user.id,
-    userRole: "SUPER_ADMIN",
-    salonId,
-    isPlatformAction: true,
-    details: { disabledModules: cleaned },
-  });
+    await logAudit({
+      action: "SALON_MODULES_UPDATED",
+      entityType: "Settings",
+      entityId: salonId,
+      userId: session.user.id,
+      userRole: "SUPER_ADMIN",
+      salonId,
+      isPlatformAction: true,
+      details: { disabledModules: cleaned },
+    });
+  } catch (error) {
+    console.error("Failed to update salon modules:", error);
+    return { success: false, error: "Failed to update module settings" };
+  }
 
   return { success: true, data: { disabledModules: cleaned } };
 }

@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import Link from "next/link";
@@ -21,21 +22,23 @@ export default async function AppointmentsPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  const permUserId = actor.userId;
   const [canView, canCreate, canUpdate, canCancel, canDelete] = await Promise.all([
-    hasPermission(userRoleId, "appointments:view", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:delete", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "appointments:view", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:delete", isSuperAdmin, salonId, permUserId),
   ]);
 
+  await requireModule("appointments");
   if (!canView) {
     redirectAccessDenied(["appointments:view"]);
   }
-  await requireModule("appointments");
 
   // Get settings first to determine timezone, then compute week range
   const settingsResult = await getSettings();

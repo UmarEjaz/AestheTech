@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
@@ -23,12 +24,14 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
   await requireModule("branches");
 
-  if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, session.user.id)) {
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "branches:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["branches:view"]);
   }
 
@@ -48,7 +51,7 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
   }
 
   const branch = result.data;
-  const canManageStaff = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
+  const canManageStaff = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId);
 
   return (
     <>

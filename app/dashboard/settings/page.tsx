@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { SettingsForm } from "@/components/settings/settings-form";
@@ -19,13 +20,15 @@ export default async function SettingsPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  const canView = await hasPermission(userRoleId, "settings:view", isSuperAdmin, salonId, session.user.id);
-  const canManage = await hasPermission(userRoleId, "settings:manage", isSuperAdmin, salonId, session.user.id);
-  const canManageRoles = await hasPermission(userRoleId, "roles:manage", isSuperAdmin, salonId, session.user.id);
-  const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id);
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  const permUserId = actor.userId;
+  const canView = await hasPermission(userRoleId, "settings:view", isSuperAdmin, salonId, permUserId);
+  const canManage = await hasPermission(userRoleId, "settings:manage", isSuperAdmin, salonId, permUserId);
+  const canManageRoles = await hasPermission(userRoleId, "roles:manage", isSuperAdmin, salonId, permUserId);
+  const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, permUserId);
 
   if (!canView) {
     redirectAccessDenied(["settings:view"]);

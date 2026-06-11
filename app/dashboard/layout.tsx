@@ -4,6 +4,7 @@ import { PermissionsProvider } from "@/lib/permissions-context";
 import { RolesProvider } from "@/lib/roles-context";
 import { ModulesProvider } from "@/lib/modules-context";
 import { getDisabledModulesForSalon } from "@/lib/actions/modules";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { prisma } from "@/lib/prisma";
 import { SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
 import { DashboardLayout as DashboardChrome } from "@/components/layout/dashboard-layout";
@@ -17,7 +18,9 @@ export default async function DashboardLayout({
   const roleId = session?.user?.salonRoleId ?? null;
   const isSuperAdmin = session?.user?.isSuperAdmin ?? false;
   const salonId = session?.user?.salonId ?? null;
-  const userId = session?.user?.id ?? null;
+  // Use the borrowed user's id during "Login as Owner" so per-user permission
+  // overrides resolve faithfully (the permissions context drives the sidebar).
+  const userId = session?.user ? getEffectiveActor(session.user).userId : null;
 
   const [permissions, roleDefs, disabledModules] = await Promise.all([
     getPermissionsForRole(roleId, isSuperAdmin, salonId, userId),

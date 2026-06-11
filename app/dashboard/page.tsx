@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Calendar, Users, DollarSign, Scissors, Clock, BarChart3 } from "lucide-react";
@@ -28,17 +29,19 @@ export default async function DashboardPage({
   if (!user.salonRole && !user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  const permUserId = actor.userId;
   const [rawCanViewReports, rawCanCreateAppointments, rawCanCreateSales, rawCanCreateClients, rawCanManageServices, rawCanViewSchedules, canViewAllBranches] = await Promise.all([
-    hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, user.id),
+    hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, permUserId),
   ]);
 
   // Hide quick-action buttons for modules disabled for this salon (effective

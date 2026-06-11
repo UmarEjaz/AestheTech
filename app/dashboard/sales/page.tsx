@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { SalesTable } from "@/components/sales/sales-table";
 import { getSales, getTodaysSalesSummary } from "@/lib/actions/sale";
@@ -17,14 +18,16 @@ export default async function SalesPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, session.user.id)) {
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("sales");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "sales:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["sales:view"]);
   }
-  await requireModule("sales");
-  const canCreate = await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, permUserId);
 
   const [salesResult, settingsResult, todaySummaryResult] = await Promise.all([
     getSales({ page: 1, limit: 15 }),

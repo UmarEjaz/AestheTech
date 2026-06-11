@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { CheckoutForm } from "@/components/sales/checkout-form";
 import { getClients } from "@/lib/actions/client";
@@ -20,12 +21,14 @@ export default async function NewSalePage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
 
-  const salonId = session.user.salonId;
+  const salonId = actor.salonId;
   await requireModule("sales");
-  if (!(await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, session.user.id))) {
+  const permUserId = actor.userId;
+  if (!(await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["sales:create"]);
   }
 
