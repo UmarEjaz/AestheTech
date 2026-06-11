@@ -17,6 +17,7 @@ import {
 import bcrypt from "bcryptjs";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { isModuleEnabled } from "./modules";
 
 export type UserListItem = {
   id: string;
@@ -296,6 +297,24 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
     return { success: false, error: "You cannot create a user with this role" };
   }
 
+  // Resolve the organization seat limit up front. Enforcement happens INSIDE the
+  // create transaction (guarded by a per-org advisory lock) so two concurrent
+  // creates can't both pass the check and exceed the cap. Effective super admins
+  // (Enter salon / platform) bypass the cap entirely.
+  let seatLimit: number | null = null;
+  let orgSalonIds: string[] = [];
+  let orgRootId = authResult.salonId;
+  if (!authResult.isSuperAdmin) {
+    const { getOrgRootSalonId, getOrganizationSalonIds } = await import("./branch");
+    orgRootId = await getOrgRootSalonId(authResult.salonId);
+    const [ids, root] = await Promise.all([
+      getOrganizationSalonIds(authResult.salonId),
+      prisma.salon.findUnique({ where: { id: orgRootId }, select: { maxStaff: true } }),
+    ]);
+    orgSalonIds = ids;
+    seatLimit = root?.maxStaff ?? null;
+  }
+
   // Check if email already exists
   const existingUser = await prisma.user.findUnique({
     where: { email: userData.email },
@@ -308,31 +327,63 @@ export async function createUser(data: UserFormData): Promise<ActionResult<{ id:
   // Hash password
   const hashedPassword = await bcrypt.hash(userData.password, 12);
 
-  // Create user with salon and role, plus UserSalon junction record
-  const user = await prisma.$transaction(async (tx) => {
-    const newUser = await tx.user.create({
-      data: {
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        email: userData.email,
-        password: hashedPassword,
-        phone: userData.phone || null,
-        isServiceProvider: data.isServiceProvider ?? false,
-        salonId: authResult.salonId,
-        roleDefinitionId,
-      },
-    });
+  // Create user with salon and role, plus UserSalon junction record. The seat-cap
+  // check runs inside the same transaction behind a per-org advisory lock so it
+  // is atomic with the insert (no two concurrent creates can both pass).
+  const SEAT_LIMIT_REACHED = "SEAT_LIMIT_REACHED";
+  let user;
+  try {
+    user = await prisma.$transaction(async (tx) => {
+      if (seatLimit !== null) {
+        // Serialize concurrent staff creates for this organization. The lock is
+        // held until the transaction commits/rolls back.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${orgRootId}))`;
+        const members = await tx.userSalon.findMany({
+          where: {
+            salonId: { in: orgSalonIds },
+            isActive: true,
+            user: { isActive: true, isSuperAdmin: false },
+          },
+          select: { userId: true },
+          distinct: ["userId"],
+        });
+        if (members.length >= seatLimit) {
+          throw new Error(SEAT_LIMIT_REACHED);
+        }
+      }
 
-    await tx.userSalon.create({
-      data: {
-        userId: newUser.id,
-        salonId: authResult.salonId,
-        roleDefinitionId,
-      },
-    });
+      const newUser = await tx.user.create({
+        data: {
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          email: userData.email,
+          password: hashedPassword,
+          phone: userData.phone || null,
+          isServiceProvider: data.isServiceProvider ?? false,
+          salonId: authResult.salonId,
+          roleDefinitionId,
+        },
+      });
 
-    return newUser;
-  });
+      await tx.userSalon.create({
+        data: {
+          userId: newUser.id,
+          salonId: authResult.salonId,
+          roleDefinitionId,
+        },
+      });
+
+      return newUser;
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === SEAT_LIMIT_REACHED) {
+      return {
+        success: false,
+        error: `This salon has reached its staff limit (${seatLimit}). Increase the limit in admin to add more staff.`,
+      };
+    }
+    throw error;
+  }
 
   await logAudit({
     action: "USER_CREATED",
@@ -352,6 +403,9 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
   const authResult = await checkAuthBasic();
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
+  }
+  if (!authResult.isSuperAdmin && !(await isModuleEnabled(authResult.salonId, "staff"))) {
+    return { success: false, error: "Staff is not enabled for this salon." };
   }
 
   // Validate input

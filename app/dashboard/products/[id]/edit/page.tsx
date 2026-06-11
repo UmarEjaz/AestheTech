@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import { getAllProductCategories } from "@/lib/actions/product-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -25,15 +27,18 @@ export default async function EditProductPage({ params }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("products");
   if (!isSuperAdmin) {
     // Category dropdown is just form data — the category-fetch server action
     // guards itself, so don't require the category-management view permission here.
     // hasPermission applies :view inference, so :update implicitly grants :view —
     // no need to check :view explicitly.
-    const canUpdate = await hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, session.user.id);
+    const permUserId = actor.userId;
+    const canUpdate = await hasPermission(userRoleId, "products:update", isSuperAdmin, salonId, permUserId);
     if (!canUpdate) {
       redirectAccessDenied(["products:update"]);
     }

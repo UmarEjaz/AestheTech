@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import { getAllExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -21,13 +23,16 @@ export default async function EditExpensePage({ params }: PageProps) {
     redirect("/login");
   }
 
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("expenses");
   if (!isSuperAdmin) {
     // hasPermission applies :view inference, so :update implicitly grants :view —
     // no need to check :view explicitly.
-    const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
+    const permUserId = actor.userId;
+    const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, permUserId);
     if (!canUpdate) {
       redirectAccessDenied(["expenses:update"]);
     }

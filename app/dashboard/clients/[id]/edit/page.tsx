@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -7,6 +8,7 @@ import { ClientForm } from "@/components/clients/client-form";
 import { getClient } from "@/lib/actions/client";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -23,10 +25,13 @@ export default async function EditClientPage({ params }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id);
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("clients");
+  const permUserId = actor.userId;
+  const canEdit = await hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, permUserId);
 
   if (!canEdit) {
     redirectAccessDenied(["clients:update"]);

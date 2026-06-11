@@ -1,7 +1,9 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { getRoleDefinitions, getRoleBySlug } from "@/lib/actions/role";
 import { RolesPageClient } from "./roles-client";
 
@@ -16,13 +18,17 @@ export default async function RolesPage() {
     redirectAccessDenied();
   }
 
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
 
+  await requireModule("roles");
+
+  const permUserId = actor.userId;
   const [canManageRoles, canManagePermissions] = await Promise.all([
-    hasPermission(userRoleId, "roles:manage", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "roles:manage", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, permUserId),
   ]);
 
   // Unified page: either permission lets the user open it. The client component

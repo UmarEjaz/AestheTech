@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import { getSettings } from "@/lib/actions/settings";
 import { getWeekRange } from "@/lib/utils/timezone";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function AppointmentsPage() {
   const session = await auth();
@@ -20,17 +22,20 @@ export default async function AppointmentsPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  const permUserId = actor.userId;
   const [canView, canCreate, canUpdate, canCancel, canDelete] = await Promise.all([
-    hasPermission(userRoleId, "appointments:view", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:delete", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "appointments:view", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:delete", isSuperAdmin, salonId, permUserId),
   ]);
 
+  await requireModule("appointments");
   if (!canView) {
     redirectAccessDenied(["appointments:view"]);
   }

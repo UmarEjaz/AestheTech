@@ -1,7 +1,9 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getReportData } from "@/lib/actions/dashboard";
@@ -24,16 +26,19 @@ export default async function ReportsPage({
   if (!user.salonRole && !user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
 
   // Check permission to view reports
-  const salonId = session.user.salonId;
-  if (!(await hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, session.user.id))) {
+  const salonId = actor.salonId;
+  await requireModule("reports");
+  const permUserId = actor.userId;
+  if (!(await hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["reports:view"]);
   }
 
-  const canViewAllBranches = await hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, session.user.id);
+  const canViewAllBranches = await hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, permUserId);
 
   const params = await searchParams;
   const branchFilter = canViewAllBranches && params.branch === "all" ? "all" as const : "current" as const;

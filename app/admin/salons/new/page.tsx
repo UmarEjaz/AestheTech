@@ -14,8 +14,7 @@ export default async function NewSalonPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto max-w-2xl p-4 md:p-8">
+    <div className="container mx-auto max-w-2xl p-4 md:p-8">
         {/* Back nav + header */}
         <div className="mb-6">
           <Button variant="ghost" size="sm" asChild className="mb-4">
@@ -42,7 +41,6 @@ export default async function NewSalonPage() {
             <CreateSalonForm />
           </CardContent>
         </Card>
-      </div>
     </div>
   );
 }

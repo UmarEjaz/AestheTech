@@ -116,6 +116,9 @@ model Salon {
   subscriptionStatus    String    @default("TRIAL") // TRIAL, ACTIVE, SUSPENDED, CANCELLED
   subscriptionPlan      String? // BASIC, PRO, ENTERPRISE
   subscriptionExpiresAt DateTime?
+  // Max staff seats for the WHOLE organization (root + all branches). Set by the
+  // Super Admin on the org-root salon. null = unlimited. Branches inherit the root's limit.
+  maxStaff              Int?
   parentSalonId         String?
   isActive              Boolean   @default(true)
   createdAt             DateTime  @default(now())
@@ -902,6 +905,11 @@ model Settings {
   // Points expiration
   pointsExpiryEnabled Boolean @default(false)
   pointsExpiryMonths  Int     @default(12)
+
+  // Per-salon module toggles — JSON array of DISABLED module keys (Super Admin
+  // controlled from /admin). Empty array = all modules enabled (the default).
+  // See lib/modules.ts for the canonical toggleable-module registry.
+  disabledModules Json @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -29,6 +29,8 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { usePermissions } from "@/lib/permissions-context";
+import { useDisabledModules } from "@/lib/modules-context";
+import { moduleKeyForPermission } from "@/lib/modules";
 
 interface NavItem {
   title: string;
@@ -64,10 +66,15 @@ interface SidebarProps {
 export function Sidebar({ isSuperAdmin = false, collapsed = false }: SidebarProps) {
   const pathname = usePathname();
   const permissions = usePermissions();
+  const disabledModules = useDisabledModules();
 
   const filteredNavItems = navItems.filter((item) => {
     if (!item.permission) return true; // Dashboard is always visible
     if (isSuperAdmin) return true;
+    // Hide items whose module is disabled for this salon (toggleable modules only;
+    // always-on modules like Settings map to null and are unaffected).
+    const moduleKey = moduleKeyForPermission(item.permission);
+    if (moduleKey && disabledModules.includes(moduleKey)) return false;
     return permissions.includes(item.permission);
   });
 
@@ -146,10 +153,13 @@ export function Sidebar({ isSuperAdmin = false, collapsed = false }: SidebarProp
 export function MobileSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const pathname = usePathname();
   const permissions = usePermissions();
+  const disabledModules = useDisabledModules();
 
   const filteredNavItems = navItems.filter((item) => {
     if (!item.permission) return true;
     if (isSuperAdmin) return true;
+    const moduleKey = moduleKeyForPermission(item.permission);
+    if (moduleKey && disabledModules.includes(moduleKey)) return false;
     return permissions.includes(item.permission);
   });
 

@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -11,6 +12,7 @@ import { getPayrollRun } from "@/lib/actions/payroll";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatInTz, formatDateOnly } from "@/lib/utils/timezone";
 
@@ -28,18 +30,21 @@ export default async function PayrollRunDetailPage({ params }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, session.user.id)) {
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("payroll");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "payroll:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["payroll:view"]);
   }
 
   const { id } = await params;
   const [canUpdate, canCancel, canPay] = await Promise.all([
-    hasPermission(userRoleId, "payroll:update", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "payroll:pay", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "payroll:update", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "payroll:cancel", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "payroll:pay", isSuperAdmin, salonId, permUserId),
   ]);
 
   const [result, settingsResult] = await Promise.all([

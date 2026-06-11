@@ -1,10 +1,13 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { StaffTable } from "@/components/staff/staff-table";
 import { getUsers } from "@/lib/actions/user";
 import { getTimezone } from "@/lib/actions/settings";
+import { getStaffUsage } from "@/lib/actions/staff-cap";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function StaffPage() {
   const session = await auth();
@@ -16,23 +19,32 @@ export default async function StaffPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
 
   // Check if user can view staff
-  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
+  await requireModule("staff");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["staff:view"]);
   }
 
-  const canCreate = await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, session.user.id);
-  const canEdit = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRoleId, "staff:delete", isSuperAdmin, salonId, session.user.id);
+  const canCreatePerm = await hasPermission(userRoleId, "staff:create", isSuperAdmin, salonId, permUserId);
+  const canEdit = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId);
+  const canDelete = await hasPermission(userRoleId, "staff:delete", isSuperAdmin, salonId, permUserId);
 
-  const [usersResult, tz] = await Promise.all([
+  const [usersResult, tz, staffUsage] = await Promise.all([
     getUsers({ page: 1, limit: 15 }),
     getTimezone(),
+    salonId ? getStaffUsage(salonId) : Promise.resolve(null),
   ]);
+
+  // Effective super admin bypasses the seat cap; everyone else can only add when
+  // there's room. The server enforces this too — this just keeps the UI honest.
+  const atSeatLimit = !isSuperAdmin && staffUsage != null && !staffUsage.canAdd;
+  const canCreate = canCreatePerm && !atSeatLimit;
 
   if (!usersResult.success) {
     return (
@@ -55,6 +67,16 @@ export default async function StaffPage() {
           <p className="text-muted-foreground">
             Manage your salon&apos;s staff members and their roles
           </p>
+          {staffUsage?.limit != null && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {staffUsage.used} of {staffUsage.limit} staff seats used
+              {atSeatLimit && (
+                <span className="ml-2 text-destructive">
+                  · Seat limit reached — contact your administrator to add more.
+                </span>
+              )}
+            </p>
+          )}
         </div>
 
         {/* Staff Table with Search */}

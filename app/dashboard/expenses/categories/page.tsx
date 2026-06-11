@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -14,6 +15,7 @@ import {
 } from "@/lib/actions/expense-category";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function ExpenseCategoriesPage() {
   const session = await auth();
@@ -22,26 +24,29 @@ export default async function ExpenseCategoriesPage() {
     redirect("/login");
   }
 
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId ?? null;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("expenses");
 
+  const permUserId = actor.userId;
   const canView =
     isSuperAdmin ||
-    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id));
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, permUserId));
   if (!canView) {
     redirectAccessDenied(["expense-categories:view"]);
   }
 
   const canCreate =
     isSuperAdmin ||
-    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:create", isSuperAdmin, salonId, session.user.id));
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:create", isSuperAdmin, salonId, permUserId));
   const canUpdate =
     isSuperAdmin ||
-    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:update", isSuperAdmin, salonId, session.user.id));
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:update", isSuperAdmin, salonId, permUserId));
   const canDelete =
     isSuperAdmin ||
-    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:delete", isSuperAdmin, salonId, session.user.id));
+    (userRoleId != null && await hasPermission(userRoleId, "expense-categories:delete", isSuperAdmin, salonId, permUserId));
 
   const result = await getAllExpenseCategories();
   if (!result.success) {

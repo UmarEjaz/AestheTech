@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { getUserById } from "@/lib/actions/user";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function EditStaffPage({
   params,
@@ -24,11 +26,14 @@ export default async function EditStaffPage({
     redirectAccessDenied();
   }
   const userRole = session.user.salonRole ?? null;
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
 
-  const salonId = session.user.salonId;
-  if (!(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id))) {
+  const salonId = actor.salonId;
+  await requireModule("staff");
+  const permUserId = actor.userId;
+  if (!(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["staff:update"]);
   }
 

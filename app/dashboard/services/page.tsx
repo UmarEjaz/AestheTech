@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { Plus, FolderOpen } from "lucide-react";
 import Link from "next/link";
@@ -8,6 +9,7 @@ import { ServiceList } from "@/components/services/service-list";
 import { getServices } from "@/lib/actions/service";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   searchParams: Promise<{
@@ -28,17 +30,20 @@ export default async function ServicesPage({ searchParams }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  if (!await hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, session.user.id)) {
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("services");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "services:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["services:view"]);
   }
   const [canCreate, canUpdate, canDelete, canViewCategories] = await Promise.all([
-    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "services:delete", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "services:update", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "services:delete", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "service-categories:view", isSuperAdmin, salonId, permUserId),
   ]);
 
   const page = parseInt(params.page || "1", 10);

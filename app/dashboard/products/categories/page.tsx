@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -14,6 +15,7 @@ import {
 } from "@/lib/actions/product-category";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function ProductCategoriesPage() {
   const session = await auth();
@@ -22,20 +24,23 @@ export default async function ProductCategoriesPage() {
     redirect("/login");
   }
 
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("products");
 
   // hasPermission already short-circuits on isSuperAdmin internally (third arg) —
   // the outer `isSuperAdmin || ` was duplicated logic.
-  const canView = await hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, session.user.id);
+  const permUserId = actor.userId;
+  const canView = await hasPermission(userRoleId, "product-categories:view", isSuperAdmin, salonId, permUserId);
   if (!canView) {
     redirectAccessDenied(["product-categories:view"]);
   }
 
-  const canCreate = await hasPermission(userRoleId, "product-categories:create", isSuperAdmin, salonId, session.user.id);
-  const canUpdate = await hasPermission(userRoleId, "product-categories:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRoleId, "product-categories:delete", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "product-categories:create", isSuperAdmin, salonId, permUserId);
+  const canUpdate = await hasPermission(userRoleId, "product-categories:update", isSuperAdmin, salonId, permUserId);
+  const canDelete = await hasPermission(userRoleId, "product-categories:delete", isSuperAdmin, salonId, permUserId);
 
   const result = await getAllProductCategories();
   if (!result.success) {

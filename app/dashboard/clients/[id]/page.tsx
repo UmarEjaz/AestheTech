@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import {
   ArrowLeft,
@@ -24,6 +25,7 @@ import { getClient } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { calculateTier, getNextTier, getPointsToNextTier, getTierProgress } from "@/lib/utils/loyalty";
 import { Progress } from "@/components/ui/progress";
 import { RecurringSeriesCard } from "@/components/clients/recurring-series-card";
@@ -50,13 +52,19 @@ export default async function ClientDetailPage({ params }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("clients");
+  const permUserId = actor.userId;
+  if (!(await hasPermission(userRoleId, "clients:view", isSuperAdmin, salonId, permUserId))) {
+    redirectAccessDenied(["clients:view"]);
+  }
   const [canEdit, canUpdateAppointments, canCancelAppointments] = await Promise.all([
-    hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "clients:update", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:update", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, permUserId),
   ]);
 
   const [result, settingsResult] = await Promise.all([

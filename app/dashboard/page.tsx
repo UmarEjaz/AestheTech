@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Calendar, Users, DollarSign, Scissors, Clock, BarChart3 } from "lucide-react";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { DashboardWidgets } from "@/components/dashboard/dashboard-widgets";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
 import { getDashboardStats } from "@/lib/actions/dashboard";
+import { getDisabledModulesForSalon } from "@/lib/actions/modules";
 import { getTimezone } from "@/lib/actions/settings";
 import { getBranches } from "@/lib/actions/branch";
 import { hasPermission } from "@/lib/permissions";
@@ -27,18 +29,32 @@ export default async function DashboardPage({
   if (!user.salonRole && !user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = user.salonId;
-  const [canViewReports, canCreateAppointments, canCreateSales, canCreateClients, canManageServices, canViewSchedules, canViewAllBranches] = await Promise.all([
-    hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, user.id),
-    hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, user.id),
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  const permUserId = actor.userId;
+  const [rawCanViewReports, rawCanCreateAppointments, rawCanCreateSales, rawCanCreateClients, rawCanManageServices, rawCanViewSchedules, canViewAllBranches] = await Promise.all([
+    hasPermission(userRoleId, "reports:view", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "appointments:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "clients:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "services:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "data:all-branches", isSuperAdmin, salonId, permUserId),
   ]);
+
+  // Hide quick-action buttons for modules disabled for this salon (effective
+  // super admin "Enter salon" bypasses). Keeps the always-on Dashboard tidy.
+  const disabledModules = isSuperAdmin || !salonId
+    ? new Set<string>()
+    : new Set(await getDisabledModulesForSalon(salonId));
+  const canViewReports = rawCanViewReports && !disabledModules.has("reports");
+  const canCreateAppointments = rawCanCreateAppointments && !disabledModules.has("appointments");
+  const canCreateSales = rawCanCreateSales && !disabledModules.has("sales");
+  const canCreateClients = rawCanCreateClients && !disabledModules.has("clients");
+  const canManageServices = rawCanManageServices && !disabledModules.has("services");
+  const canViewSchedules = rawCanViewSchedules && !disabledModules.has("schedules");
 
   const params = await searchParams;
   const branchFilter = canViewAllBranches && params.branch === "all" ? "all" as const : "current" as const;

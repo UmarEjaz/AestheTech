@@ -2,6 +2,9 @@ import { auth } from "@/lib/auth";
 import { getPermissionsForRole } from "@/lib/permissions";
 import { PermissionsProvider } from "@/lib/permissions-context";
 import { RolesProvider } from "@/lib/roles-context";
+import { ModulesProvider } from "@/lib/modules-context";
+import { getDisabledModulesForSalon } from "@/lib/actions/modules";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { prisma } from "@/lib/prisma";
 import { SYSTEM_ROLE_DEFINITIONS } from "@/lib/roles";
 import { DashboardLayout as DashboardChrome } from "@/components/layout/dashboard-layout";
@@ -15,11 +18,16 @@ export default async function DashboardLayout({
   const roleId = session?.user?.salonRoleId ?? null;
   const isSuperAdmin = session?.user?.isSuperAdmin ?? false;
   const salonId = session?.user?.salonId ?? null;
-  const userId = session?.user?.id ?? null;
+  // Use the borrowed user's id during "Login as Owner" so per-user permission
+  // overrides resolve faithfully (the permissions context drives the sidebar).
+  const userId = session?.user ? getEffectiveActor(session.user).userId : null;
 
-  const [permissions, roleDefs] = await Promise.all([
+  const [permissions, roleDefs, disabledModules] = await Promise.all([
     getPermissionsForRole(roleId, isSuperAdmin, salonId, userId),
     loadRoleDefinitions(salonId),
+    // Effective super admin ("Enter salon") sees all modules — pass an empty
+    // disabled list. Otherwise (incl. "Login as Owner") respect the salon's toggles.
+    isSuperAdmin || !salonId ? Promise.resolve([]) : getDisabledModulesForSalon(salonId),
   ]);
 
   // The chrome (sidebar + header) is mounted ONCE here so it persists across
@@ -27,7 +35,9 @@ export default async function DashboardLayout({
   return (
     <PermissionsProvider permissions={permissions}>
       <RolesProvider roles={roleDefs}>
-        <DashboardChrome isSuperAdmin={isSuperAdmin}>{children}</DashboardChrome>
+        <ModulesProvider disabledModules={disabledModules}>
+          <DashboardChrome isSuperAdmin={isSuperAdmin}>{children}</DashboardChrome>
+        </ModulesProvider>
       </RolesProvider>
     </PermissionsProvider>
   );

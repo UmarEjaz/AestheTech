@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { formatInTz } from "@/lib/utils/timezone";
@@ -29,6 +30,7 @@ import {
 import { getUserById } from "@/lib/actions/user";
 import { hasPermission, canManageRole } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { PasswordResetDialog } from "@/components/staff/password-reset-dialog";
 import { UserPermissionsEditor } from "@/components/staff/user-permissions-editor";
 import { getUserPermissionOverrides } from "@/lib/actions/permission";
@@ -59,16 +61,19 @@ export default async function StaffDetailPage({
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("staff");
 
-  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, session.user.id)) {
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "staff:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["staff:view"]);
   }
 
-  const hasEditPermission = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, session.user.id);
-  const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, session.user.id);
+  const hasEditPermission = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId);
+  const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, permUserId);
 
   const [result, tz] = await Promise.all([
     getUserById(id),

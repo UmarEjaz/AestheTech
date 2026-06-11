@@ -1,8 +1,10 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { getStaffWithSchedules } from "@/lib/actions/schedule";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 import { getSettings } from "@/lib/actions/settings";
 import { SchedulePageClient } from "@/components/schedules/schedule-page-client";
 
@@ -16,15 +18,18 @@ export default async function SchedulesPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  if (!await hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, session.user.id)) {
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("schedules");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "schedules:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["schedules:view"]);
   }
   const [canCreate, canUpdate] = await Promise.all([
-    hasPermission(userRoleId, "schedules:create", isSuperAdmin, salonId, session.user.id),
-    hasPermission(userRoleId, "schedules:update", isSuperAdmin, salonId, session.user.id),
+    hasPermission(userRoleId, "schedules:create", isSuperAdmin, salonId, permUserId),
+    hasPermission(userRoleId, "schedules:update", isSuperAdmin, salonId, permUserId),
   ]);
   const canManage = canCreate || canUpdate;
 

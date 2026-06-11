@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
@@ -11,6 +12,7 @@ import { getActiveExpenseCategories } from "@/lib/actions/expense-category";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 interface PageProps {
   searchParams: Promise<{
@@ -33,17 +35,20 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  if (!await hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, session.user.id)) {
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("expenses");
+  const permUserId = actor.userId;
+  if (!await hasPermission(userRoleId, "expenses:view", isSuperAdmin, salonId, permUserId)) {
     redirectAccessDenied(["expenses:view"]);
   }
 
-  const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, session.user.id);
-  const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, session.user.id);
-  const canDelete = await hasPermission(userRoleId, "expenses:delete", isSuperAdmin, salonId, session.user.id);
-  const canViewCategories = await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, session.user.id);
+  const canCreate = await hasPermission(userRoleId, "expenses:create", isSuperAdmin, salonId, permUserId);
+  const canUpdate = await hasPermission(userRoleId, "expenses:update", isSuperAdmin, salonId, permUserId);
+  const canDelete = await hasPermission(userRoleId, "expenses:delete", isSuperAdmin, salonId, permUserId);
+  const canViewCategories = await hasPermission(userRoleId, "expense-categories:view", isSuperAdmin, salonId, permUserId);
 
   const page = parseInt(params.page || "1", 10);
   const query = params.q || "";

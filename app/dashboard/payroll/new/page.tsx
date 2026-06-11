@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -6,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { PayrollRunForm } from "@/components/payroll/payroll-run-form";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
+import { requireModule } from "@/lib/require-module";
 
 export default async function NewPayrollRunPage() {
   const session = await auth();
@@ -17,10 +19,13 @@ export default async function NewPayrollRunPage() {
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
-  const userRoleId = session.user.salonRoleId ?? null;
-  const isSuperAdmin = session.user.isSuperAdmin === true;
-  const salonId = session.user.salonId;
-  if (!(await hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, session.user.id))) {
+  const actor = getEffectiveActor(session.user);
+  const userRoleId = actor.roleId;
+  const isSuperAdmin = actor.isSuperAdmin;
+  const salonId = actor.salonId;
+  await requireModule("payroll");
+  const permUserId = actor.userId;
+  if (!(await hasPermission(userRoleId, "payroll:create", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["payroll:create"]);
   }
 
