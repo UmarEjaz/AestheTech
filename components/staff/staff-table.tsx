@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, cloneElement, type ReactElement, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import { formatInTz } from "@/lib/utils/timezone";
 import {
@@ -52,6 +52,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { UserListItem, deleteUser, toggleUserActive } from "@/lib/actions/user";
 import { useRoles } from "@/lib/roles-context";
+import { SYSTEM_ROLE_HIERARCHY } from "@/lib/roles";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface StaffTableProps {
   initialUsers: UserListItem[];
@@ -61,6 +63,10 @@ interface StaffTableProps {
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  /** Viewer identity for per-row hierarchy gating of the edit action. */
+  currentUserId?: string;
+  currentUserRole?: string | null; // slug
+  isSuperAdmin?: boolean;
   timezone: string;
   fetchUsers: (params: {
     query?: string;
@@ -80,6 +86,34 @@ interface StaffTableProps {
   }>;
 }
 
+/**
+ * Renders an action button, or — when not allowed — a disabled copy wrapped in a
+ * tooltip explaining why (used for per-row hierarchy gating).
+ */
+function RowAction({
+  allowed,
+  tooltip,
+  children,
+}: {
+  allowed: boolean;
+  tooltip: string;
+  children: ReactElement<ComponentProps<typeof Button>>;
+}) {
+  if (allowed) return children;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0}>
+            {cloneElement(children, { disabled: true, "aria-disabled": true })}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export function StaffTable({
   initialUsers,
   initialTotal,
@@ -88,6 +122,9 @@ export function StaffTable({
   canCreate = false,
   canEdit = false,
   canDelete = false,
+  currentUserId,
+  currentUserRole,
+  isSuperAdmin = false,
   timezone,
   fetchUsers,
 }: StaffTableProps) {
@@ -97,6 +134,23 @@ export function StaffTable({
   const [page, setPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(initialTotalPages);
   const roles = useRoles();
+
+  // Per-row hierarchy gating, mirroring the server-side rules.
+  const viewerLevel = isSuperAdmin
+    ? Infinity
+    : roles.find((r) => r.slug === currentUserRole)?.hierarchyLevel
+      ?? (currentUserRole ? SYSTEM_ROLE_HIERARCHY[currentUserRole] ?? 0 : 0);
+  const isSelfRow = (u: UserListItem) => !!currentUserId && u.id === currentUserId;
+  const outranks = (u: UserListItem) => {
+    const rowLevel =
+      roles.find((r) => r.slug === u.role)?.hierarchyLevel
+      ?? SYSTEM_ROLE_HIERARCHY[u.role] ?? 0;
+    return viewerLevel > rowLevel;
+  };
+  // Edit: people ranked below you, plus your own row (self-edit).
+  const canEditRow = (u: UserListItem) => isSelfRow(u) || outranks(u);
+  // Deactivate / delete: people ranked below you — never yourself.
+  const canManageRow = (u: UserListItem) => outranks(u) && !isSelfRow(u);
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
@@ -288,7 +342,7 @@ export function StaffTable({
               <SelectContent>
                 <SelectItem value="ALL">All Roles</SelectItem>
                 {roles.map((r) => (
-                  <SelectItem key={r.slug} value={r.slug}>{r.name}</SelectItem>
+                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -427,39 +481,62 @@ export function StaffTable({
                         </Button>
                         {canEdit && (
                           <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={() => router.push(`/dashboard/staff/${user.id}/edit`)}
-                              title="Edit staff"
+                            <RowAction
+                              allowed={canEditRow(user)}
+                              tooltip="You can only edit staff members ranked below you."
                             >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className={`h-8 w-8 p-0 ${user.isActive ? "hover:bg-orange-100 dark:hover:bg-orange-900/20 hover:text-orange-600" : "hover:bg-green-100 dark:hover:bg-green-900/20 hover:text-green-600"}`}
-                              onClick={() => {
-                                setToggleId(user.id);
-                                setToggleAction(user.isActive ? "deactivate" : "activate");
-                              }}
-                              title={user.isActive ? "Deactivate" : "Activate"}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                onClick={() => router.push(`/dashboard/staff/${user.id}/edit`)}
+                                title="Edit staff"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </RowAction>
+                            <RowAction
+                              allowed={canManageRow(user)}
+                              tooltip={
+                                isSelfRow(user)
+                                  ? "You can't deactivate your own account."
+                                  : "You can only manage staff members ranked below you."
+                              }
                             >
-                              {user.isActive ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                            </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className={`h-8 w-8 p-0 ${user.isActive ? "hover:bg-orange-100 dark:hover:bg-orange-900/20 hover:text-orange-600" : "hover:bg-green-100 dark:hover:bg-green-900/20 hover:text-green-600"}`}
+                                onClick={() => {
+                                  setToggleId(user.id);
+                                  setToggleAction(user.isActive ? "deactivate" : "activate");
+                                }}
+                                title={user.isActive ? "Deactivate" : "Activate"}
+                              >
+                                {user.isActive ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                              </Button>
+                            </RowAction>
                           </>
                         )}
                         {canDelete && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 hover:bg-red-100 dark:hover:bg-red-900/20 hover:text-red-600"
-                            onClick={() => setDeleteId(user.id)}
-                            title="Delete staff"
+                          <RowAction
+                            allowed={canManageRow(user)}
+                            tooltip={
+                              isSelfRow(user)
+                                ? "You can't delete your own account."
+                                : "You can only delete staff members ranked below you."
+                            }
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 hover:bg-red-100 dark:hover:bg-red-900/20 hover:text-red-600"
+                              onClick={() => setDeleteId(user.id)}
+                              title="Delete staff"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </RowAction>
                         )}
                       </div>
                     </TableCell>

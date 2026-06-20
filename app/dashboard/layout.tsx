@@ -46,6 +46,7 @@ export default async function DashboardLayout({
 async function loadRoleDefinitions(salonId: string | null) {
   if (!salonId) {
     return SYSTEM_ROLE_DEFINITIONS.map((r) => ({
+      id: r.slug, // no DB row in the fallback — slug is the stable identifier
       name: r.name,
       slug: r.slug,
       color: r.color,
@@ -61,11 +62,12 @@ async function loadRoleDefinitions(salonId: string | null) {
         isActive: true,
       },
       orderBy: { hierarchyLevel: "desc" },
-      select: { name: true, slug: true, color: true, hierarchyLevel: true, isSystem: true },
+      select: { id: true, name: true, slug: true, color: true, hierarchyLevel: true, isSystem: true },
     });
 
     if (roles.length === 0) {
       return SYSTEM_ROLE_DEFINITIONS.map((r) => ({
+        id: r.slug, // no DB row in the fallback — slug is the stable identifier
         name: r.name,
         slug: r.slug,
         color: r.color,
@@ -77,6 +79,7 @@ async function loadRoleDefinitions(salonId: string | null) {
     return roles;
   } catch {
     return SYSTEM_ROLE_DEFINITIONS.map((r) => ({
+      id: r.slug, // no DB row in the fallback — slug is the stable identifier
       name: r.name,
       slug: r.slug,
       color: r.color,

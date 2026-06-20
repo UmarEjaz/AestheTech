@@ -88,6 +88,9 @@ export default async function StaffPage() {
           canCreate={canCreate}
           canEdit={canEdit}
           canDelete={canDelete}
+          currentUserId={actor.userId}
+          currentUserRole={session.user.salonRole ?? null}
+          isSuperAdmin={isSuperAdmin}
           timezone={tz}
           fetchUsers={getUsers}
         />

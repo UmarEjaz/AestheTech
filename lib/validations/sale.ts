@@ -42,17 +42,19 @@ export const paymentSchema = z.object({
   amount: z.number().min(0.01, "Payment amount must be positive"),
 });
 
-// Schema for completing a sale with payment
+// Schema for completing a sale with payment.
+// Payments may be empty (pay-later) or a partial payment — the invoice status is
+// derived from how much is paid vs. the total. `dueDate` applies to unpaid/partial
+// invoices.
 export const completeSaleSchema = z.object({
   saleId: z.string().min(1, "Sale ID is required"),
-  payments: z
-    .array(paymentSchema)
-    .min(1, "At least one payment method is required"),
+  payments: z.array(paymentSchema).default([]),
   redeemPoints: z
     .number()
     .int()
     .min(0, "Points cannot be negative")
     .default(0),
+  dueDate: z.coerce.date().optional(),
 });
 
 // Schema for sale search/filter

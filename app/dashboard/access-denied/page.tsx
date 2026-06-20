@@ -28,7 +28,7 @@ function formatPermissionCode(code: string): string {
 }
 
 interface PageProps {
-  searchParams: Promise<{ r?: string }>;
+  searchParams: Promise<{ r?: string; m?: string }>;
 }
 
 export default async function AccessDeniedPage({ searchParams }: PageProps) {
@@ -50,6 +50,17 @@ export default async function AccessDeniedPage({ searchParams }: PageProps) {
     }
   }
 
+  // Optional contextual reason (e.g. role-hierarchy denial) — shown instead of
+  // the generic line. Not a missing permission, so no "Missing permissions" list.
+  let reason: string | null = null;
+  if (params.m) {
+    try {
+      reason = Buffer.from(params.m, "base64url").toString() || null;
+    } catch {
+      // Invalid encoding — fall back to generic message
+    }
+  }
+
   return (
     <>
       <div className="flex min-h-[400px] items-center justify-center p-4">
@@ -62,7 +73,7 @@ export default async function AccessDeniedPage({ searchParams }: PageProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              You don&apos;t have permission to access this page.
+              {reason ?? "You don't have permission to access this page."}
             </p>
             {missingPermissions.length > 0 && (
               <div className="space-y-2">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -108,7 +109,7 @@ interface Staff {
 interface SplitPayment {
   id: number;
   method: PaymentMethod;
-  amount: number;
+  amount: string; // raw input string for inline editing; parsed for totals
 }
 
 interface CheckoutFormProps {
@@ -120,6 +121,10 @@ interface CheckoutFormProps {
   taxRate: number;
   pointsPerDollar: number;
   loyaltyProgramEnabled?: boolean;
+  /** Allow taking a partial payment at checkout. */
+  allowPartialPayment?: boolean;
+  /** Allow creating a fully-unpaid (pay-later) invoice. Implies partial is allowed. */
+  allowPayLater?: boolean;
 }
 
 export function CheckoutForm({
@@ -131,8 +136,14 @@ export function CheckoutForm({
   taxRate,
   pointsPerDollar,
   loyaltyProgramEnabled = true,
+  allowPartialPayment = false,
+  allowPayLater = false,
 }: CheckoutFormProps) {
   const router = useRouter();
+  // Deferred-payment availability (full pay-later implies partial is allowed too).
+  const canPartial = allowPartialPayment || allowPayLater;
+  const canPayLater = allowPayLater;
+  const canDefer = canPartial || canPayLater;
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearch, setClientSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -144,12 +155,17 @@ export function CheckoutForm({
   const [submittingMethod, setSubmittingMethod] = useState<PaymentMethod | null>(null);
   const [selectedStaff, setSelectedStaff] = useState<string>(staff[0]?.id || "");
 
-  // Split payment state
+  // Split payment state — each row is inline-editable.
   const [isSplitMode, setIsSplitMode] = useState(false);
   const [splitPayments, setSplitPayments] = useState<SplitPayment[]>([]);
-  const [splitMethod, setSplitMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
-  const [splitAmount, setSplitAmount] = useState("");
   const [splitIdCounter, setSplitIdCounter] = useState(0);
+  // Due date for the balance when a sale is paid partially / not at all.
+  const [dueDate, setDueDate] = useState("");
+  // Distinguishes the two split-screen flows: false = "Split Payment" (pay the
+  // full total across methods), true = "Partial payment or pay later" (partial/unpaid + due date).
+  const [payLaterMode, setPayLaterMode] = useState(false);
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const defaultDueDateStr = () => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
   // Walk-in client state
   const [isWalkIn, setIsWalkIn] = useState(false);
@@ -268,49 +284,54 @@ export function CheckoutForm({
     setCart(cart.filter((item) => item.id !== itemId));
   };
 
-  // Reset split entries if total changes while in split mode (safety net)
+  // Reset split entries if the cart total changes while in split mode (safety net).
   const prevTotalRef = useRef(total);
   useEffect(() => {
-    if (isSplitMode && prevTotalRef.current !== total) {
-      setSplitAmount(total.toFixed(2));
-      if (splitPayments.length > 0) {
-        setSplitPayments([]);
-        toast.info("Cart total changed — split payments have been reset.");
-      }
+    if (isSplitMode && prevTotalRef.current !== total && splitPayments.length > 0) {
+      setSplitPayments([]);
+      toast.info("Cart total changed — split payments have been reset.");
     }
     prevTotalRef.current = total;
   }, [total, isSplitMode, splitPayments.length]);
 
-  // Split payment helpers
-  const splitTotal = splitPayments.reduce((sum, p) => sum + p.amount, 0);
+  // Split payment helpers — amounts are raw strings, parsed for the running total.
+  const splitTotal =
+    Math.round(splitPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0) * 100) / 100;
   const splitRemaining = Math.round((total - splitTotal) * 100) / 100;
-  const isSplitComplete = Math.abs(splitRemaining) < 0.01;
+  const isSplitComplete = Math.abs(splitRemaining) < 0.01 && splitTotal > 0;
 
-  const addSplitPayment = () => {
-    const parsed = parseFloat(splitAmount);
-    if (!parsed || parsed <= 0) {
-      toast.error(`Enter a valid amount greater than ${formatCurrency(0, currencyCode)}`);
-      return;
-    }
-    // Round to cents and clamp to remaining balance
-    const amount = Math.round(Math.min(parsed, splitRemaining) * 100) / 100;
-    if (amount <= 0) {
-      toast.error(`Remaining balance is ${formatCurrency(splitRemaining, currencyCode)} — no more to split`);
-      return;
-    }
+  // Add an editable row, pre-filled with whatever balance is left (or empty).
+  const addSplitRow = () => {
     const nextId = splitIdCounter + 1;
     setSplitIdCounter(nextId);
-    setSplitPayments([...splitPayments, { id: nextId, method: splitMethod, amount }]);
-    // Auto-fill next amount with remaining, or clear
-    const newRemaining = Math.round((splitRemaining - amount) * 100) / 100;
-    setSplitAmount(newRemaining > 0 ? newRemaining.toFixed(2) : "");
+    setSplitPayments((rows) => [
+      ...rows,
+      {
+        id: nextId,
+        method: PaymentMethod.CASH,
+        amount: splitRemaining > 0 ? splitRemaining.toFixed(2) : "",
+      },
+    ]);
   };
 
-  const removeSplitPayment = (id: number) => {
-    setSplitPayments(splitPayments.filter((p) => p.id !== id));
+  const updateSplitRow = (id: number, patch: Partial<Omit<SplitPayment, "id">>) => {
+    setSplitPayments((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   };
 
-  const submitPayment = async (payments: { method: PaymentMethod; amount: number }[]) => {
+  const removeSplitRow = (id: number) => {
+    setSplitPayments((rows) => rows.filter((r) => r.id !== id));
+  };
+
+  // Parsed, non-empty payment lines ready for submission.
+  const splitPaymentsForSubmit = () =>
+    splitPayments
+      .map((p) => ({ method: p.method, amount: Math.round((parseFloat(p.amount) || 0) * 100) / 100 }))
+      .filter((p) => p.amount > 0);
+
+  const submitPayment = async (
+    payments: { method: PaymentMethod; amount: number }[],
+    saleDueDate?: Date
+  ) => {
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
@@ -364,6 +385,7 @@ export function CheckoutForm({
         discountType,
         payments,
         redeemPoints: isWalkIn ? 0 : redeemPoints,
+        dueDate: saleDueDate,
       });
 
       if (result.success) {
@@ -394,7 +416,52 @@ export function CheckoutForm({
 
   const handleSplitComplete = () => {
     if (!isSplitComplete) return;
-    submitPayment(splitPayments.map(({ method, amount }) => ({ method, amount })));
+    submitPayment(splitPaymentsForSubmit());
+  };
+
+  // Partial / pay-later: submit with the partial (or empty) payments + a due date
+  // for the remaining balance.
+  const handlePartialComplete = () => {
+    if (!dueDate) {
+      toast.error("Pick a due date for the remaining balance");
+      return;
+    }
+    if (new Date(dueDate) < new Date(todayStr())) {
+      toast.error("Due date can't be in the past");
+      return;
+    }
+    if (splitTotal === 0 && !canPayLater) {
+      toast.error("Pay-later isn't enabled — take a partial payment or collect the full amount.");
+      return;
+    }
+    if (splitTotal > 0 && splitTotal < total && !canPartial) {
+      toast.error("Partial payments aren't enabled — collect the full amount.");
+      return;
+    }
+    submitPayment(splitPaymentsForSubmit(), new Date(dueDate));
+  };
+
+  // Enter "Split Payment": pay the full total across methods. Seed the two most
+  // common tenders (Cash + Card) with empty amounts for the cashier to fill in.
+  const startSplit = () => {
+    setIsSplitMode(true);
+    setPayLaterMode(false);
+    const id1 = splitIdCounter + 1;
+    const id2 = splitIdCounter + 2;
+    setSplitIdCounter(id2);
+    setSplitPayments([
+      { id: id1, method: PaymentMethod.CASH, amount: "" },
+      { id: id2, method: PaymentMethod.CARD, amount: "" },
+    ]);
+  };
+
+  // Enter "Partial payment or pay later": start with no rows (full balance due); the user
+  // can add a partial-payment row. Default the due date to +7 days.
+  const startPayLater = () => {
+    setIsSplitMode(true);
+    setPayLaterMode(true);
+    setSplitPayments([]);
+    if (!dueDate) setDueDate(defaultDueDateStr());
   };
 
   // Refresh stock for product cart items before opening payment modal
@@ -420,6 +487,11 @@ export function CheckoutForm({
         if (hasStockIssue) return;
       }
     }
+    // Start the modal clean (method picker), clearing any prior split/pay-later state.
+    setIsSplitMode(false);
+    setPayLaterMode(false);
+    setSplitPayments([]);
+    setDueDate("");
     setIsPaymentOpen(true);
   };
 
@@ -619,18 +691,29 @@ export function CheckoutForm({
             <CardDescription>Select the staff member performing the services</CardDescription>
           </CardHeader>
           <CardContent>
-            <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select staff member" />
-              </SelectTrigger>
-              <SelectContent>
-                {staff.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.firstName} {s.lastName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {staff.length === 0 ? (
+              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                No service providers found. Mark a staff member as a{" "}
+                <span className="font-medium text-foreground">Service Provider</span> on the{" "}
+                <Link href="/dashboard/staff" className="font-medium text-primary underline underline-offset-2">
+                  Staff
+                </Link>{" "}
+                page to assign them to sales.
+              </p>
+            ) : (
+              <Select value={selectedStaff} onValueChange={setSelectedStaff}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select staff member" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staff.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.firstName} {s.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </CardContent>
         </Card>
 
@@ -933,16 +1016,22 @@ export function CheckoutForm({
           setIsPaymentOpen(open);
           if (!open) {
             setIsSplitMode(false);
+            setPayLaterMode(false);
             setSplitPayments([]);
-            setSplitAmount("");
-            setSplitMethod(PaymentMethod.CASH);
+            setDueDate("");
           }
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {isSplitMode ? "Split Payment" : "Select Payment Method"}
+              {isSplitMode
+                ? payLaterMode
+                  ? canPayLater
+                    ? "Partial payment or pay later"
+                    : "Partial payment"
+                  : "Split Payment"
+                : "Select Payment Method"}
             </DialogTitle>
             <DialogDescription>
               Total: {formatCurrency(total, currencyCode)}
@@ -974,17 +1063,26 @@ export function CheckoutForm({
               </div>
               <DialogFooter className="flex-row justify-between sm:justify-between">
                 {total > 0 && (
-                  <Button
-                    variant="link"
-                    className="text-purple-600 px-0"
-                    onClick={() => {
-                      setIsSplitMode(true);
-                      setSplitAmount(total.toFixed(2));
-                    }}
-                    disabled={isSubmitting}
-                  >
-                    Split Payment
-                  </Button>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      variant="link"
+                      className="text-purple-600 px-0"
+                      onClick={startSplit}
+                      disabled={isSubmitting}
+                    >
+                      Split Payment
+                    </Button>
+                    {canDefer && (
+                      <Button
+                        variant="link"
+                        className="text-purple-600 px-0"
+                        onClick={startPayLater}
+                        disabled={isSubmitting}
+                      >
+                        {canPayLater ? "Partial payment or pay later" : "Partial payment"}
+                      </Button>
+                    )}
+                  </div>
                 )}
                 <Button variant="ghost" onClick={() => setIsPaymentOpen(false)} disabled={isSubmitting}>
                   Cancel
@@ -993,120 +1091,150 @@ export function CheckoutForm({
             </>
           ) : (
             <div className="space-y-4 py-2">
-              {/* Added splits */}
-              {splitPayments.length > 0 && (
-                <div className="space-y-2">
-                  {splitPayments.map((payment) => (
-                    <div
-                      key={payment.id}
-                      className="flex items-center justify-between p-2 bg-muted/50 rounded-lg"
-                    >
-                      <div className="flex items-center gap-2">
-                        <PaymentMethodIcon method={payment.method} className="h-4 w-4" />
-                        <span className="text-sm font-medium">
-                          {PAYMENT_METHOD_LABELS[payment.method] ?? payment.method}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">
-                          {formatCurrency(payment.amount, currencyCode)}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-destructive"
-                          onClick={() => removeSplitPayment(payment.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                          <span className="sr-only">Remove payment line</span>
-                        </Button>
-                      </div>
+              {/* Editable payment rows — what you see is what gets recorded */}
+              <div className="space-y-2">
+                {splitPayments.length === 0 && (
+                  <p className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
+                    {payLaterMode
+                      ? canPayLater
+                        ? "No payment yet — add a partial payment, or leave empty to invoice the full amount."
+                        : "Add a partial payment below — the rest will be invoiced as due."
+                      : "No payments yet — add a method below."}
+                  </p>
+                )}
+                {splitPayments.map((row) => (
+                  <div key={row.id} className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <Label className="text-xs">Method</Label>
+                      <Select
+                        value={row.method}
+                        onValueChange={(v) => updateSplitRow(row.id, { method: v as PaymentMethod })}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SELECTABLE_PAYMENT_METHODS.map((m) => (
+                            <SelectItem key={m} value={m}>
+                              {PAYMENT_METHOD_LABELS[m]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Add new split row */}
-              {!isSplitComplete && (
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <Label className="text-xs">Method</Label>
-                    <Select
-                      value={splitMethod}
-                      onValueChange={(v) => setSplitMethod(v as PaymentMethod)}
+                    <div className="w-28">
+                      <Label className="text-xs">Amount</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={row.amount}
+                        onChange={(e) => {
+                          if (e.target.value.startsWith("-")) return;
+                          updateSplitRow(row.id, { amount: e.target.value });
+                        }}
+                        className="h-9"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 text-destructive"
+                      onClick={() => removeSplitRow(row.id)}
                     >
-                      <SelectTrigger className="h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SELECTABLE_PAYMENT_METHODS.map((m) => (
-                          <SelectItem key={m} value={m}>
-                            {PAYMENT_METHOD_LABELS[m]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Remove payment line</span>
+                    </Button>
                   </div>
-                  <div className="w-28">
-                    <Label className="text-xs">Amount</Label>
-                    <Input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      max={splitRemaining}
-                      value={splitAmount}
-                      onChange={(e) => {
-                        if (e.target.value.startsWith('-')) return;
-                        setSplitAmount(e.target.value);
-                      }}
-                      className="h-9"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-9 w-9 shrink-0"
-                    onClick={addSplitPayment}
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span className="sr-only">Add payment line</span>
-                  </Button>
-                </div>
-              )}
+                ))}
+              </div>
 
-              {/* Remaining bar */}
+              {/* Add method */}
+              <Button variant="outline" size="sm" className="w-full" onClick={addSplitRow}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add method
+              </Button>
+
+              {/* Running balance bar */}
               <div className={`flex justify-between items-center p-2 rounded-lg text-sm font-medium ${
-                isSplitComplete
+                splitRemaining < -0.01
+                  ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+                  : isSplitComplete
                   ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
                   : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
               }`}>
-                <span>Remaining</span>
-                <span>{formatCurrency(Math.max(0, splitRemaining), currencyCode)}</span>
+                <span>
+                  {splitRemaining < -0.01
+                    ? "Over by"
+                    : payLaterMode && !isSplitComplete
+                    ? "Balance due"
+                    : "Remaining"}
+                </span>
+                <span>{formatCurrency(Math.abs(splitRemaining), currencyCode)}</span>
               </div>
+              {splitRemaining < -0.01 && (
+                <p className="text-xs text-red-600">Payments exceed the total — reduce an amount to continue.</p>
+              )}
+
+              {/* Due date for the balance — only in the partial / pay-later flow */}
+              {payLaterMode && !isSplitComplete && (
+                <div>
+                  <Label className="text-xs">Due date for balance</Label>
+                  <Input
+                    type="date"
+                    min={todayStr()}
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="h-9"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatCurrency(Math.max(0, splitRemaining), currencyCode)} will be invoiced as
+                    {splitTotal > 0 ? " partially paid" : " unpaid"} and due by this date.
+                  </p>
+                </div>
+              )}
 
               <DialogFooter className="flex-row justify-between sm:justify-between gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
                     setIsSplitMode(false);
+                    setPayLaterMode(false);
                     setSplitPayments([]);
-                    setSplitAmount("");
-                    setSplitMethod(PaymentMethod.CASH);
+                    setDueDate("");
                   }}
                   disabled={isSubmitting}
                 >
                   Back
                 </Button>
-                <Button
-                  onClick={handleSplitComplete}
-                  disabled={!isSplitComplete || splitPayments.length === 0 || isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : null}
-                  Complete Payment
-                </Button>
+                {payLaterMode && !isSplitComplete ? (
+                  <Button
+                    onClick={handlePartialComplete}
+                    disabled={
+                      !dueDate ||
+                      isSubmitting ||
+                      splitRemaining < -0.01 ||
+                      (splitTotal === 0 && !canPayLater)
+                    }
+                  >
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    {splitTotal > 0
+                      ? `Charge ${formatCurrency(splitTotal, currencyCode)} · invoice rest`
+                      : canPayLater
+                        ? "Record as unpaid"
+                        : "Add a payment to continue"}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleSplitComplete}
+                    disabled={!isSplitComplete || splitPayments.length === 0 || isSubmitting}
+                  >
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Complete Payment
+                  </Button>
+                )}
               </DialogFooter>
             </div>
           )}

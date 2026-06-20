@@ -89,6 +89,9 @@ export default async function StaffDetailPage({
   // Only show edit controls if the viewer outranks the viewed user
   const canManageThisUser = await canManageRole(userRoleId, user.roleDefinitionId ?? "", isSuperAdmin, salonId);
   const canEdit = hasEditPermission && canManageThisUser;
+  // A user can always edit their own profile (name/email/phone; role + service-
+  // provider are locked appropriately in the form).
+  const isSelf = actor.userId === user.id;
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase();
@@ -147,16 +150,18 @@ export default async function StaffDetailPage({
               </div>
             </div>
           </div>
-          {canEdit && (
+          {(canEdit || isSelf) && (
             <div className="flex gap-2">
-              <PasswordResetDialog
-                userId={user.id}
-                userName={`${user.firstName} ${user.lastName}`}
-              />
+              {canEdit && (
+                <PasswordResetDialog
+                  userId={user.id}
+                  userName={`${user.firstName} ${user.lastName}`}
+                />
+              )}
               <Button asChild>
                 <Link href={`/dashboard/staff/${user.id}/edit`}>
                   <Edit className="h-4 w-4 mr-2" />
-                  Edit Staff
+                  {isSelf && !canEdit ? "Edit Profile" : "Edit Staff"}
                 </Link>
               </Button>
             </div>

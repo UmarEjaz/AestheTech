@@ -183,6 +183,7 @@ async function main() {
       phone: "+1234567892",
       salonId: salon.id,
       roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.STAFF),
+      isServiceProvider: true, // performs services → appears in sale/appointment staff pickers
     },
   });
 
@@ -195,6 +196,7 @@ async function main() {
       phone: "+1234567893",
       salonId: salon.id,
       roleDefinitionId: requireRole(defaultSalonRoles, SYSTEM_ROLES.STAFF),
+      isServiceProvider: true, // performs services → appears in sale/appointment staff pickers
     },
   });
 

@@ -76,6 +76,8 @@ export default async function NewSalePage() {
     taxRate: 0,
     pointsPerDollar: 100,
     loyaltyProgramEnabled: true,
+    allowPartialPayment: false,
+    allowPayLater: false,
   };
 
   // Transform clients to include loyalty points
@@ -121,6 +123,8 @@ export default async function NewSalePage() {
           taxRate={settings.taxRate}
           pointsPerDollar={settings.pointsPerDollar}
           loyaltyProgramEnabled={settings.loyaltyProgramEnabled}
+          allowPartialPayment={settings.allowPartialPayment}
+          allowPayLater={settings.allowPayLater}
         />
       </div>
     </>
