@@ -19,11 +19,6 @@ export const addPaymentSchema = z.object({
   method: z.nativeEnum(PaymentMethod),
 });
 
-// Schema for updating invoice status
-export const updateInvoiceStatusSchema = z.object({
-  status: z.nativeEnum(InvoiceStatus),
-});
-
 // Schema for creating a refund
 export const createRefundSchema = z.object({
   invoiceId: z.string().min(1, "Invoice ID is required"),
@@ -34,5 +29,4 @@ export const createRefundSchema = z.object({
 // Types
 export type InvoiceSearchParams = z.input<typeof invoiceSearchSchema>;
 export type AddPaymentInput = z.infer<typeof addPaymentSchema>;
-export type UpdateInvoiceStatusInput = z.infer<typeof updateInvoiceStatusSchema>;
 export type CreateRefundInput = z.infer<typeof createRefundSchema>;

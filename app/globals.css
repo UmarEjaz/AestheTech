@@ -124,3 +124,23 @@
 
 .dark .fc-event.dark\:text-orange-400 .fc-event-main,
 .dark .fc-event.dark\:text-orange-400 .fc-event-title { color: rgb(251 146 60) !important; }
+
+/* Toast close button (sonner): position top-right and reveal on hover only. */
+[data-sonner-toast] [data-close-button] {
+  left: auto;
+  right: 8px;
+  top: 8px;
+  transform: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+[data-sonner-toast]:hover [data-close-button],
+[data-sonner-toast] [data-close-button]:focus-visible {
+  opacity: 1;
+}
+/* Touch / no-hover devices can't reveal on hover — keep the close button visible. */
+@media (hover: none), (pointer: coarse) {
+  [data-sonner-toast] [data-close-button] {
+    opacity: 1;
+  }
+}

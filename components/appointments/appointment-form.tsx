@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -618,21 +619,32 @@ export function AppointmentForm({
 
           <div className="space-y-2">
             <Label htmlFor="staffId">Staff Member *</Label>
-            <Select
-              value={watch("staffId")}
-              onValueChange={(value) => setValue("staffId", value)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select staff member" />
-              </SelectTrigger>
-              <SelectContent>
-                {staff.map((member) => (
-                  <SelectItem key={member.id} value={member.id}>
-                    {member.firstName} {member.lastName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {staff.length === 0 ? (
+              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                No service providers found. Mark a staff member as a{" "}
+                <span className="font-medium text-foreground">Service Provider</span> on the{" "}
+                <Link href="/dashboard/staff" className="font-medium text-primary underline underline-offset-2">
+                  Staff
+                </Link>{" "}
+                page to book appointments.
+              </p>
+            ) : (
+              <Select
+                value={watch("staffId")}
+                onValueChange={(value) => setValue("staffId", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select staff member" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staff.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.firstName} {member.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {errors.staffId && (
               <p className="text-sm text-destructive">{errors.staffId.message}</p>
             )}

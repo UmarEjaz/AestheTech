@@ -3,6 +3,8 @@
 import { createContext, useContext } from "react";
 
 export type RoleInfo = {
+  id: string;          // RoleDefinition id (per-salon). For system-role fallbacks
+                       // with no DB row, this falls back to the slug.
   name: string;        // Display name (e.g., "Owner")
   slug: string;        // Internal identifier (e.g., "owner")
   color: string;

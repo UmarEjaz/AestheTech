@@ -386,7 +386,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { saleId, payments, redeemPoints } = validationResult.data;
+  const { saleId, payments, redeemPoints, dueDate } = validationResult.data;
 
   try {
     // Get the sale
@@ -459,15 +459,37 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const tax = (amountAfterPoints * taxRate) / 100;
     const totalWithTax = amountAfterPoints + tax;
 
-    // Validate payment total using integer-cents to avoid floating-point drift
+    // Compare payment vs invoice total using integer-cents to avoid float drift.
+    // Partial / pay-later are allowed (under-payment); only an
+    // over-payment is rejected. The invoice status is derived from the amount paid.
     const toIntCents = (n: number) => Math.round(n * 100);
     const paymentTotalCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
     const invoiceTotalCents = toIntCents(totalWithTax);
-    if (paymentTotalCents !== invoiceTotalCents) {
+    if (paymentTotalCents > invoiceTotalCents) {
       return {
         success: false,
-        error: `Payment total (${(paymentTotalCents / 100).toFixed(2)}) doesn't match invoice total (${(invoiceTotalCents / 100).toFixed(2)})`
+        error: `Payment total (${(paymentTotalCents / 100).toFixed(2)}) exceeds the invoice total (${(invoiceTotalCents / 100).toFixed(2)})`
       };
+    }
+
+    const isFullyPaid = paymentTotalCents >= invoiceTotalCents;
+    const invoiceStatus = isFullyPaid
+      ? InvoiceStatus.PAID
+      : paymentTotalCents > 0
+        ? InvoiceStatus.PARTIALLY_PAID
+        : InvoiceStatus.PENDING;
+
+    // Enforce per-salon deferred-payment settings (default off = pay-in-full).
+    // Full pay-later implies partial is allowed too (owing part is the milder case).
+    if (!isFullyPaid) {
+      const allowPayLater = settings?.allowPayLater ?? false;
+      const allowPartial = (settings?.allowPartialPayment ?? false) || allowPayLater;
+      if (paymentTotalCents === 0 && !allowPayLater) {
+        return { success: false, error: "Pay-later isn't enabled for this salon — full payment is required." };
+      }
+      if (paymentTotalCents > 0 && !allowPartial) {
+        return { success: false, error: "Partial payments aren't enabled for this salon — collect the full amount." };
+      }
     }
 
     // Generate invoice number
@@ -532,8 +554,9 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
           amount: amountAfterPoints,
           tax,
           total: totalWithTax,
-          status: InvoiceStatus.PAID,
-          paidAt: new Date(),
+          status: invoiceStatus,
+          paidAt: isFullyPaid ? new Date() : null,
+          dueDate: isFullyPaid ? null : (dueDate ?? null),
         },
       });
 
@@ -680,6 +703,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 export async function quickSale(data: CreateSaleInput & {
   payments: { method: PaymentMethod; amount: number }[];
   redeemPoints?: number;
+  dueDate?: Date;
 }): Promise<ActionResult<{
   sale: SaleListItem;
   invoiceNumber: string;
@@ -702,6 +726,7 @@ export async function quickSale(data: CreateSaleInput & {
     saleId: createResult.data.id,
     payments: data.payments,
     redeemPoints: data.redeemPoints || 0,
+    dueDate: data.dueDate,
   });
 }
 

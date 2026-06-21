@@ -25,6 +25,7 @@ enum AppointmentStatus {
 
 enum InvoiceStatus {
   PENDING
+  PARTIALLY_PAID
   PAID
   OVERDUE
   CANCELLED
@@ -464,6 +465,7 @@ model Invoice {
   total         Decimal       @db.Decimal(10, 2)
   status        InvoiceStatus @default(PENDING)
   issuedAt      DateTime      @default(now())
+  dueDate       DateTime?
   paidAt        DateTime?
   refundedAt    DateTime?
   createdAt     DateTime      @default(now())
@@ -480,6 +482,7 @@ model Invoice {
   @@index([salonId])
   @@index([clientId])
   @@index([status])
+  @@index([salonId, status, dueDate]) // supports overdue/outstanding lookups
   @@map("invoices")
 }
 
@@ -905,6 +908,11 @@ model Settings {
   // Points expiration
   pointsExpiryEnabled Boolean @default(false)
   pointsExpiryMonths  Int     @default(12)
+
+  // Deferred-payment toggles (opt-in; default off = strict pay-in-full at checkout).
+  // allowPayLater (owe 100%) implies partial is allowed too — enforced in code.
+  allowPartialPayment Boolean @default(false)
+  allowPayLater       Boolean @default(false)
 
   // Per-salon module toggles — JSON array of DISABLED module keys (Super Admin
   // controlled from /admin). Empty array = all modules enabled (the default).

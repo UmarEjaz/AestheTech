@@ -57,6 +57,11 @@ interface RefundDialogProps {
   invoiceNumber: string;
   maxRefundable: number;
   currencyCode: string;
+  /** Controlled open state (used when the trigger lives elsewhere, e.g. a menu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Hide the built-in trigger button (when controlled externally). */
+  hideTrigger?: boolean;
 }
 
 export function RefundDialog({
@@ -64,9 +69,14 @@ export function RefundDialog({
   invoiceNumber,
   maxRefundable,
   currencyCode,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
 }: RefundDialogProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const refundSchema = useMemo(() => createRefundSchema(currencyCode), [currencyCode]);
@@ -145,12 +155,14 @@ export function RefundDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950">
-          <RotateCcw className="h-4 w-4 mr-2" />
-          Issue Refund
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button variant="outline" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950">
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Issue Refund
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Issue Refund</DialogTitle>

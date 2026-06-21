@@ -3,14 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
+import { effectiveInvoiceStatus } from "@/lib/utils/invoice-status";
 import {
   invoiceSearchSchema,
   addPaymentSchema,
-  updateInvoiceStatusSchema,
   createRefundSchema,
   InvoiceSearchParams,
   AddPaymentInput,
-  UpdateInvoiceStatusInput,
   CreateRefundInput,
 } from "@/lib/validations/invoice";
 import { Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
@@ -29,6 +28,7 @@ const invoiceListInclude = Prisma.validator<Prisma.InvoiceInclude>()({
       lastName: true,
       phone: true,
       email: true,
+      isWalkIn: true,
     },
   },
   sale: {
@@ -47,6 +47,13 @@ const invoiceListInclude = Prisma.validator<Prisma.InvoiceInclude>()({
       items: {
         include: {
           service: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+            },
+          },
+          product: {
             select: {
               id: true,
               name: true,
@@ -126,23 +133,43 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
     if (endDate) dateFilter.lte = endDate;
   }
 
+  // OVERDUE is derived (not stored), so the status filter is translated:
+  //  - OVERDUE        → outstanding (PENDING/PARTIALLY_PAID) with a past due date
+  //  - PENDING/PART…  → that stored status, but NOT past due (else it's "overdue")
+  //  - others         → exact stored status
+  const now = new Date();
+  let statusFilter: Prisma.InvoiceWhereInput | undefined;
+  if (status === "OVERDUE") {
+    statusFilter = { status: { in: ["PENDING", "PARTIALLY_PAID"] }, dueDate: { lt: now } };
+  } else if (status === "PENDING" || status === "PARTIALLY_PAID") {
+    statusFilter = { status, OR: [{ dueDate: null }, { dueDate: { gte: now } }] };
+  } else if (status) {
+    statusFilter = { status };
+  }
+
   const where: Prisma.InvoiceWhereInput = {
     salonId: authResult.salonId,
     ...(dateFilter && { createdAt: dateFilter }),
     ...(clientId && { clientId }),
-    ...(status && { status }),
-    ...(query && {
-      OR: [
-        { invoiceNumber: { contains: query, mode: "insensitive" } },
-        { client: { firstName: { contains: query, mode: "insensitive" } } },
-        { client: { lastName: { contains: query, mode: "insensitive" } } },
-        { client: { phone: { contains: query } } },
-      ],
-    }),
+    AND: [
+      ...(statusFilter ? [statusFilter] : []),
+      ...(query
+        ? [
+            {
+              OR: [
+                { invoiceNumber: { contains: query, mode: "insensitive" as const } },
+                { client: { firstName: { contains: query, mode: "insensitive" as const } } },
+                { client: { lastName: { contains: query, mode: "insensitive" as const } } },
+                { client: { phone: { contains: query } } },
+              ],
+            },
+          ]
+        : []),
+    ],
   };
 
   try {
-    const [invoices, total] = await Promise.all([
+    const [invoicesRaw, total] = await Promise.all([
       prisma.invoice.findMany({
         where,
         include: invoiceListInclude,
@@ -152,6 +179,12 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
       }),
       prisma.invoice.count({ where }),
     ]);
+
+    // Surface OVERDUE as the displayed status for past-due outstanding invoices.
+    const invoices = invoicesRaw.map((inv) => ({
+      ...inv,
+      status: effectiveInvoiceStatus(inv.status, inv.dueDate, now),
+    }));
 
     return {
       success: true,
@@ -185,7 +218,7 @@ export async function getInvoice(id: string): Promise<ActionResult<InvoiceListIt
       return { success: false, error: "Invoice not found" };
     }
 
-    return { success: true, data: invoice };
+    return { success: true, data: { ...invoice, status: effectiveInvoiceStatus(invoice.status, invoice.dueDate) } };
   } catch (error) {
     console.error("Error fetching invoice:", error);
     return { success: false, error: "Failed to fetch invoice" };
@@ -209,7 +242,7 @@ export async function getInvoiceByNumber(invoiceNumber: string): Promise<ActionR
       return { success: false, error: "Invoice not found" };
     }
 
-    return { success: true, data: invoice };
+    return { success: true, data: { ...invoice, status: effectiveInvoiceStatus(invoice.status, invoice.dueDate) } };
   } catch (error) {
     console.error("Error fetching invoice:", error);
     return { success: false, error: "Failed to fetch invoice" };
@@ -275,6 +308,13 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
               paidAt: new Date(),
             },
           });
+        } else {
+          // Still a balance owing — reflect the partial-payment state (overdue is
+          // derived from dueDate on read, so the stored status stays PARTIALLY_PAID).
+          await tx.invoice.update({
+            where: { id: invoiceId },
+            data: { status: InvoiceStatus.PARTIALLY_PAID },
+          });
         }
 
         return { ok: true as const };
@@ -318,89 +358,6 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
     }
     console.error("Error adding payment:", error);
     return { success: false, error: "Failed to add payment" };
-  }
-}
-
-// Update invoice status
-export async function updateInvoiceStatus(
-  id: string,
-  data: UpdateInvoiceStatusInput
-): Promise<ActionResult<InvoiceListItem>> {
-  const authResult = await checkAuth("invoices:update");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  const validationResult = updateInvoiceStatusSchema.safeParse(data);
-  if (!validationResult.success) {
-    return { success: false, error: validationResult.error.issues[0].message };
-  }
-
-  try {
-    const invoice = await prisma.invoice.findFirst({
-      where: { id, salonId: authResult.salonId },
-      select: { status: true },
-    });
-
-    if (!invoice) {
-      return { success: false, error: "Invoice not found" };
-    }
-
-    // Validate status transitions
-    const validTransitions: Record<InvoiceStatus, InvoiceStatus[]> = {
-      PENDING: [InvoiceStatus.PAID, InvoiceStatus.OVERDUE, InvoiceStatus.CANCELLED],
-      OVERDUE: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED],
-      PAID: [], // Cannot change from paid (refunds are handled separately)
-      CANCELLED: [], // Cannot change from cancelled
-      REFUNDED: [], // Cannot change from refunded
-    };
-
-    const allowedStatuses = validTransitions[invoice.status];
-    if (!allowedStatuses.includes(validationResult.data.status)) {
-      return {
-        success: false,
-        error: `Cannot change status from ${invoice.status} to ${validationResult.data.status}`,
-      };
-    }
-
-    // Atomic update: condition on the status we just read. If a concurrent
-    // transaction changed the status between our read and our write, the
-    // updateMany WHERE clause excludes it and count === 0.
-    const result = await prisma.invoice.updateMany({
-      where: { id, salonId: authResult.salonId, status: invoice.status },
-      data: {
-        status: validationResult.data.status,
-        ...(validationResult.data.status === InvoiceStatus.PAID && { paidAt: new Date() }),
-      },
-    });
-
-    if (result.count === 0) {
-      return {
-        success: false,
-        error: "Invoice status changed by another user. Please reload and try again.",
-      };
-    }
-
-    const updatedInvoice = await prisma.invoice.findUnique({
-      where: { id },
-      include: invoiceListInclude,
-    });
-
-    await logAudit({
-      action: "INVOICE_STATUS_CHANGED",
-      entityType: "Invoice",
-      entityId: id,
-      userId: authResult.userId,
-      userRole: authResult.role,
-      details: { from: invoice.status, to: validationResult.data.status, invoiceNumber: updatedInvoice?.invoiceNumber },
-    });
-
-    revalidatePath("/dashboard/invoices");
-    await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: updatedInvoice! };
-  } catch (error) {
-    console.error("Error updating invoice status:", error);
-    return { success: false, error: "Failed to update invoice status" };
   }
 }
 
@@ -476,12 +433,17 @@ export async function getClientInvoices(clientId: string): Promise<ActionResult<
   }
 
   try {
-    const invoices = await prisma.invoice.findMany({
+    const invoicesRaw = await prisma.invoice.findMany({
       where: { clientId, salonId: authResult.salonId },
       include: invoiceListInclude,
       orderBy: { createdAt: "desc" },
       take: 20,
     });
+    const now = new Date();
+    const invoices = invoicesRaw.map((inv) => ({
+      ...inv,
+      status: effectiveInvoiceStatus(inv.status, inv.dueDate, now),
+    }));
 
     return { success: true, data: invoices };
   } catch (error) {
@@ -503,25 +465,38 @@ export async function getInvoiceStats(): Promise<ActionResult<{
   }
 
   try {
-    const [pendingInvoices, overdueInvoices] = await Promise.all([
-      prisma.invoice.findMany({
-        where: { salonId: authResult.salonId, status: InvoiceStatus.PENDING },
-        select: { total: true },
-      }),
-      prisma.invoice.findMany({
-        where: { salonId: authResult.salonId, status: InvoiceStatus.OVERDUE },
-        select: { total: true },
-      }),
-    ]);
+    // Outstanding = anything still owing. Overdue is derived from the due date.
+    // Amounts are the remaining balance (total − payments), not the full total.
+    const outstanding = await prisma.invoice.findMany({
+      where: {
+        salonId: authResult.salonId,
+        status: { in: [InvoiceStatus.PENDING, InvoiceStatus.PARTIALLY_PAID] },
+      },
+      select: { total: true, dueDate: true, payments: { select: { amount: true } } },
+    });
+
+    const now = new Date();
+    let totalPending = 0;
+    let totalOverdue = 0;
+    let pendingCount = 0;
+    let overdueCount = 0;
+
+    for (const inv of outstanding) {
+      const paid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const due = Math.max(0, Number(inv.total) - paid);
+      const overdue = inv.dueDate != null && inv.dueDate < now;
+      if (overdue) {
+        totalOverdue += due;
+        overdueCount += 1;
+      } else {
+        totalPending += due;
+        pendingCount += 1;
+      }
+    }
 
     return {
       success: true,
-      data: {
-        totalPending: pendingInvoices.reduce((sum, i) => sum + Number(i.total), 0),
-        totalOverdue: overdueInvoices.reduce((sum, i) => sum + Number(i.total), 0),
-        pendingCount: pendingInvoices.length,
-        overdueCount: overdueInvoices.length,
-      },
+      data: { totalPending, totalOverdue, pendingCount, overdueCount },
     };
   } catch (error) {
     console.error("Error fetching invoice stats:", error);

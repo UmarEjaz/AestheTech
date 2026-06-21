@@ -64,6 +64,8 @@ const settingsSchema = z.object({
   birthdayBonusPoints: z.coerce.number().int().min(1, "Must be at least 1"),
   pointsExpiryEnabled: z.boolean(),
   pointsExpiryMonths: z.coerce.number().int().min(1, "Must be at least 1 month").max(120, "Maximum 120 months"),
+  allowPartialPayment: z.boolean(),
+  allowPayLater: z.boolean(),
 }).refine((data) => data.platinumThreshold > data.goldThreshold, {
   message: "Platinum threshold must be greater than Gold threshold",
   path: ["platinumThreshold"],
@@ -95,6 +97,8 @@ type SettingsFormData = {
   birthdayBonusPoints: number;
   pointsExpiryEnabled: boolean;
   pointsExpiryMonths: number;
+  allowPartialPayment: boolean;
+  allowPayLater: boolean;
 };
 
 interface SettingsFormProps {
@@ -124,7 +128,10 @@ function generateTimeOptions() {
 const timeOptions = generateTimeOptions();
 
 function getTimezoneOptions() {
-  const timezones = Intl.supportedValuesOf("timeZone");
+  const supported = Intl.supportedValuesOf("timeZone");
+  // Some runtimes omit "UTC" from supportedValuesOf even though it's a valid zone
+  // (and our default). Ensure it's always selectable.
+  const timezones = supported.includes("UTC") ? supported : ["UTC", ...supported];
   return timezones.map((tz) => {
     const now = new Date();
     const formatter = new Intl.DateTimeFormat("en-US", {
@@ -172,6 +179,8 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       birthdayBonusPoints: settings.birthdayBonusPoints,
       pointsExpiryEnabled: settings.pointsExpiryEnabled,
       pointsExpiryMonths: settings.pointsExpiryMonths,
+      allowPartialPayment: settings.allowPartialPayment,
+      allowPayLater: settings.allowPayLater,
     },
   });
 
@@ -718,6 +727,58 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               </div>
             </div>
           </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Payments */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            Payments
+          </CardTitle>
+          <CardDescription>
+            Control whether sales can be left partially or fully unpaid at checkout. Off = strict pay-in-full.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Allow partial payments */}
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="allowPartialPayment" className="text-base font-medium">
+                Allow partial payments
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                {watch("allowPayLater")
+                  ? "Always on while full pay-later is enabled (owing part is a milder case of owing all)."
+                  : "Take some money now and invoice the rest with a due date."}
+              </p>
+            </div>
+            <Switch
+              id="allowPartialPayment"
+              checked={watch("allowPartialPayment") || watch("allowPayLater")}
+              onCheckedChange={(checked) => setValue("allowPartialPayment", checked, { shouldDirty: true })}
+              disabled={!canManage || watch("allowPayLater")}
+            />
+          </div>
+
+          {/* Allow full pay-later */}
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="allowPayLater" className="text-base font-medium">
+                Allow full pay-later (unpaid invoices)
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Let staff create an invoice with nothing paid yet. Turning this on also allows partial payments.
+              </p>
+            </div>
+            <Switch
+              id="allowPayLater"
+              checked={watch("allowPayLater")}
+              onCheckedChange={(checked) => setValue("allowPayLater", checked, { shouldDirty: true })}
+              disabled={!canManage}
+            />
           </div>
         </CardContent>
       </Card>

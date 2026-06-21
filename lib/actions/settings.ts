@@ -33,6 +33,8 @@ export interface SettingsData {
   birthdayBonusPoints: number;
   pointsExpiryEnabled: boolean;
   pointsExpiryMonths: number;
+  allowPartialPayment: boolean;
+  allowPayLater: boolean;
 }
 
 /** Fetches salon settings, creating defaults if none exist. */
@@ -76,6 +78,8 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           birthdayBonusPoints: 50,
           pointsExpiryEnabled: false,
           pointsExpiryMonths: 12,
+          allowPartialPayment: false,
+          allowPayLater: false,
         },
       });
 
@@ -125,10 +129,12 @@ export async function updateSettings(
       return { success: false, error: "Settings not found" };
     }
 
-    // Validate timezone if provided
+    // Validate timezone if provided. Use Intl.DateTimeFormat (accepts "UTC" and all
+    // IANA zones) rather than supportedValuesOf, which omits "UTC" in some runtimes.
     if (data.timezone !== undefined) {
-      const validTimezones = Intl.supportedValuesOf("timeZone");
-      if (!validTimezones.includes(data.timezone)) {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: data.timezone });
+      } catch {
         return { success: false, error: "Invalid timezone" };
       }
     }

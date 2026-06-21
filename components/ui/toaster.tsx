@@ -11,6 +11,7 @@ export function Toaster() {
       theme={theme as "light" | "dark" | "system"}
       position="top-right"
       richColors
+      closeButton
       toastOptions={{
         classNames: {
           toast:

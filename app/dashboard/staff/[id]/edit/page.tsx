@@ -6,9 +6,10 @@ import { ArrowLeft } from "lucide-react";
 import { StaffForm } from "@/components/staff/staff-form";
 import { Button } from "@/components/ui/button";
 import { getUserById } from "@/lib/actions/user";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, canManageRole } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
+import { SYSTEM_ROLES } from "@/lib/roles";
 
 export default async function EditStaffPage({
   params,
@@ -33,7 +34,10 @@ export default async function EditStaffPage({
   const salonId = actor.salonId;
   await requireModule("staff");
   const permUserId = actor.userId;
-  if (!(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId))) {
+  // Self-edit is allowed even without staff:update (you can always edit your own
+  // profile). Require staff:update only when editing someone else.
+  const isSelf = actor.userId === id;
+  if (!isSelf && !(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["staff:update"]);
   }
 
@@ -44,6 +48,18 @@ export default async function EditStaffPage({
   }
 
   const user = result.data;
+
+  // Hierarchy guard: you can only edit someone ranked below you — unless it's
+  // your own profile (self-edit is always allowed for name/email/phone). Block
+  // here at load so users never reach a form they can't actually save.
+  if (!isSelf && !(await canManageRole(userRoleId, user.roleDefinitionId ?? "", isSuperAdmin, salonId))) {
+    redirectAccessDenied(
+      undefined,
+      user.role === SYSTEM_ROLES.OWNER
+        ? "The owner's profile can only be edited by the owner."
+        : "You can only edit staff members whose role is below your own."
+    );
+  }
 
   return (
     <>
@@ -73,12 +89,14 @@ export default async function EditStaffPage({
             email: user.email,
             phone: user.phone,
             role: user.role,
+            roleDefinitionId: user.roleDefinitionId,
             isActive: user.isActive,
             isServiceProvider: user.isServiceProvider,
           }}
           mode="edit"
           currentUserRole={userRole}
           isSuperAdmin={isSuperAdmin}
+          isSelf={isSelf}
         />
       </div>
     </>

@@ -243,11 +243,23 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       return { success: false, error: "User not found" };
     }
 
-    if (user.isSuperAdmin || user.salonId !== authResult.salonId) {
+    // Verify membership via UserSalon, not the volatile User.salonId (which only
+    // tracks the user's last-active salon — a branch member's may point elsewhere).
+    // The membership also carries the user's role AT THIS SALON (role definitions
+    // are per-salon), which is what we display/edit — not the denormalized
+    // User.roleDefinitionId. Super admins are never editable as tenant staff.
+    const membership = await prisma.userSalon.findFirst({
+      where: { userId: id, salonId: authResult.salonId, isActive: true },
+      select: {
+        roleDefinitionId: true,
+        roleDefinition: { select: { slug: true, name: true, color: true } },
+      },
+    });
+    if (user.isSuperAdmin || !membership) {
       return { success: false, error: "User is not a member of this salon" };
     }
 
-    if (!user.roleDefinitionId) {
+    if (!membership.roleDefinitionId) {
       return { success: false, error: "User has no role assigned" };
     }
 
@@ -257,10 +269,10 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       lastName: user.lastName,
       email: user.email,
       phone: user.phone,
-      role: user.roleDefinition?.slug ?? "",
-      roleLabel: user.roleDefinition?.name ?? "",
-      roleColor: user.roleDefinition?.color ?? "#6B7280",
-      roleDefinitionId: user.roleDefinitionId,
+      role: membership.roleDefinition?.slug ?? "",
+      roleLabel: membership.roleDefinition?.name ?? "",
+      roleColor: membership.roleDefinition?.color ?? "#6B7280",
+      roleDefinitionId: membership.roleDefinitionId,
       isActive: user.isActive,
       isServiceProvider: user.isServiceProvider,
       createdAt: user.createdAt,
@@ -436,19 +448,32 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
     return { success: false, error: "User not found" };
   }
 
-  if (existingUser.salonId !== authResult.salonId) {
+  // Verify membership via UserSalon, not the volatile User.salonId (a branch
+  // member's may point at a different salon). The membership also carries the
+  // user's role AT THIS SALON — role definitions are per-salon, so we must use
+  // this (not the denormalized User.roleDefinitionId, which reflects the user's
+  // last-active salon) for the hierarchy check.
+  const membership = await prisma.userSalon.findFirst({
+    where: { userId: id, salonId: authResult.salonId, isActive: true },
+    select: { roleDefinitionId: true, roleDefinition: { select: { slug: true } } },
+  });
+  if (!membership) {
     return { success: false, error: "User is not a member of this salon" };
   }
 
-  const existingRoleDefId = existingUser.roleDefinitionId;
+  const existingRoleDefId = membership.roleDefinitionId;
   if (!existingRoleDefId) {
     return { success: false, error: "User has no role assigned" };
   }
+  const targetIsOwner = membership.roleDefinition?.slug === SYSTEM_ROLES.OWNER;
 
   if (isSelfEdit) {
-    // Self-edit: block role changes
+    // Self-edit: you can't change your own role. Roles are now compared by id on
+    // both sides (the form submits your unchanged role id), so this only triggers
+    // on a genuine tamper attempt — normal self-edits (e.g. toggling Service
+    // Provider) pass cleanly.
     if (newRoleDefId && newRoleDefId !== existingRoleDefId) {
-      return { success: false, error: "You cannot change your own role" };
+      return { success: false, error: "You can't change your own role — ask your owner or an admin to change it for you." };
     }
 
     // Self-edit: only Owner can toggle isServiceProvider for themselves
@@ -460,13 +485,18 @@ export async function updateUser(data: UserUpdateData): Promise<ActionResult<{ i
   } else {
     // Editing others: check hierarchy
     if (!(await canManageRole(authResult.roleId, existingRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
-      return { success: false, error: "You cannot modify this user" };
+      return {
+        success: false,
+        error: targetIsOwner
+          ? "The owner's profile can only be edited by the owner."
+          : "You can only edit staff members whose role is below your own.",
+      };
     }
 
     // If changing role, check if can assign new role
     if (newRoleDefId && newRoleDefId !== existingRoleDefId) {
       if (!(await canManageRole(authResult.roleId, newRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
-        return { success: false, error: "You cannot assign this role" };
+        return { success: false, error: "You can only assign roles below your own." };
       }
     }
   }
@@ -600,28 +630,35 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
     return { success: false, error: "User not found" };
   }
 
-  if (existingUser.salonId !== authResult.salonId) {
+  // Membership + role come from UserSalon at the current salon (roles are
+  // per-salon; User.salonId is the volatile last-active stamp).
+  const membership = await prisma.userSalon.findFirst({
+    where: { userId: id, salonId: authResult.salonId, isActive: true },
+    select: { roleDefinitionId: true },
+  });
+  if (!membership) {
     return { success: false, error: "User is not a member of this salon" };
   }
 
-  const targetRoleDefId = existingUser.roleDefinitionId;
+  const targetRoleDefId = membership.roleDefinitionId;
   if (!targetRoleDefId) {
     return { success: false, error: "User has no role assigned" };
   }
 
-  // Check if the user can manage the target user
-  if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
-    return { success: false, error: "You cannot modify this user" };
-  }
-
-  // Prevent deactivating yourself
+  // Prevent deactivating yourself — checked before the hierarchy check so the
+  // user gets the accurate message (not the generic "role below your own").
   if (id === authResult.userId) {
     return { success: false, error: "You cannot deactivate your own account" };
   }
 
-  // Toggle active status
+  // Check if the user can manage the target user
+  if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
+    return { success: false, error: "You can only deactivate staff members whose role is below your own." };
+  }
+
+  // Toggle active status (User.isActive is global, not per-salon)
   const updatedUser = await prisma.user.update({
-    where: { id, salonId: authResult.salonId },
+    where: { id },
     data: { isActive: !existingUser.isActive },
   });
 
@@ -664,23 +701,30 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     return { success: false, error: "User not found" };
   }
 
-  if (existingUser.salonId !== authResult.salonId) {
+  // Membership + role come from UserSalon at the current salon (roles are
+  // per-salon; User.salonId is the volatile last-active stamp).
+  const membership = await prisma.userSalon.findFirst({
+    where: { userId: id, salonId: authResult.salonId, isActive: true },
+    select: { roleDefinitionId: true },
+  });
+  if (!membership) {
     return { success: false, error: "User is not a member of this salon" };
   }
 
-  const targetRoleDefId = existingUser.roleDefinitionId;
+  const targetRoleDefId = membership.roleDefinitionId;
   if (!targetRoleDefId) {
     return { success: false, error: "User has no role assigned" };
   }
 
-  // Check if the user can manage the target user
-  if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
-    return { success: false, error: "You cannot delete this user" };
-  }
-
-  // Prevent deleting yourself
+  // Prevent deleting yourself — checked before the hierarchy check so the user
+  // gets the accurate message (not the generic "role below your own").
   if (id === authResult.userId) {
     return { success: false, error: "You cannot delete your own account" };
+  }
+
+  // Check if the user can manage the target user
+  if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
+    return { success: false, error: "You can only delete staff members whose role is below your own." };
   }
 
   // Check for existing data - recommend deactivation instead
@@ -691,9 +735,9 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     };
   }
 
-  // Delete the user
+  // Delete the user (global; membership + hierarchy verified above)
   await prisma.user.delete({
-    where: { id, salonId: authResult.salonId },
+    where: { id },
   });
 
   await logAudit({

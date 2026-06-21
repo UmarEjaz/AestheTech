@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { userSchema, UserFormData, UserFormInput, UserUpdateData } from "@/lib/validations/user";
 import { createUser, updateUser } from "@/lib/actions/user";
 import { useRoles } from "@/lib/roles-context";
@@ -31,22 +32,31 @@ interface StaffFormProps {
     lastName: string;
     email: string;
     phone: string | null;
-    role: string;
+    role: string;                      // slug (for display fallback)
+    roleDefinitionId?: string | null;  // the role's id at this salon
     isActive: boolean;
     isServiceProvider: boolean;
   };
   mode: "create" | "edit";
   currentUserRole: string | null;
   isSuperAdmin?: boolean;
+  /** True when the logged-in user is editing their own profile. */
+  isSelf?: boolean;
 }
 
-export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }: StaffFormProps) {
+export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false, isSelf = false }: StaffFormProps) {
   const router = useRouter();
   const roles = useRoles();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<string>(user?.role || SYSTEM_ROLES.STAFF);
+  // Roles are identified by their RoleDefinition id. On edit, preselect the
+  // user's current role; on create, default to the Staff role.
+  const initialRoleId =
+    user?.roleDefinitionId ??
+    roles.find((r) => r.slug === SYSTEM_ROLES.STAFF)?.id ??
+    "";
+  const [selectedRole, setSelectedRole] = useState<string>(initialRoleId);
   const [isServiceProvider, setIsServiceProvider] = useState(user?.isServiceProvider ?? false);
 
   // Filter available roles based on current user's role hierarchy
@@ -58,10 +68,29 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
     const currentLevel = roles.find((r) => r.slug === currentUserRole)?.hierarchyLevel
       ?? SYSTEM_ROLE_HIERARCHY[currentUserRole] ?? 0;
 
-    return roles.filter((r) => currentLevel > r.hierarchyLevel);
+    const assignable = roles.filter((r) => currentLevel > r.hierarchyLevel);
+
+    // When editing someone else, always include their CURRENT role so it shows
+    // (and isn't lost on save) even if it's at/above your level. You still can't
+    // assign a higher role — canManageRole enforces that server-side.
+    if (mode === "edit" && user?.roleDefinitionId) {
+      const current = roles.find((r) => r.id === user.roleDefinitionId);
+      if (current && !assignable.some((r) => r.id === current.id)) {
+        return [current, ...assignable];
+      }
+    }
+    return assignable;
   };
 
   const availableRoles = getAvailableRoles();
+
+  const targetIsOwner = (user?.role ?? "") === SYSTEM_ROLES.OWNER;
+  // Role is read-only for your own profile, and for the owner (ownership isn't
+  // reassignable through this form).
+  const roleLocked = isSelf || targetIsOwner;
+  // Only the owner (or a super admin) may change the service-provider flag on
+  // their OWN profile; any other staff member must ask the owner.
+  const canToggleServiceProvider = !isSelf || isSuperAdmin || currentUserRole === SYSTEM_ROLES.OWNER;
 
   const {
     register,
@@ -74,7 +103,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
       lastName: user?.lastName || "",
       email: user?.email || "",
       phone: user?.phone || "",
-      role: user?.role || SYSTEM_ROLES.STAFF,
+      role: initialRoleId,
       password: "",
       confirmPassword: "",
     },
@@ -190,27 +219,42 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="role">Role *</Label>
-            <Select
-              value={selectedRole}
-              onValueChange={(value) => setSelectedRole(value)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableRoles.map((role) => (
-                  <SelectItem key={role.slug} value={role.slug}>
-                    <div className="flex flex-col">
-                      <span>{role.name}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {availableRoles.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                You can only create users with roles lower than your own.
-              </p>
+            {roleLocked ? (
+              <>
+                <div className="flex h-10 items-center rounded-md border bg-muted/40 px-3 text-sm">
+                  {roles.find((r) => r.id === selectedRole)?.name ?? user?.role ?? "—"}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {targetIsOwner
+                    ? "The owner's role can't be changed."
+                    : "You can't change your own role — ask your owner or an admin to change it for you."}
+                </p>
+              </>
+            ) : (
+              <>
+                <Select
+                  value={selectedRole}
+                  onValueChange={(value) => setSelectedRole(value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableRoles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        <div className="flex flex-col">
+                          <span>{role.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {availableRoles.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    You can only assign roles lower than your own.
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -224,11 +268,32 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
                 Enable if this person provides services to clients (e.g., haircuts, makeup). They will appear in the appointment booking dropdown.
               </p>
             </div>
-            <Switch
-              id="isServiceProvider"
-              checked={isServiceProvider}
-              onCheckedChange={setIsServiceProvider}
-            />
+            {canToggleServiceProvider ? (
+              <Switch
+                id="isServiceProvider"
+                checked={isServiceProvider}
+                onCheckedChange={setIsServiceProvider}
+              />
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    {/* span wrapper so the tooltip still fires on a disabled control */}
+                    <span tabIndex={0}>
+                      <Switch
+                        id="isServiceProvider"
+                        checked={isServiceProvider}
+                        disabled
+                        aria-disabled
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    You can&apos;t change your own service-provider status — ask the salon owner or an admin to update it for you.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -314,7 +379,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false }:
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={isSubmitting || availableRoles.length === 0}>
+        <Button type="submit" disabled={isSubmitting || (!roleLocked && availableRoles.length === 0)}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {mode === "create" ? "Create Staff Member" : "Update Staff Member"}
         </Button>
