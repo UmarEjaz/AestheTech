@@ -645,14 +645,15 @@ export async function toggleUserActive(id: string): Promise<ActionResult<{ isAct
     return { success: false, error: "User has no role assigned" };
   }
 
+  // Prevent deactivating yourself — checked before the hierarchy check so the
+  // user gets the accurate message (not the generic "role below your own").
+  if (id === authResult.userId) {
+    return { success: false, error: "You cannot deactivate your own account" };
+  }
+
   // Check if the user can manage the target user
   if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You can only deactivate staff members whose role is below your own." };
-  }
-
-  // Prevent deactivating yourself
-  if (id === authResult.userId) {
-    return { success: false, error: "You cannot deactivate your own account" };
   }
 
   // Toggle active status (User.isActive is global, not per-salon)
@@ -715,14 +716,15 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     return { success: false, error: "User has no role assigned" };
   }
 
+  // Prevent deleting yourself — checked before the hierarchy check so the user
+  // gets the accurate message (not the generic "role below your own").
+  if (id === authResult.userId) {
+    return { success: false, error: "You cannot delete your own account" };
+  }
+
   // Check if the user can manage the target user
   if (!(await canManageRole(authResult.roleId, targetRoleDefId, authResult.isSuperAdmin, authResult.salonId))) {
     return { success: false, error: "You can only delete staff members whose role is below your own." };
-  }
-
-  // Prevent deleting yourself
-  if (id === authResult.userId) {
-    return { success: false, error: "You cannot delete your own account" };
   }
 
   // Check for existing data - recommend deactivation instead

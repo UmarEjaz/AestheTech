@@ -379,7 +379,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false, i
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={isSubmitting || availableRoles.length === 0}>
+        <Button type="submit" disabled={isSubmitting || (!roleLocked && availableRoles.length === 0)}>
           {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {mode === "create" ? "Create Staff Member" : "Update Staff Member"}
         </Button>

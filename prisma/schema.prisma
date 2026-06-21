@@ -482,6 +482,7 @@ model Invoice {
   @@index([salonId])
   @@index([clientId])
   @@index([status])
+  @@index([salonId, status, dueDate]) // supports overdue/outstanding lookups
   @@map("invoices")
 }
 

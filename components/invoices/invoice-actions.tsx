@@ -42,6 +42,7 @@ import {
 import { addPaymentToInvoice, cancelInvoice } from "@/lib/actions/invoice";
 import { RefundDialog } from "@/components/sales/refund-dialog";
 import { formatCurrency } from "@/lib/utils/currency";
+import { PaymentMethod } from "@prisma/client";
 
 const PAYMENT_METHODS = [
   { value: "CASH", label: "Cash" },
@@ -83,7 +84,7 @@ export function InvoiceActions({
 
   const [payOpen, setPayOpen] = useState(false);
   const [payAmount, setPayAmount] = useState("");
-  const [payMethod, setPayMethod] = useState<string>("CASH");
+  const [payMethod, setPayMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
@@ -105,7 +106,7 @@ export function InvoiceActions({
     }
     startTransition(async () => {
       try {
-        const res = await addPaymentToInvoice({ invoiceId, amount, method: payMethod as never });
+        const res = await addPaymentToInvoice({ invoiceId, amount, method: payMethod });
         if (!res.success) {
           toast.error(res.error);
           return;
@@ -218,7 +219,7 @@ export function InvoiceActions({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pay-method">Method</Label>
-              <Select value={payMethod} onValueChange={setPayMethod}>
+              <Select value={payMethod} onValueChange={(v) => setPayMethod(v as PaymentMethod)}>
                 <SelectTrigger id="pay-method">
                   <SelectValue />
                 </SelectTrigger>

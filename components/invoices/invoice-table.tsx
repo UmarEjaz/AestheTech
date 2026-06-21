@@ -82,23 +82,30 @@ export function InvoiceTable({
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [isLoading, setIsLoading] = useState(false);
   const isFirstRender = useRef(true);
+  const requestSeq = useRef(0);
 
   const load = useCallback(
     async (nextPage: number, q: string, s: StatusFilter) => {
+      const seq = ++requestSeq.current;
       setIsLoading(true);
-      const res = await fetchInvoices({
-        page: nextPage,
-        limit: 15,
-        ...(q.trim() && { query: q.trim() }),
-        ...(s !== "ALL" && { status: s }),
-      });
-      if (res.success && res.data) {
-        setInvoices(res.data.invoices);
-        setTotal(res.data.total);
-        setPage(res.data.page);
-        setTotalPages(res.data.totalPages);
+      try {
+        const res = await fetchInvoices({
+          page: nextPage,
+          limit: 15,
+          ...(q.trim() && { query: q.trim() }),
+          ...(s !== "ALL" && { status: s }),
+        });
+        // Ignore stale responses (a newer request started after this one).
+        if (seq !== requestSeq.current) return;
+        if (res.success && res.data) {
+          setInvoices(res.data.invoices);
+          setTotal(res.data.total);
+          setPage(res.data.page);
+          setTotalPages(res.data.totalPages);
+        }
+      } finally {
+        if (seq === requestSeq.current) setIsLoading(false);
       }
-      setIsLoading(false);
     },
     [fetchInvoices]
   );

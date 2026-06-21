@@ -34,7 +34,10 @@ export default async function EditStaffPage({
   const salonId = actor.salonId;
   await requireModule("staff");
   const permUserId = actor.userId;
-  if (!(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId))) {
+  // Self-edit is allowed even without staff:update (you can always edit your own
+  // profile). Require staff:update only when editing someone else.
+  const isSelf = actor.userId === id;
+  if (!isSelf && !(await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["staff:update"]);
   }
 
@@ -49,7 +52,6 @@ export default async function EditStaffPage({
   // Hierarchy guard: you can only edit someone ranked below you — unless it's
   // your own profile (self-edit is always allowed for name/email/phone). Block
   // here at load so users never reach a form they can't actually save.
-  const isSelf = actor.userId === user.id;
   if (!isSelf && !(await canManageRole(userRoleId, user.roleDefinitionId ?? "", isSuperAdmin, salonId))) {
     redirectAccessDenied(
       undefined,

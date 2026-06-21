@@ -138,3 +138,9 @@
 [data-sonner-toast] [data-close-button]:focus-visible {
   opacity: 1;
 }
+/* Touch / no-hover devices can't reveal on hover — keep the close button visible. */
+@media (hover: none), (pointer: coarse) {
+  [data-sonner-toast] [data-close-button] {
+    opacity: 1;
+  }
+}

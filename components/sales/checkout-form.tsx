@@ -164,8 +164,20 @@ export function CheckoutForm({
   // Distinguishes the two split-screen flows: false = "Split Payment" (pay the
   // full total across methods), true = "Partial payment or pay later" (partial/unpaid + due date).
   const [payLaterMode, setPayLaterMode] = useState(false);
-  const todayStr = () => new Date().toISOString().slice(0, 10);
-  const defaultDueDateStr = () => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  // Format/compare due dates against the user's LOCAL calendar day. Using
+  // toISOString() (UTC) here would shift the day by one near timezone boundaries.
+  const formatLocalDate = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const todayStr = () => formatLocalDate(new Date());
+  const defaultDueDateStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return formatLocalDate(d);
+  };
 
   // Walk-in client state
   const [isWalkIn, setIsWalkIn] = useState(false);
@@ -294,9 +306,14 @@ export function CheckoutForm({
     prevTotalRef.current = total;
   }, [total, isSplitMode, splitPayments.length]);
 
-  // Split payment helpers — amounts are raw strings, parsed for the running total.
+  // Split payment helpers — round each row ONCE and reuse it for both the
+  // "balanced?" check and the submitted payload, so the UI's completeness can't
+  // drift a cent from what actually gets saved.
+  const normalizedSplitRows = splitPayments
+    .map((p) => ({ method: p.method, amount: Math.round((parseFloat(p.amount) || 0) * 100) / 100 }))
+    .filter((p) => p.amount > 0);
   const splitTotal =
-    Math.round(splitPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0) * 100) / 100;
+    Math.round(normalizedSplitRows.reduce((sum, p) => sum + p.amount, 0) * 100) / 100;
   const splitRemaining = Math.round((total - splitTotal) * 100) / 100;
   const isSplitComplete = Math.abs(splitRemaining) < 0.01 && splitTotal > 0;
 
@@ -322,11 +339,8 @@ export function CheckoutForm({
     setSplitPayments((rows) => rows.filter((r) => r.id !== id));
   };
 
-  // Parsed, non-empty payment lines ready for submission.
-  const splitPaymentsForSubmit = () =>
-    splitPayments
-      .map((p) => ({ method: p.method, amount: Math.round((parseFloat(p.amount) || 0) * 100) / 100 }))
-      .filter((p) => p.amount > 0);
+  // Same normalized rows used for the balance check above — one source of truth.
+  const splitPaymentsForSubmit = () => normalizedSplitRows;
 
   const submitPayment = async (
     payments: { method: PaymentMethod; amount: number }[],
@@ -426,7 +440,7 @@ export function CheckoutForm({
       toast.error("Pick a due date for the remaining balance");
       return;
     }
-    if (new Date(dueDate) < new Date(todayStr())) {
+    if (dueDate < todayStr()) {
       toast.error("Due date can't be in the past");
       return;
     }
@@ -438,7 +452,7 @@ export function CheckoutForm({
       toast.error("Partial payments aren't enabled — collect the full amount.");
       return;
     }
-    submitPayment(splitPaymentsForSubmit(), new Date(dueDate));
+    submitPayment(splitPaymentsForSubmit(), new Date(`${dueDate}T00:00:00`));
   };
 
   // Enter "Split Payment": pay the full total across methods. Seed the two most
