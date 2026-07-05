@@ -21,6 +21,7 @@ export interface SettingsData {
   businessHoursEnd: string;
   appointmentInterval: number;
   allowOnlineBooking: boolean;
+  defaultAppointmentClientType: string;
   loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
@@ -66,6 +67,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           businessHoursEnd: "19:00",
           appointmentInterval: 30,
           allowOnlineBooking: true,
+          defaultAppointmentClientType: "EXISTING",
           loyaltyProgramEnabled: true,
           loyaltyPointsPerDollar: 1,
           goldThreshold: 500,
@@ -137,6 +139,14 @@ export async function updateSettings(
       } catch {
         return { success: false, error: "Invalid timezone" };
       }
+    }
+
+    // Validate default appointment client type if provided
+    if (
+      data.defaultAppointmentClientType !== undefined &&
+      !["EXISTING", "WALK_IN"].includes(data.defaultAppointmentClientType)
+    ) {
+      return { success: false, error: "Invalid default client type" };
     }
 
     // Validate currency code if provided

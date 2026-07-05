@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createSalon } from "@/lib/actions/salon";
+import { getTimezoneOptions, detectBrowserTimezone } from "@/lib/utils/timezone-options";
 
 function slugify(text: string): string {
   return text
@@ -38,6 +39,8 @@ export function CreateSalonForm() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [plan, setPlan] = useState("");
+  const [timezone, setTimezone] = useState(() => detectBrowserTimezone());
+  const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
   const handleNameChange = (value: string) => {
     setName(value);
@@ -73,6 +76,7 @@ export function CreateSalonForm() {
         phone: phone.trim() || undefined,
         address: address.trim() || undefined,
         subscriptionPlan: plan || undefined,
+        timezone: timezone || undefined,
       });
 
       if (result.success) {
@@ -166,6 +170,29 @@ export function CreateSalonForm() {
           disabled={submitting}
           rows={2}
         />
+      </div>
+
+      {/* Timezone */}
+      <div className="space-y-2">
+        <Label htmlFor="timezone">
+          Timezone <span className="text-destructive">*</span>
+        </Label>
+        <Select value={timezone} onValueChange={setTimezone} disabled={submitting}>
+          <SelectTrigger id="timezone">
+            <SelectValue placeholder="Select a timezone" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            {timezoneOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          The salon&apos;s local timezone — all appointment times are shown in it. Set it correctly
+          now; changing it later re-displays existing appointments at their equivalent local time.
+        </p>
       </div>
 
       {/* Subscription Plan */}

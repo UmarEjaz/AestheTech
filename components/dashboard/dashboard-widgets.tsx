@@ -9,7 +9,6 @@ import {
   DollarSign,
   TrendingUp,
   TrendingDown,
-  Clock,
   Star,
   ArrowRight,
   Wallet,
@@ -136,6 +135,21 @@ export function DashboardWidgets({ stats, timezone }: DashboardWidgetsProps) {
                 </>
               )}
               <span className="text-muted-foreground ml-1">from yesterday</span>
+            </div>
+            {/* Cash in (by payment date) — reconcile the drawer against THIS, not revenue. */}
+            <div className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+              <div className="flex justify-between">
+                <span>Collected today</span>
+                <span className="font-medium text-foreground">
+                  {formatCurrency(todaysRevenue.collected, currencyCode)}
+                </span>
+              </div>
+              {todaysRevenue.depositsHeld > 0 && (
+                <div className="mt-0.5 flex justify-between">
+                  <span>Deposits held</span>
+                  <span>{formatCurrency(todaysRevenue.depositsHeld, currencyCode)}</span>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

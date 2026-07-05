@@ -1,12 +1,30 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { format } from "date-fns";
-import { Loader2, Calendar as CalendarIcon, UserPlus, Users, Repeat, Info, DollarSign, Clock, AlertTriangle, Check } from "lucide-react";
+import { TZDate } from "@date-fns/tz";
+import { formatInTz } from "@/lib/utils/timezone";
+
+// Anchor a picked calendar day (its Y/M/D as the user saw it) to NOON in the salon
+// timezone, so slot lookups resolve to the salon's day regardless of the browser's
+// timezone. Noon keeps it well clear of midnight/DST boundaries.
+function salonDayAnchor(date: Date, tz: string): Date {
+  return new TZDate(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0, tz);
+}
+
+// Turn an instant into a "floating" local Date whose Y/M/D equals that instant's
+// SALON-timezone calendar day. The date-picker then displays/selects the salon day
+// no matter what timezone the staff member's computer is set to.
+function toSalonLocalDay(instant: Date, tz: string): Date {
+  const z = new TZDate(instant, tz);
+  return new Date(z.getFullYear(), z.getMonth(), z.getDate());
+}
+import { Loader2, Calendar as CalendarIcon, UserPlus, Users, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +44,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Calendar } from "@/components/ui/calendar";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -39,13 +65,15 @@ import {
   AppointmentFormData,
   AppointmentFormInput,
 } from "@/lib/validations/appointment";
-import { RecurrencePattern, RecurrenceEndType } from "@prisma/client";
+import { RecurrencePattern, RecurrenceEndType, PaymentMethod } from "@prisma/client";
+import { SELECTABLE_PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 import { PatternSelector, getPatternSummary } from "./pattern-selector";
 import { EndConditionSelector, getEndConditionSummary } from "./end-condition-selector";
 import {
   createAppointment,
   updateAppointment,
   getAvailableSlots,
+  addAppointmentDeposit,
   AppointmentListItem,
 } from "@/lib/actions/appointment";
 import { createRecurringSeries, previewRecurringConflicts, getRecurringPreviewDates, ConflictPreview } from "@/lib/actions/recurring-series";
@@ -82,6 +110,8 @@ interface AppointmentFormProps {
   services: Service[];
   staff: Staff[];
   initialDate?: Date;
+  defaultClientType?: "EXISTING" | "WALK_IN";
+  timezone?: string;
 }
 
 export function AppointmentForm({
@@ -91,19 +121,31 @@ export function AppointmentForm({
   services,
   staff,
   initialDate,
+  defaultClientType = "EXISTING",
+  timezone = "UTC",
 }: AppointmentFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(
-    appointment ? new Date(appointment.startTime) : initialDate || new Date()
+  const [slotError, setSlotError] = useState<string | null>(null);
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() =>
+    toSalonLocalDay(
+      appointment ? new Date(appointment.startTime) : initialDate ?? new Date(),
+      timezone
+    )
   );
   const [availableSlots, setAvailableSlots] = useState<{ startTime: Date; endTime: Date }[]>([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
-  // Walk-in client state
-  const [isWalkIn, setIsWalkIn] = useState(false);
+  // Walk-in client state — starts on the salon's configured default tab (create mode only).
+  const [isWalkIn, setIsWalkIn] = useState(mode === "create" && defaultClientType === "WALK_IN");
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
+
+  // Optional deposit collected at booking time (non-recurring only)
+  const [collectDeposit, setCollectDeposit] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositMethod, setDepositMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
 
   // Recurring appointment state
   const [isRecurring, setIsRecurring] = useState(false);
@@ -133,9 +175,14 @@ export function AppointmentForm({
     handleSubmit,
     watch,
     setValue,
+    setError,
+    clearErrors,
     formState: { errors },
   } = useForm<AppointmentFormInput, unknown, AppointmentFormData>({
-    resolver: zodResolver(appointmentSchema),
+    // clientId isn't required at the resolver level because a Walk-in booking has no
+    // clientId (it's created on submit). The "existing client selected" check is done
+    // in onSubmit instead, so switching to Walk-in no longer blocks submission.
+    resolver: zodResolver(appointmentSchema.extend({ clientId: z.string() })),
     defaultValues: {
       clientId: appointment?.clientId || "",
       serviceId: appointment?.serviceId || "",
@@ -162,7 +209,6 @@ export function AppointmentForm({
 
   // Preview dates state (fetched from server for accuracy)
   const [previewDates, setPreviewDates] = useState<Date[]>([]);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   // Fetch preview dates from server using the same logic as actual creation
   useEffect(() => {
@@ -175,12 +221,11 @@ export function AppointmentForm({
 
     // Debounce the server call
     const timeoutId = setTimeout(async () => {
-      setIsLoadingPreview(true);
       try {
         const result = await getRecurringPreviewDates({
           pattern: recurrencePattern,
           startDate,
-          timeOfDay: format(startDate, "HH:mm"),
+          timeOfDay: formatInTz(startDate, "HH:mm", timezone),
           dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
             ? specificDays[0] ?? dayOfWeek
             : dayOfWeek,
@@ -191,6 +236,7 @@ export function AppointmentForm({
           endAfterCount: endType === "AFTER_COUNT" ? endAfterCount : undefined,
           endByDate: endType === "BY_DATE" ? endByDate : undefined,
           maxPreviewCount: 6,
+          timeZone: timezone,
         });
 
         if (result.success) {
@@ -198,13 +244,11 @@ export function AppointmentForm({
         }
       } catch (error) {
         console.error("Error fetching preview dates:", error);
-      } finally {
-        setIsLoadingPreview(false);
       }
     }, 300); // 300ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [isRecurring, watchedStartTime, recurrencePattern, customWeeks, specificDays, nthWeek, dayOfWeek, endType, endAfterCount, endByDate]);
+  }, [isRecurring, watchedStartTime, recurrencePattern, customWeeks, specificDays, nthWeek, dayOfWeek, endType, endAfterCount, endByDate, timezone]);
 
   // Fetch available slots when staff, service, or date changes
   useEffect(() => {
@@ -215,7 +259,8 @@ export function AppointmentForm({
       try {
         const result = await getAvailableSlots({
           staffId: watchedStaffId,
-          date: selectedDate,
+          // Resolve slots for the salon's calendar day, not the browser's.
+          date: salonDayAnchor(selectedDate, timezone),
           serviceId: watchedServiceId,
           // In edit mode, exclude the current appointment from conflict check
           excludeAppointmentId: mode === "edit" ? appointment?.id : undefined,
@@ -230,7 +275,7 @@ export function AppointmentForm({
     };
 
     fetchSlots();
-  }, [watchedStaffId, watchedServiceId, selectedDate, mode, appointment?.id]);
+  }, [watchedStaffId, watchedServiceId, selectedDate, mode, appointment?.id, timezone]);
 
   // Auto-select the matching time slot when slots load
   useEffect(() => {
@@ -310,7 +355,7 @@ export function AppointmentForm({
         dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
           ? specificDays[0] ?? dayOfWeek
           : dayOfWeek,
-        timeOfDay: format(startTime, "HH:mm"),
+        timeOfDay: formatInTz(startTime, "HH:mm", timezone),
         startDate: startTime,
         specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
         nthWeek: recurrencePattern === "NTH_WEEKDAY" ? nthWeek : undefined,
@@ -369,7 +414,76 @@ export function AppointmentForm({
     );
   };
 
+  // Walk-in is here right now: book at the current time (bypassing the slot grid and
+  // business hours) and go straight to checkout so they can pay and start immediately.
+  const handleWalkInNow = async () => {
+    const serviceId = watch("serviceId");
+    const staffId = watch("staffId");
+    if (!walkInName.trim()) {
+      toast.error("Please enter the walk-in client's name");
+      return;
+    }
+    if (!serviceId) {
+      toast.error("Please select a service");
+      return;
+    }
+    if (!staffId) {
+      toast.error("Please select a staff member");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const walkInResult = await createWalkInClient({
+        firstName: walkInName.trim(),
+        phone: walkInPhone.trim() || undefined,
+      });
+      if (!walkInResult.success) {
+        toast.error(walkInResult.error);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const result = await createAppointment({
+        clientId: walkInResult.data.id,
+        serviceId,
+        staffId,
+        startTime: new Date(),
+        notes: watch("notes") || undefined,
+      });
+
+      if (result.success) {
+        toast.success(`Walk-in "${walkInResult.data.firstName}" booked — proceeding to checkout`);
+        router.push(`/dashboard/sales/new?appointmentId=${result.data.id}`);
+      } else {
+        toast.error(result.error);
+        setIsSubmitting(false);
+      }
+    } catch {
+      toast.error("An unexpected error occurred");
+      setIsSubmitting(false);
+    }
+  };
+
   const onSubmit = async (data: AppointmentFormData) => {
+    // Existing-client bookings need a selected client (walk-ins don't — created below).
+    if (!isWalkIn && !data.clientId) {
+      setError("clientId", { message: "Client is required" });
+      return;
+    }
+    // A time slot must be explicitly chosen — otherwise startTime silently defaults to
+    // "now", which can land outside business hours and become invisible on the calendar.
+    if (mode === "create") {
+      const chosenMs =
+        data.startTime instanceof Date ? data.startTime.getTime() : new Date(data.startTime).getTime();
+      const slotChosen = availableSlots.some((s) => new Date(s.startTime).getTime() === chosenMs);
+      if (!slotChosen) {
+        setSlotError("Please select an available time slot");
+        toast.error("Please select a time slot");
+        return;
+      }
+    }
+    setSlotError(null);
     setIsSubmitting(true);
 
     try {
@@ -411,7 +525,7 @@ export function AppointmentForm({
             dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
               ? specificDays[0] ?? dayOfWeek
               : dayOfWeek,
-            timeOfDay: format(startTime, "HH:mm"),
+            timeOfDay: formatInTz(startTime, "HH:mm", timezone),
             startDate: startTime,
             specificDays: recurrencePattern === "SPECIFIC_DAYS" ? specificDays : undefined,
             nthWeek: recurrencePattern === "NTH_WEEKDAY" ? nthWeek : undefined,
@@ -442,7 +556,25 @@ export function AppointmentForm({
         } else {
           const result = await createAppointment({ ...data, clientId });
           if (result.success) {
-            toast.success("Appointment booked successfully");
+            // Optionally record a deposit taken at booking time.
+            const depositValue = Number(depositAmount);
+            if (collectDeposit && Number.isFinite(depositValue) && depositValue > 0) {
+              const depositResult = await addAppointmentDeposit(result.data.id, {
+                amount: depositValue,
+                method: depositMethod,
+              });
+              if (depositResult.success) {
+                toast.success(
+                  `Appointment booked · $${depositValue.toFixed(2)} deposit recorded`
+                );
+              } else {
+                toast.warning(
+                  `Appointment booked, but the deposit couldn't be recorded (${depositResult.error}). Add it from the appointment.`
+                );
+              }
+            } else {
+              toast.success("Appointment booked successfully");
+            }
             router.push("/dashboard/appointments");
           } else {
             toast.error(result.error);
@@ -476,6 +608,7 @@ export function AppointmentForm({
 
   const handleTimeSlotSelect = (slot: { startTime: Date; endTime: Date }) => {
     setValue("startTime", slot.startTime);
+    setSlotError(null);
   };
 
   return (
@@ -492,11 +625,7 @@ export function AppointmentForm({
                 type="button"
                 variant={!isWalkIn ? "default" : "outline"}
                 size="sm"
-                onClick={() => {
-                  setIsWalkIn(false);
-                  setWalkInName("");
-                  setWalkInPhone("");
-                }}
+                onClick={() => setIsWalkIn(false)}
                 className="flex-1"
               >
                 <Users className="h-4 w-4 mr-2" />
@@ -508,8 +637,9 @@ export function AppointmentForm({
                 size="sm"
                 onClick={() => {
                   setIsWalkIn(true);
-                  // Clear validation errors for clientId when in walk-in mode
-                  setValue("clientId", "", { shouldValidate: false });
+                  // Don't wipe the entered data — just drop the "client required" error
+                  // so it doesn't linger on the Walk-in tab.
+                  clearErrors("clientId");
                 }}
                 className="flex-1"
               >
@@ -524,22 +654,67 @@ export function AppointmentForm({
             {!isWalkIn ? (
               <div className="space-y-2">
                 <Label htmlFor="clientId">Client *</Label>
-                <Select
-                  value={watch("clientId")}
-                  onValueChange={(value) => setValue("clientId", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map((client) => (
-                      <SelectItem key={client.id} value={client.id}>
-                        {client.firstName} {client.lastName || ""} {client.phone ? `- ${client.phone}` : ""}
-                        {client.isWalkIn && " (Walk-in)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {(() => {
+                  const selectedClientId = watch("clientId");
+                  const selectedClient = clients.find((c) => c.id === selectedClientId);
+                  return (
+                    <Popover open={clientPickerOpen} onOpenChange={setClientPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={clientPickerOpen}
+                          className="w-full justify-between font-normal"
+                        >
+                          <span className={cn("truncate", !selectedClient && "text-muted-foreground")}>
+                            {selectedClient
+                              ? `${selectedClient.firstName} ${selectedClient.lastName || ""}`.trim() +
+                                (selectedClient.phone ? ` · ${selectedClient.phone}` : "")
+                              : "Select a client"}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Search by name or phone..." />
+                          <CommandList>
+                            <CommandEmpty>No client found.</CommandEmpty>
+                            <CommandGroup>
+                              {clients.map((client) => {
+                                const label = `${client.firstName} ${client.lastName || ""}`.trim();
+                                return (
+                                  <CommandItem
+                                    key={client.id}
+                                    value={`${label} ${client.phone || ""}`}
+                                    onSelect={() => {
+                                      setValue("clientId", client.id, { shouldValidate: false });
+                                      clearErrors("clientId");
+                                      setClientPickerOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedClientId === client.id ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    <span className="truncate">
+                                      {label}
+                                      {client.phone ? ` · ${client.phone}` : ""}
+                                      {client.isWalkIn && " (Walk-in)"}
+                                    </span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  );
+                })()}
                 {errors.clientId && !isWalkIn && (
                   <p className="text-sm text-destructive">{errors.clientId.message}</p>
                 )}
@@ -657,6 +832,30 @@ export function AppointmentForm({
           <CardTitle>Date & Time</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Walk-in is here right now — skip the slot grid, book at current time, go to checkout */}
+          {isWalkIn && mode === "create" && !isRecurring && (
+            <div className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 font-medium">
+                  <Zap className="h-4 w-4 text-primary" />
+                  Client is here right now?
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Books at the current time and takes you straight to checkout.
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={handleWalkInNow}
+                disabled={isSubmitting}
+                className="shrink-0"
+              >
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
+                Walk in now
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label>Select Date *</Label>
             <Popover>
@@ -675,9 +874,22 @@ export function AppointmentForm({
               <PopoverContent className="w-auto p-0" align="start">
                 <Calendar
                   mode="single"
+                  // Highlight "today" by the salon timezone, not the computer's.
+                  today={toSalonLocalDay(new Date(), timezone)}
                   selected={selectedDate}
                   onSelect={handleDateSelect}
-                  disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                  disabled={(date) => {
+                    // Disable days before "today" in the SALON timezone (compare by
+                    // calendar-day components so the browser's tz doesn't shift it).
+                    const salonNow = new TZDate(new Date(), timezone);
+                    const salonToday = new Date(
+                      salonNow.getFullYear(),
+                      salonNow.getMonth(),
+                      salonNow.getDate()
+                    );
+                    const cell = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                    return cell < salonToday;
+                  }}
                   initialFocus
                 />
               </PopoverContent>
@@ -697,16 +909,20 @@ export function AppointmentForm({
                     const isSelected =
                       watchedStartTime instanceof Date &&
                       new Date(watchedStartTime).getTime() === new Date(slot.startTime).getTime();
+                    // Slots earlier than "now" (only possible for today) can't be booked.
+                    const isPast = new Date(slot.startTime).getTime() < Date.now();
                     return (
                       <Button
                         key={index}
                         type="button"
                         variant={isSelected ? "default" : "outline"}
                         size="sm"
+                        disabled={isPast}
+                        title={isPast ? "This time has already passed" : undefined}
                         onClick={() => handleTimeSlotSelect(slot)}
                         className="text-xs"
                       >
-                        {format(new Date(slot.startTime), "h:mm a")}
+                        {formatInTz(slot.startTime, "h:mm a", timezone)}
                       </Button>
                     );
                   })}
@@ -717,8 +933,8 @@ export function AppointmentForm({
                   member.
                 </p>
               )}
-              {errors.startTime && (
-                <p className="text-sm text-destructive">{errors.startTime.message}</p>
+              {(errors.startTime || slotError) && (
+                <p className="text-sm text-destructive">{errors.startTime?.message || slotError}</p>
               )}
             </div>
           )}
@@ -877,7 +1093,7 @@ export function AppointmentForm({
                       <div className="flex flex-wrap gap-2">
                         {previewDates.map((date, index) => (
                           <Badge key={index} variant="secondary" className="text-xs">
-                            {format(date, "MMM d")}
+                            {formatInTz(date, "MMM d", timezone)}
                           </Badge>
                         ))}
                         {previewDates.length >= 6 && endType !== "AFTER_COUNT" && (
@@ -895,8 +1111,8 @@ export function AppointmentForm({
                         })}
                         {" at "}
                         {watchedStartTime instanceof Date
-                          ? format(watchedStartTime, "h:mm a")
-                          : format(new Date(watchedStartTime as string | number), "h:mm a")}
+                          ? formatInTz(watchedStartTime, "h:mm a", timezone)
+                          : formatInTz(new Date(watchedStartTime as string | number), "h:mm a", timezone)}
                         {" \u2022 "}
                         {getEndConditionSummary(endType, { endAfterCount, endByDate })}
                       </p>
@@ -1025,7 +1241,74 @@ export function AppointmentForm({
         </CardContent>
       </Card>
 
-      <div className="flex gap-4">
+      {/* Deposit Section — last, right before the action buttons */}
+      {mode === "create" && !isRecurring && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-5 w-5" />
+                <CardTitle>Deposit</CardTitle>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="deposit-toggle" className="text-sm font-normal">
+                  Collect a deposit now
+                </Label>
+                <Switch
+                  id="deposit-toggle"
+                  checked={collectDeposit}
+                  onCheckedChange={setCollectDeposit}
+                />
+              </div>
+            </div>
+          </CardHeader>
+          {collectDeposit && (
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Prepayment held against this appointment. It&apos;s applied toward the total at
+                checkout — you only collect the remaining balance on the day.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="depositAmount">Amount</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                    <Input
+                      id="depositAmount"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      inputMode="decimal"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="pl-7"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="depositMethod">Method</Label>
+                  <Select
+                    value={depositMethod}
+                    onValueChange={(v) => setDepositMethod(v as PaymentMethod)}
+                  >
+                    <SelectTrigger id="depositMethod">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SELECTABLE_PAYMENT_METHODS.map((m) => (
+                        <SelectItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      <div className="flex justify-end gap-4">
         <Button
           type="button"
           variant="outline"

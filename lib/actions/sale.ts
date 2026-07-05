@@ -12,7 +12,7 @@ import {
   CompleteSaleInput,
   SaleSearchParams,
 } from "@/lib/validations/sale";
-import { Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
+import { Prisma, PaymentMethod, InvoiceStatus, AppointmentStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
 import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
@@ -239,7 +239,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { clientId, items, discount, discountType } = validationResult.data;
+  const { clientId, items, discount, discountType, appointmentId } = validationResult.data;
 
   try {
     // Get org salon IDs to validate cross-branch references within the organization
@@ -253,6 +253,21 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
 
     if (!client || !client.isActive) {
       return { success: false, error: "Client not found or inactive" };
+    }
+
+    // If checking out an appointment, verify it belongs to this salon and hasn't
+    // already been checked out (one sale per appointment).
+    if (appointmentId) {
+      const appt = await prisma.appointment.findFirst({
+        where: { id: appointmentId, salonId: authResult.salonId },
+        select: { sale: { select: { id: true } } },
+      });
+      if (!appt) {
+        return { success: false, error: "Appointment not found" };
+      }
+      if (appt.sale) {
+        return { success: false, error: "This appointment has already been checked out." };
+      }
     }
 
     // Verify services and products belong to the organization
@@ -322,6 +337,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
         salonId: authResult.salonId,
         clientId,
         staffId: authResult.userId,
+        appointmentId: appointmentId || null,
         totalAmount,
         discount: discountAmount,
         finalAmount,
@@ -414,6 +430,19 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       return { success: false, error: "Sale already has an invoice" };
     }
 
+    // Deposits already taken against the appointment this sale checks out. They
+    // count toward the invoice and are re-linked to it inside the transaction.
+    const appointmentDeposits = sale.appointmentId
+      ? await prisma.payment.findMany({
+          where: { appointmentId: sale.appointmentId, invoiceId: null },
+          select: { id: true, amount: true },
+        })
+      : [];
+    const depositCents = appointmentDeposits.reduce(
+      (sum, p) => sum + Math.round(Number(p.amount) * 100),
+      0
+    );
+
     // Validate points redemption
     if (redeemPoints > 0) {
       const clientPoints = sale.client.loyaltyPoints?.balance || 0;
@@ -463,12 +492,14 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     // Partial / pay-later are allowed (under-payment); only an
     // over-payment is rejected. The invoice status is derived from the amount paid.
     const toIntCents = (n: number) => Math.round(n * 100);
-    const paymentTotalCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
+    // Amount collected at checkout PLUS any deposit already taken = total paid.
+    const checkoutCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
+    const paymentTotalCents = checkoutCents + depositCents;
     const invoiceTotalCents = toIntCents(totalWithTax);
     if (paymentTotalCents > invoiceTotalCents) {
       return {
         success: false,
-        error: `Payment total (${(paymentTotalCents / 100).toFixed(2)}) exceeds the invoice total (${(invoiceTotalCents / 100).toFixed(2)})`
+        error: `Amount paid (${(paymentTotalCents / 100).toFixed(2)}) exceeds the invoice total (${(invoiceTotalCents / 100).toFixed(2)})`
       };
     }
 
@@ -560,7 +591,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         },
       });
 
-      // Create payments
+      // Create payments collected at checkout
       for (const payment of payments) {
         await tx.payment.create({
           data: {
@@ -568,6 +599,23 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
             amount: payment.amount,
             method: payment.method,
           },
+        });
+      }
+
+      // Apply appointment deposit(s): re-link them to this invoice so they count
+      // toward it (keeping appointmentId for provenance).
+      if (appointmentDeposits.length > 0) {
+        await tx.payment.updateMany({
+          where: { id: { in: appointmentDeposits.map((d) => d.id) } },
+          data: { invoiceId: invoice.id },
+        });
+      }
+
+      // Mark the checked-out appointment COMPLETED.
+      if (sale.appointmentId) {
+        await tx.appointment.update({
+          where: { id: sale.appointmentId },
+          data: { status: AppointmentStatus.COMPLETED },
         });
       }
 

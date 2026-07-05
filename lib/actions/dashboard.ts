@@ -31,6 +31,8 @@ export interface DashboardStats {
     amount: number;
     salesCount: number;
     comparison: number; // percentage change from yesterday
+    collected: number; // cash actually received today (by paidAt, incl. deposits)
+    depositsHeld: number; // outstanding prepayments not yet applied (a liability)
   };
   clients?: {
     total: number;
@@ -179,6 +181,8 @@ export async function getDashboardStats(params?: {
       todaysExpensesData,
       monthlyPayrollData,
       todaysSaleItemsData,
+      todaysCollectedData,
+      depositsHeldData,
     ] = await Promise.all([
       // Today's appointments (only if permitted)
       canViewAppointments
@@ -344,6 +348,33 @@ export async function getDashboardStats(params?: {
             select: { quantity: true, costAtSale: true },
           })
         : Promise.resolve([]),
+
+      // Cash collected today (by paidAt, includes deposits taken today) — for the
+      // Revenue-vs-Collected reconciliation. Scoped via invoice or appointment salon.
+      canViewSales
+        ? prisma.payment.findMany({
+            where: {
+              paidAt: { gte: todayStart, lt: todayEnd },
+              OR: [
+                { invoice: { salonId: salonFilter } },
+                { appointment: { salonId: salonFilter } },
+              ],
+            },
+            select: { amount: true },
+          })
+        : Promise.resolve([]),
+
+      // Deposits held = outstanding prepayments not yet applied to an invoice (a liability).
+      canViewSales
+        ? prisma.payment.findMany({
+            where: {
+              invoiceId: null,
+              appointmentId: { not: null },
+              appointment: { salonId: salonFilter },
+            },
+            select: { amount: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     // Process appointments data
@@ -366,6 +397,8 @@ export async function getDashboardStats(params?: {
     const revenueComparison = yesterdaysRevenue > 0
       ? ((todaysRevenue - yesterdaysRevenue) / yesterdaysRevenue) * 100
       : todaysRevenue > 0 ? 100 : 0;
+    const todaysCollected = todaysCollectedData.reduce((sum, p) => sum + Number(p.amount), 0);
+    const depositsHeld = depositsHeldData.reduce((sum, p) => sum + Number(p.amount), 0);
 
     // Get service names for top services
     const serviceIds = topServicesData.map((s) => s.serviceId).filter((id): id is string => id !== null);
@@ -432,6 +465,8 @@ export async function getDashboardStats(params?: {
           amount: todaysRevenue,
           salesCount: todaysSales.length,
           comparison: Math.round(revenueComparison * 10) / 10,
+          collected: todaysCollected,
+          depositsHeld,
         },
       }),
       ...(canViewClients && {

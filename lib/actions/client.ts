@@ -269,6 +269,8 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
       };
     }
   }
+  // Phone-less walk-ins are always created as separate records — two walk-ins with the
+  // same name can be different people, so we never merge them by name alone.
 
   const client = await prisma.client.create({
     data: {

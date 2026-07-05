@@ -59,7 +59,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   // - Clients/services: org-scoped against the appointment's organization
   // - Staff: scoped to the appointment's branch (so the currently assigned staff appears)
   const orgSalonIds = await getOrganizationSalonIds(appointment.salonId);
-  const [clients, services, staffRows] = await Promise.all([
+  const [clients, services, staffRows, settingsRow] = await Promise.all([
     prisma.client.findMany({
       where: { salonId: { in: orgSalonIds }, isActive: true },
       select: {
@@ -95,8 +95,13 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       distinct: ["userId"],
       orderBy: { user: { firstName: "asc" } },
     }),
+    prisma.settings.findUnique({
+      where: { salonId: appointment.salonId },
+      select: { timezone: true },
+    }),
   ]);
   const staff = staffRows.map((row) => row.user);
+  const timezone = settingsRow?.timezone || "UTC";
 
   return (
     <>
@@ -128,6 +133,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
             category: s.category?.name ?? null,
           }))}
           staff={staff}
+          timezone={timezone}
         />
       </div>
     </>

@@ -330,10 +330,22 @@ export async function createSalon(data: {
   phone?: string;
   address?: string;
   subscriptionPlan?: string;
+  timezone?: string;
 }): Promise<ActionResult<{ id: string }>> {
   const session = await auth();
   if (!session?.user?.isPlatformAdmin) {
     return { success: false, error: "Unauthorized" };
+  }
+
+  // Validate the timezone (accepts "UTC" and all IANA zones); default to UTC.
+  let timezone = "UTC";
+  if (data.timezone) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: data.timezone });
+      timezone = data.timezone;
+    } catch {
+      return { success: false, error: "Invalid timezone" };
+    }
   }
 
   try {
@@ -366,6 +378,7 @@ export async function createSalon(data: {
               salonEmail: data.email || null,
               salonPhone: data.phone || null,
               salonAddress: data.address || null,
+              timezone,
             },
           },
         },

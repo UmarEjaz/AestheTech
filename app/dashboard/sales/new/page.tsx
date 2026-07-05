@@ -5,13 +5,17 @@ import { CheckoutForm } from "@/components/sales/checkout-form";
 import { getClients } from "@/lib/actions/client";
 import { getServices } from "@/lib/actions/service";
 import { getActiveProducts } from "@/lib/actions/product";
-import { getStaffForAppointments } from "@/lib/actions/appointment";
+import { getStaffForAppointments, getAppointment } from "@/lib/actions/appointment";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
 
-export default async function NewSalePage() {
+export default async function NewSalePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ appointmentId?: string }>;
+}) {
   const session = await auth();
 
   if (!session) {
@@ -104,13 +108,71 @@ export default async function NewSalePage() {
   // Transform products
   const products = productsResult.success ? productsResult.data : [];
 
+  // If launched from an appointment ("Check out"), build the appointment context:
+  // lock the client, seed the cart with the booked service, and carry the deposit.
+  const { appointmentId } = await searchParams;
+  type ApptCtx = {
+    appointmentId: string;
+    client: (typeof clientsWithLoyalty)[number];
+    depositPaid: number;
+    staffId: string;
+    seedItem: {
+      id: string;
+      type: "service";
+      serviceId: string;
+      name: string;
+      staffId: string;
+      staffName: string;
+      price: number;
+      quantity: number;
+      points: number;
+    };
+  };
+  let appointmentContext: ApptCtx | undefined;
+
+  if (appointmentId) {
+    const apptResult = await getAppointment(appointmentId);
+    if (apptResult.success && !apptResult.data.sale) {
+      const appt = apptResult.data;
+      const seedService = services.find((s) => s.id === appt.serviceId);
+      const fullClient = clientsWithLoyalty.find((c) => c.id === appt.clientId) ?? {
+        id: appt.client.id,
+        firstName: appt.client.firstName,
+        lastName: appt.client.lastName,
+        phone: appt.client.phone,
+        email: appt.client.email,
+        isWalkIn: appt.client.isWalkIn,
+        loyaltyPoints: null,
+      };
+      appointmentContext = {
+        appointmentId: appt.id,
+        client: fullClient,
+        depositPaid: appt.payments.reduce((s, p) => s + Number(p.amount), 0),
+        staffId: appt.staffId,
+        seedItem: {
+          id: `appt-${appt.serviceId}`,
+          type: "service",
+          serviceId: appt.serviceId,
+          name: seedService?.name ?? appt.service.name,
+          staffId: appt.staffId,
+          staffName: `${appt.staff.firstName} ${appt.staff.lastName}`,
+          price: seedService?.price ?? Number(appt.service.price),
+          quantity: 1,
+          points: seedService?.points ?? 0,
+        },
+      };
+    }
+  }
+
   return (
     <>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">New Sale</h1>
+          <h1 className="text-3xl font-bold">{appointmentContext ? "Check Out Appointment" : "New Sale"}</h1>
           <p className="text-muted-foreground">
-            Create a new sale by selecting a client, services, and products
+            {appointmentContext
+              ? "Review the booked service, add any extras, and take payment."
+              : "Create a new sale by selecting a client, services, and products"}
           </p>
         </div>
 
@@ -125,6 +187,7 @@ export default async function NewSalePage() {
           loyaltyProgramEnabled={settings.loyaltyProgramEnabled}
           allowPartialPayment={settings.allowPartialPayment}
           allowPayLater={settings.allowPayLater}
+          appointmentContext={appointmentContext}
         />
       </div>
     </>

@@ -19,6 +19,8 @@ export const saleItemSchema = z.object({
 // Schema for creating a sale
 export const createSaleSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
+  // When set, this sale is the checkout of an appointment (links sale↔appointment).
+  appointmentId: z.string().optional(),
   items: z
     .array(saleItemSchema)
     .min(1, "At least one item is required"),

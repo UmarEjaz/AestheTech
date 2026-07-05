@@ -20,8 +20,22 @@ import {
   CancelFromDateFormData,
 } from "@/lib/validations/appointment";
 import { Prisma, RecurrencePattern, RecurrenceEndType } from "@prisma/client";
-import { format, startOfDay, isBefore, addMonths } from "date-fns";
+import { format, isBefore, addMonths } from "date-fns";
+import { TZDate } from "@date-fns/tz";
 import { formatInTz } from "@/lib/utils/timezone";
+
+// Build an instant for hours:minutes on the salon-tz calendar day of `ref`.
+function salonTimeOnDay(ref: Date, hours: number, minutes: number, tz: string): Date {
+  const d = new TZDate(ref, tz);
+  return new Date(new TZDate(d.getFullYear(), d.getMonth(), d.getDate(), hours, minutes, 0, 0, tz).getTime());
+}
+// Start-of-day and the day key, both in the salon timezone.
+function salonDayStart(ref: Date, tz: string): Date {
+  return salonTimeOnDay(ref, 0, 0, tz);
+}
+function salonDayKey(ref: Date, tz: string): string {
+  return formatInTz(ref, "yyyy-MM-dd", tz);
+}
 import { getTimezone } from "@/lib/actions/settings";
 import {
   calculateRecurringDates,
@@ -200,6 +214,7 @@ export async function createRecurringSeries(
       endAfterCount: validData.endAfterCount,
       endByDate: validData.endByDate,
       exceptionDates: [],
+      timeZone: tz,
     };
 
     const dates = calculateRecurringDates(dateConfig);
@@ -209,19 +224,21 @@ export async function createRecurringSeries(
     let createdCount = 0;
     const serviceDuration = service.duration + (validData.bufferMinutes ?? 0);
 
-    // Build lookup maps for user conflict resolution choices
+    // Build lookup maps for user conflict resolution choices. Key by the salon-tz
+    // calendar day so generated occurrences and user-picked dates match regardless of
+    // the server's timezone.
     const userSkipDates = new Set(
-      (validData.skipDates ?? []).map(d => startOfDay(new Date(d)).getTime())
+      (validData.skipDates ?? []).map(d => salonDayKey(new Date(d), tz))
     );
     const alternativesByDate = new Map(
       (validData.selectedAlternatives ?? []).map(alt => [
-        startOfDay(new Date(alt.originalDate)).getTime(),
+        salonDayKey(new Date(alt.originalDate), tz),
         alt.alternative,
       ])
     );
 
     for (const date of dates) {
-      const dateKey = startOfDay(date).getTime();
+      const dateKey = salonDayKey(date, tz);
 
       // Check if user explicitly chose to skip this date
       if (userSkipDates.has(dateKey)) {
@@ -528,11 +545,9 @@ export async function updateSeriesAppointments(
 
       if (timeOfDay) {
         const { hours, minutes } = parseTimeOfDay(timeOfDay);
-        const currentStart = new Date(appointment.startTime);
-        const newStartTime = new Date(currentStart);
-        newStartTime.setHours(hours, minutes, 0, 0);
-        const newEndTime = new Date(newStartTime);
-        newEndTime.setMinutes(newEndTime.getMinutes() + serviceDuration);
+        // Keep the appointment's (salon) day, apply the new time in the salon timezone.
+        const newStartTime = salonTimeOnDay(appointment.startTime, hours, minutes, tz);
+        const newEndTime = new Date(newStartTime.getTime() + serviceDuration * 60 * 1000);
 
         // Check for conflicts with new time
         const hasConflict = await checkConflict(
@@ -837,6 +852,7 @@ export async function extendSeries(
         : undefined,
       endByDate: series.endType === "BY_DATE" ? series.endByDate : endDate,
       exceptionDates,
+      timeZone: tz,
     };
 
     const dates = calculateRecurringDates(dateConfig);
@@ -852,8 +868,8 @@ export async function extendSeries(
           salonId: authResult.salonId,
           seriesId,
           startTime: {
-            gte: startOfDay(date),
-            lt: new Date(startOfDay(date).getTime() + 24 * 60 * 60 * 1000),
+            gte: salonDayStart(date, tz),
+            lt: new Date(salonDayStart(date, tz).getTime() + 24 * 60 * 60 * 1000),
           },
         },
       });
@@ -995,6 +1011,7 @@ export async function addExceptionDate(
   }
 
   const { seriesId, date, reason } = validationResult.data;
+  const tz = await getTimezone();
 
   try {
     const series = await prisma.recurringAppointmentSeries.findFirst({
@@ -1014,7 +1031,7 @@ export async function addExceptionDate(
       where: {
         seriesId_date: {
           seriesId,
-          date: startOfDay(date),
+          date: salonDayStart(date, tz),
         },
       },
     });
@@ -1026,7 +1043,7 @@ export async function addExceptionDate(
     const exception = await prisma.recurringSeriesException.create({
       data: {
         seriesId,
-        date: startOfDay(date),
+        date: salonDayStart(date, tz),
         reason: reason || null,
       },
     });
@@ -1036,8 +1053,8 @@ export async function addExceptionDate(
       where: {
         seriesId,
         startTime: {
-          gte: startOfDay(date),
-          lt: new Date(startOfDay(date).getTime() + 24 * 60 * 60 * 1000),
+          gte: salonDayStart(date, tz),
+          lt: new Date(salonDayStart(date, tz).getTime() + 24 * 60 * 60 * 1000),
         },
         status: { notIn: ["COMPLETED", "CANCELLED", "NO_SHOW"] },
       },
@@ -1190,6 +1207,7 @@ export async function cancelFromDate(
   }
 
   const { seriesId, fromDate } = validationResult.data;
+  const tz = await getTimezone();
 
   try {
     const series = await prisma.recurringAppointmentSeries.findFirst({
@@ -1203,14 +1221,14 @@ export async function cancelFromDate(
     const result = await prisma.appointment.updateMany({
       where: {
         seriesId,
-        startTime: { gte: startOfDay(fromDate) },
+        startTime: { gte: salonDayStart(fromDate, tz) },
         status: { notIn: ["COMPLETED", "CANCELLED", "NO_SHOW"] },
       },
       data: { status: "CANCELLED" },
     });
 
     await logAuditAction(seriesId, "CANCELLED_FROM_DATE", authResult.userId, {
-      fromDate: format(fromDate, "yyyy-MM-dd"),
+      fromDate: formatInTz(fromDate, "yyyy-MM-dd", tz),
       cancelledCount: result.count,
     });
 
@@ -1240,6 +1258,7 @@ export interface PreviewDatesParams {
   endAfterCount?: number;
   endByDate?: Date;
   maxPreviewCount?: number;
+  timeZone?: string;
 }
 
 /**
@@ -1264,6 +1283,7 @@ export async function getRecurringPreviewDates(
     endAfterCount,
     endByDate,
     maxPreviewCount = 6, // Show max 6 dates in preview
+    timeZone,
   } = params;
 
   try {
@@ -1282,6 +1302,7 @@ export async function getRecurringPreviewDates(
       endByDate: endType === "BY_DATE" ? endByDate : undefined,
       exceptionDates: [],
       maxDates: maxPreviewCount,
+      timeZone: timeZone || "UTC",
     };
 
     const dates = calculateRecurringDates(dateConfig);
@@ -1374,6 +1395,7 @@ export async function previewRecurringConflicts(
       endAfterCount: validData.endAfterCount,
       endByDate: validData.endByDate,
       exceptionDates: [],
+      timeZone: settings?.timezone || "UTC",
     };
 
     const dates = calculateRecurringDates(dateConfig);
@@ -1400,7 +1422,8 @@ export async function previewRecurringConflicts(
           validData.timeOfDay,
           businessStart,
           businessEnd,
-          authResult.salonId
+          authResult.salonId,
+          settings?.timezone || "UTC"
         );
 
         conflicts.push({
@@ -1438,7 +1461,8 @@ async function findAlternativeSlotsForDate(
   preferredTime: string,
   businessStart: string,
   businessEnd: string,
-  salonId?: string
+  salonId: string | undefined,
+  tz: string
 ): Promise<ConflictPreview["alternatives"]> {
   const [startHour, startMin = 0] = businessStart.split(":").map(Number);
   const [endHour, endMin = 0] = businessEnd.split(":").map(Number);
@@ -1446,8 +1470,8 @@ async function findAlternativeSlotsForDate(
   const businessEndMinutes = endHour * 60 + endMin;
   const [preferredHour, preferredMin] = preferredTime.split(":").map(Number);
 
-  // Get existing appointments for the day
-  const dayStart = startOfDay(date);
+  // Get existing appointments for the day (salon-tz day window)
+  const dayStart = salonDayStart(date, tz);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
   const existingAppointments = await prisma.appointment.findMany({
@@ -1481,10 +1505,8 @@ async function findAlternativeSlotsForDate(
     const hour = Math.floor(timeInMinutes / 60);
     const minute = timeInMinutes % 60;
 
-    const slotStart = new Date(date);
-    slotStart.setHours(hour, minute, 0, 0);
-    const slotEnd = new Date(slotStart);
-    slotEnd.setMinutes(slotEnd.getMinutes() + serviceDuration);
+    const slotStart = salonTimeOnDay(date, hour, minute, tz);
+    const slotEnd = new Date(slotStart.getTime() + serviceDuration * 60 * 1000);
 
     // Check for conflicts
     const hasConflict = existingAppointments.some((apt) => {
@@ -1550,9 +1572,10 @@ export async function getAlternativeSlots(params: {
     const businessStartMinutes = startHour * 60 + startMin;
     const businessEndMinutes = endHour * 60 + endMin;
     const [preferredHour, preferredMin] = preferredTime.split(":").map(Number);
+    const tz = settings?.timezone || "UTC";
 
-    // Get existing appointments for the day
-    const dayStart = startOfDay(date);
+    // Get existing appointments for the day (salon-tz day window)
+    const dayStart = salonDayStart(date, tz);
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
     const existingAppointments = await prisma.appointment.findMany({
@@ -1589,10 +1612,8 @@ export async function getAlternativeSlots(params: {
       const hour = Math.floor(timeInMinutes / 60);
       const minute = timeInMinutes % 60;
 
-      const slotStart = new Date(date);
-      slotStart.setHours(hour, minute, 0, 0);
-      const slotEnd = new Date(slotStart);
-      slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+      const slotStart = salonTimeOnDay(date, hour, minute, tz);
+      const slotEnd = new Date(slotStart.getTime() + slotDuration * 60 * 1000);
 
       // Check for conflicts
       const hasConflict = existingAppointments.some((apt) => {

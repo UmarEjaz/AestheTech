@@ -6,7 +6,6 @@ import {
   setMinutes,
   startOfDay,
   getDay,
-  setDay,
   format,
   isBefore,
   isAfter,
@@ -15,6 +14,7 @@ import {
   endOfMonth,
   eachDayOfInterval,
 } from "date-fns";
+import { TZDate } from "@date-fns/tz";
 import { RecurrencePattern, RecurrenceEndType } from "@prisma/client";
 
 // Day names for display
@@ -160,6 +160,7 @@ export interface RecurringDateConfig {
   endByDate?: Date | null;
   exceptionDates?: Date[];
   maxDates?: number; // Safety limit
+  timeZone?: string; // Salon IANA timezone; the time-of-day is applied in this zone
 }
 
 /**
@@ -168,7 +169,6 @@ export interface RecurringDateConfig {
 export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
   const {
     pattern,
-    startDate,
     timeOfDay,
     dayOfWeek,
     customWeeks,
@@ -176,14 +176,26 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
     nthWeek,
     endType,
     endAfterCount,
-    endByDate,
-    exceptionDates = [],
     maxDates = 100, // Safety limit
   } = config;
 
+  const tz = config.timeZone || "UTC";
+
+  // Run ALL date math in the salon timezone. Wrapping the inputs as TZDate makes every
+  // date-fns operation below (getDay/getDate/startOfDay/addDays/addWeeks/addMonths/
+  // endOfMonth/getFullYear/getMonth) compute in the salon zone — so BOTH which days are
+  // selected AND the time-of-day are correct no matter the server's timezone.
+  const startDate = new TZDate(config.startDate, tz);
+  const now = new TZDate(new Date(), tz);
+  const endByDate = config.endByDate ? new TZDate(config.endByDate, tz) : null;
+  const exceptionDates = (config.exceptionDates ?? []).map((d) => new TZDate(d, tz));
+
   const dates: Date[] = [];
-  const now = new Date();
   const { hours, minutes } = parseTimeOfDay(timeOfDay);
+
+  // Stamp the time-of-day onto a selected calendar day, in the salon zone.
+  const occurrence = (d: Date): Date =>
+    new Date(new TZDate(d.getFullYear(), d.getMonth(), d.getDate(), hours, minutes, 0, 0, tz).getTime());
 
   // Determine end condition
   // Use max(startDate, now) as horizon base so future-dated series still generate dates
@@ -220,7 +232,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         if (!isException(currentDate)) {
           count++;
           if (!isBefore(currentDate, startOfDay(now))) {
-            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+            dates.push(occurrence(currentDate));
           }
         }
         currentDate = addDays(currentDate, 1);
@@ -236,7 +248,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         if (!isException(currentDate)) {
           count++;
           if (!isBefore(currentDate, startOfDay(now))) {
-            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+            dates.push(occurrence(currentDate));
           }
         }
         currentDate = addWeeks(currentDate, 1);
@@ -252,7 +264,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         if (!isException(currentDate)) {
           count++;
           if (!isBefore(currentDate, startOfDay(now))) {
-            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+            dates.push(occurrence(currentDate));
           }
         }
         currentDate = addWeeks(currentDate, 2);
@@ -264,14 +276,14 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
       // MONTHLY = same day-of-month each month (e.g., 15th of every month)
       // For shorter months, clamp to last day (e.g., Jan 31 -> Feb 28)
       const originalDayOfMonth = startDate.getDate();
-      let currentDate = new Date(startDate);
+      let currentDate = new TZDate(startDate, tz);
       let count = 0;
 
       while (true) {
         // Clamp to last day of month if original day doesn't exist
         const lastDayOfMonth = endOfMonth(currentDate).getDate();
         const targetDayOfMonth = Math.min(originalDayOfMonth, lastDayOfMonth);
-        const targetDate = new Date(currentDate);
+        const targetDate = new TZDate(currentDate, tz);
         targetDate.setDate(targetDayOfMonth);
 
         if (!shouldContinue(targetDate, count)) break;
@@ -279,7 +291,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         if (!isException(targetDate)) {
           count++;
           if (!isBefore(targetDate, startOfDay(now))) {
-            dates.push(setMinutes(setHours(targetDate, hours), minutes));
+            dates.push(occurrence(targetDate));
           }
         }
         currentDate = addMonths(currentDate, 1);
@@ -296,7 +308,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
         if (!isException(currentDate)) {
           count++;
           if (!isBefore(currentDate, startOfDay(now))) {
-            dates.push(setMinutes(setHours(currentDate, hours), minutes));
+            dates.push(occurrence(currentDate));
           }
         }
         currentDate = addWeeks(currentDate, weeks);
@@ -317,7 +329,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
           if (!isException(currentDate)) {
             count++;
             if (!isBefore(currentDate, startOfDay(now))) {
-              dates.push(setMinutes(setHours(currentDate, hours), minutes));
+              dates.push(occurrence(currentDate));
             }
           }
         }
@@ -329,24 +341,26 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
     case "NTH_WEEKDAY": {
       if (nthWeek === undefined || nthWeek === null) break;
 
-      let currentMonth = new Date(startDate);
+      let currentMonth = new TZDate(startDate, tz);
       let count = 0;
 
       while (true) {
-        const nthDate = getNthWeekdayOfMonth(
+        const nthRaw = getNthWeekdayOfMonth(
           currentMonth.getFullYear(),
           currentMonth.getMonth(),
           dayOfWeek,
           nthWeek
         );
 
-        if (!nthDate) break;
+        if (!nthRaw) break;
+        // Re-anchor the found calendar day into the salon zone for consistent comparisons.
+        const nthDate = new TZDate(nthRaw.getFullYear(), nthRaw.getMonth(), nthRaw.getDate(), 0, 0, 0, 0, tz);
         if (!shouldContinue(nthDate, count)) break;
 
         if (!isException(nthDate) && !isBefore(nthDate, startOfDay(startDate))) {
           count++;
           if (!isBefore(nthDate, startOfDay(now))) {
-            dates.push(setMinutes(setHours(nthDate, hours), minutes));
+            dates.push(occurrence(nthDate));
           }
         }
         currentMonth = addMonths(currentMonth, 1);

@@ -112,6 +112,15 @@ interface SplitPayment {
   amount: string; // raw input string for inline editing; parsed for totals
 }
 
+/** When checking out an appointment: lock the client, seed the cart, and apply the deposit. */
+interface AppointmentContext {
+  appointmentId: string;
+  client: Client;
+  depositPaid: number;
+  seedItem: CartItem;
+  staffId: string;
+}
+
 interface CheckoutFormProps {
   clients: Client[];
   services: Service[];
@@ -125,6 +134,8 @@ interface CheckoutFormProps {
   allowPartialPayment?: boolean;
   /** Allow creating a fully-unpaid (pay-later) invoice. Implies partial is allowed. */
   allowPayLater?: boolean;
+  /** Present when this checkout is for an appointment. */
+  appointmentContext?: AppointmentContext;
 }
 
 export function CheckoutForm({
@@ -138,22 +149,23 @@ export function CheckoutForm({
   loyaltyProgramEnabled = true,
   allowPartialPayment = false,
   allowPayLater = false,
+  appointmentContext,
 }: CheckoutFormProps) {
   const router = useRouter();
   // Deferred-payment availability (full pay-later implies partial is allowed too).
   const canPartial = allowPartialPayment || allowPayLater;
   const canPayLater = allowPayLater;
   const canDefer = canPartial || canPayLater;
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(appointmentContext?.client ?? null);
   const [clientSearch, setClientSearch] = useState("");
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(appointmentContext ? [appointmentContext.seedItem] : []);
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<"fixed" | "percentage">("fixed");
   const [redeemPoints, setRedeemPoints] = useState(0);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingMethod, setSubmittingMethod] = useState<PaymentMethod | null>(null);
-  const [selectedStaff, setSelectedStaff] = useState<string>(staff[0]?.id || "");
+  const [selectedStaff, setSelectedStaff] = useState<string>(appointmentContext?.staffId || staff[0]?.id || "");
 
   // Split payment state — each row is inline-editable.
   const [isSplitMode, setIsSplitMode] = useState(false);
@@ -202,6 +214,11 @@ export function CheckoutForm({
   const afterPoints = Math.max(0, afterDiscount - pointsValue);
   const taxAmount = (afterPoints * taxRate) / 100;
   const total = afterPoints + taxAmount;
+
+  // Deposit already taken (appointment checkout). Payments at this step collect the
+  // BALANCE; the deposit is applied server-side toward the full invoice total.
+  const depositPaid = appointmentContext?.depositPaid ?? 0;
+  const payableNow = Math.max(0, Math.round((total - depositPaid) * 100) / 100);
 
   // Calculate points to be earned
   const pointsToEarn = cart.reduce((sum, item) => sum + item.points * item.quantity, 0);
@@ -314,7 +331,7 @@ export function CheckoutForm({
     .filter((p) => p.amount > 0);
   const splitTotal =
     Math.round(normalizedSplitRows.reduce((sum, p) => sum + p.amount, 0) * 100) / 100;
-  const splitRemaining = Math.round((total - splitTotal) * 100) / 100;
+  const splitRemaining = Math.round((payableNow - splitTotal) * 100) / 100;
   const isSplitComplete = Math.abs(splitRemaining) < 0.01 && splitTotal > 0;
 
   // Add an editable row, pre-filled with whatever balance is left (or empty).
@@ -400,6 +417,7 @@ export function CheckoutForm({
         payments,
         redeemPoints: isWalkIn ? 0 : redeemPoints,
         dueDate: saleDueDate,
+        appointmentId: appointmentContext?.appointmentId,
       });
 
       if (result.success) {
@@ -425,7 +443,7 @@ export function CheckoutForm({
 
   const handleSinglePayment = (method: PaymentMethod) => {
     setSubmittingMethod(method);
-    submitPayment([{ method, amount: total }]);
+    submitPayment([{ method, amount: payableNow }]);
   };
 
   const handleSplitComplete = () => {
@@ -542,7 +560,8 @@ export function CheckoutForm({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Walk-in Toggle */}
+            {/* Walk-in Toggle — hidden when checking out an appointment (client is locked) */}
+            {!appointmentContext && (
             <div className="flex gap-2">
               <Button
                 type="button"
@@ -574,6 +593,7 @@ export function CheckoutForm({
                 Walk-in Client
               </Button>
             </div>
+            )}
 
             {isWalkIn ? (
               /* Walk-in Client Form */
@@ -630,9 +650,11 @@ export function CheckoutForm({
                     </div>
                   )}
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedClient(null)}>
-                  Change
-                </Button>
+                {!appointmentContext && (
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedClient(null)}>
+                    Change
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -999,6 +1021,18 @@ export function CheckoutForm({
                     <span>Total</span>
                     <span className="text-purple-600">{formatCurrency(total, currencyCode)}</span>
                   </div>
+                  {depositPaid > 0 && (
+                    <>
+                      <div className="flex justify-between text-green-600">
+                        <span>Deposit paid</span>
+                        <span>-{formatCurrency(depositPaid, currencyCode)}</span>
+                      </div>
+                      <div className="flex justify-between text-base font-bold">
+                        <span>Balance due now</span>
+                        <span className="text-purple-600">{formatCurrency(payableNow, currencyCode)}</span>
+                      </div>
+                    </>
+                  )}
                   {loyaltyProgramEnabled && pointsToEarn > 0 && (
                     <div className="flex justify-between text-xs text-amber-600">
                       <span>Points to earn</span>
@@ -1049,10 +1083,29 @@ export function CheckoutForm({
             </DialogTitle>
             <DialogDescription>
               Total: {formatCurrency(total, currencyCode)}
+              {depositPaid > 0 && (
+                <>
+                  {" · "}Deposit: {formatCurrency(depositPaid, currencyCode)}
+                  {" · "}Balance due: {formatCurrency(payableNow, currencyCode)}
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
-          {!isSplitMode ? (
+          {payableNow <= 0 && total > 0 ? (
+            /* Deposit already covers the full amount — just complete the sale. */
+            <>
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                Fully covered by the {formatCurrency(depositPaid, currencyCode)} deposit. Nothing left to collect.
+              </p>
+              <DialogFooter className="flex-row justify-end">
+                <Button onClick={() => submitPayment([])} disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Complete sale
+                </Button>
+              </DialogFooter>
+            </>
+          ) : !isSplitMode ? (
             <>
               <div className="grid grid-cols-2 gap-3 py-4">
                 {SELECTABLE_PAYMENT_METHODS.map((method) => (

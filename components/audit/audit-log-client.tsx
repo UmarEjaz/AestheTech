@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatInTz } from "@/lib/utils/timezone";
 
 interface AuditLogEntry {
   id: string;
@@ -45,6 +46,7 @@ interface AuditLogClientProps {
   actions: string[];
   entityTypes: string[];
   staff: { id: string; firstName: string; lastName: string; role: string }[];
+  timezone: string;
   filters: {
     action?: string;
     entityType?: string;
@@ -92,15 +94,8 @@ function formatDetails(details: unknown): string {
     .join(", ");
 }
 
-function formatDate(date: Date): string {
-  return new Date(date).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+function formatDate(date: Date, tz: string): string {
+  return formatInTz(date, "MMM d, yyyy, h:mm a", tz);
 }
 
 export function AuditLogClient({
@@ -111,6 +106,7 @@ export function AuditLogClient({
   actions,
   entityTypes,
   staff,
+  timezone,
   filters,
 }: AuditLogClientProps) {
   const router = useRouter();
@@ -273,7 +269,7 @@ export function AuditLogClient({
                 logs.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="whitespace-nowrap text-sm">
-                      {formatDate(log.createdAt)}
+                      {formatDate(log.createdAt, timezone)}
                     </TableCell>
                     <TableCell className="font-medium">
                       {log.user ? `${log.user.firstName} ${log.user.lastName}` : "Deleted user"}

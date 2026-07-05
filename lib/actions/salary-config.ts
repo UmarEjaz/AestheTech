@@ -7,6 +7,8 @@ import { checkAuth } from "@/lib/auth-helpers";
 import { ActionResult } from "@/lib/types";
 import { salaryConfigSchema, SalaryConfigInput } from "@/lib/validations/payroll";
 import { logAudit } from "./audit";
+import { getTimezone } from "./settings";
+import { getTodayRange } from "@/lib/utils/timezone";
 
 export type SalaryConfigListItem = {
   id: string;
@@ -113,12 +115,14 @@ export async function getStaffCurrentConfig(
       return { success: false, error: "Unauthorized access to this branch" };
     }
 
+    // "Effective as of today" in the salon timezone (effectiveDate is a date-only field).
+    const tz = await getTimezone();
     const config = await prisma.salaryConfig.findFirst({
       where: {
         userId,
         salonId,
         isActive: true,
-        effectiveDate: { lte: new Date() },
+        effectiveDate: { lte: getTodayRange(tz).end },
       },
       select: salaryConfigSelect,
       orderBy: { effectiveDate: "desc" },

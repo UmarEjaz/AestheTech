@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { TZDate } from "@date-fns/tz";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
 import {
@@ -11,7 +12,7 @@ import {
   AppointmentStatusFormData,
   RescheduleFormData,
 } from "@/lib/validations/appointment";
-import { Prisma, AppointmentStatus } from "@prisma/client";
+import { Prisma, AppointmentStatus, PaymentMethod } from "@prisma/client";
 import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { ActionResult } from "@/lib/types";
@@ -54,6 +55,13 @@ const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
       isActive: true,
     },
   },
+  // Deposits/prepayments taken against this appointment (applied at checkout).
+  payments: {
+    select: { id: true, amount: true, method: true, paidAt: true },
+    orderBy: { paidAt: "asc" },
+  },
+  // The sale this appointment was checked out into (null until checked out).
+  sale: { select: { id: true } },
 });
 
 export type AppointmentListItem = Prisma.AppointmentGetPayload<{
@@ -404,21 +412,23 @@ export async function updateAppointmentStatus(
   try {
     const existing = await prisma.appointment.findFirst({
       where: { id, salonId: authResult.salonId },
-      select: { status: true },
+      select: { status: true, staffId: true, startTime: true, endTime: true },
     });
 
     if (!existing) {
       return { success: false, error: "Appointment not found" };
     }
 
-    // Validate status transitions
+    // Validate status transitions. NO_SHOW/CANCELLED can be reactivated back to
+    // SCHEDULED ("undo no-show" / "reopen") so a late or returning client can still
+    // be served and checked out.
     const validTransitions: Record<AppointmentStatus, AppointmentStatus[]> = {
       SCHEDULED: ["CONFIRMED", "IN_PROGRESS", "CANCELLED", "NO_SHOW"],
       CONFIRMED: ["IN_PROGRESS", "CANCELLED", "NO_SHOW"],
       IN_PROGRESS: ["COMPLETED", "CANCELLED"],
       COMPLETED: [],
-      CANCELLED: [],
-      NO_SHOW: [],
+      CANCELLED: ["SCHEDULED"],
+      NO_SHOW: ["SCHEDULED"],
     };
 
     const allowedNextStatuses = validTransitions[existing.status];
@@ -427,6 +437,27 @@ export async function updateAppointmentStatus(
         success: false,
         error: `Cannot change status from ${existing.status} to ${validationResult.data.status}`,
       };
+    }
+
+    // Reactivating a NO_SHOW/CANCELLED appointment: make sure the slot is still free
+    // (it may have been given to someone else in the meantime).
+    const isReactivation =
+      (existing.status === "NO_SHOW" || existing.status === "CANCELLED") &&
+      validationResult.data.status === "SCHEDULED";
+    if (isReactivation) {
+      const hasConflict = await checkConflict(
+        existing.staffId,
+        existing.startTime,
+        existing.endTime,
+        id,
+        authResult.salonId
+      );
+      if (hasConflict) {
+        return {
+          success: false,
+          error: "That time slot is no longer free — reschedule the appointment to reactivate it.",
+        };
+      }
     }
 
     const appointment = await prisma.appointment.update({
@@ -642,7 +673,8 @@ export async function getAvailableSlots(params: {
     const settingsResult = await getSettings();
     const settings = settingsResult.success
       ? settingsResult.data
-      : { businessHoursStart: "09:00", businessHoursEnd: "19:00" };
+      : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC" };
+    const tz = settings.timezone || "UTC";
 
     // Parse business hours (format: "HH:MM") with validation and fallback
     const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
@@ -659,17 +691,24 @@ export async function getAvailableSlots(params: {
     const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
     const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
 
-    const dayStart = new Date(date);
-    dayStart.setHours(startHour, startMin, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(endHour, endMin, 0, 0);
+    // Build the day's business-hours window in the SALON timezone. `date` is an instant;
+    // we take its salon-tz calendar day, then construct the open/close wall-clock times
+    // in that zone so slots are correct regardless of where the server or staff are.
+    const dayInTz = new TZDate(date, tz);
+    const y = dayInTz.getFullYear();
+    const mo = dayInTz.getMonth();
+    const dd = dayInTz.getDate();
+    const dayStart = new TZDate(y, mo, dd, startHour, startMin, 0, 0, tz);
+    const dayEnd = new TZDate(y, mo, dd, endHour, endMin, 0, 0, tz);
+    const dayStartMs = dayStart.getTime();
+    const dayEndMs = dayEnd.getTime();
 
     // Get existing appointments for the staff on that day
     const existingAppointments = await prisma.appointment.findMany({
       where: {
         salonId: authResult.salonId,
         staffId,
-        startTime: { gte: dayStart, lt: dayEnd },
+        startTime: { gte: new Date(dayStartMs), lt: new Date(dayEndMs) },
         status: { notIn: ["CANCELLED", "NO_SHOW"] },
         ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
       },
@@ -679,30 +718,32 @@ export async function getAvailableSlots(params: {
 
     // Calculate available slots
     const slots: { startTime: Date; endTime: Date }[] = [];
-    let currentTime = new Date(dayStart);
+    let currentTime = new TZDate(dayStartMs, tz);
 
     // Generate slots in 30-minute increments
-    while (currentTime < dayEnd) {
-      const slotEnd = new Date(currentTime);
+    while (currentTime.getTime() < dayEndMs) {
+      const slotStartMs = currentTime.getTime();
+      const slotEnd = new TZDate(slotStartMs, tz);
       slotEnd.setMinutes(slotEnd.getMinutes() + service.duration);
+      const slotEndMs = slotEnd.getTime();
 
       // Check if slot fits within business hours
-      if (slotEnd <= dayEnd) {
+      if (slotEndMs <= dayEndMs) {
         // Check if slot conflicts with any existing appointment
         const hasConflict = existingAppointments.some((apt) => {
-          const aptStart = new Date(apt.startTime);
-          const aptEnd = new Date(apt.endTime);
+          const aptStart = new Date(apt.startTime).getTime();
+          const aptEnd = new Date(apt.endTime).getTime();
           return (
-            (currentTime >= aptStart && currentTime < aptEnd) ||
-            (slotEnd > aptStart && slotEnd <= aptEnd) ||
-            (currentTime <= aptStart && slotEnd >= aptEnd)
+            (slotStartMs >= aptStart && slotStartMs < aptEnd) ||
+            (slotEndMs > aptStart && slotEndMs <= aptEnd) ||
+            (slotStartMs <= aptStart && slotEndMs >= aptEnd)
           );
         });
 
         if (!hasConflict) {
           slots.push({
-            startTime: new Date(currentTime),
-            endTime: new Date(slotEnd),
+            startTime: new Date(slotStartMs),
+            endTime: new Date(slotEndMs),
           });
         }
       }
@@ -797,3 +838,75 @@ export async function getAppointmentsForCalendar(params: {
 // - addExceptionDate, removeExceptionDate, getExceptionDates
 // - detachOccurrence, cancelFromDate, getAlternativeSlots
 // - getPatternLabel, RecurringSeriesListItem (type)
+
+// ============================================
+// APPOINTMENT DEPOSITS / PREPAYMENTS
+// ============================================
+
+/**
+ * Records a deposit/prepayment against an appointment (before checkout). Stored as
+ * a Payment with appointmentId set and invoiceId null — a held prepayment that is
+ * applied to the invoice when the appointment is later checked out.
+ */
+export async function addAppointmentDeposit(
+  appointmentId: string,
+  data: { amount: number; method: PaymentMethod }
+): Promise<ActionResult<{ id: string; depositPaid: number }>> {
+  const authResult = await checkAuth("appointments:update");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const amount = Math.round((Number(data.amount) || 0) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { success: false, error: "Enter a valid deposit amount" };
+  }
+  if (!Object.values(PaymentMethod).includes(data.method)) {
+    return { success: false, error: "Invalid payment method" };
+  }
+
+  try {
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: appointmentId, salonId: authResult.salonId },
+      select: {
+        id: true,
+        status: true,
+        sale: { select: { id: true } },
+        payments: { select: { amount: true } },
+      },
+    });
+    if (!appointment) {
+      return { success: false, error: "Appointment not found" };
+    }
+    if (appointment.sale) {
+      return { success: false, error: "This appointment has already been checked out." };
+    }
+    if (appointment.status === "CANCELLED" || appointment.status === "NO_SHOW") {
+      return { success: false, error: "Can't take a deposit on a cancelled or no-show appointment." };
+    }
+
+    const payment = await prisma.payment.create({
+      data: { appointmentId, amount, method: data.method },
+      select: { id: true },
+    });
+
+    const depositPaid =
+      appointment.payments.reduce((sum, p) => sum + Number(p.amount), 0) + amount;
+
+    await logAudit({
+      action: "APPOINTMENT_DEPOSIT_ADDED",
+      entityType: "Appointment",
+      entityId: appointmentId,
+      userId: authResult.userId,
+      userRole: authResult.role,
+      details: { amount, method: data.method },
+    });
+
+    revalidatePath("/dashboard/appointments");
+    await invalidateDashboardCache(authResult.salonId);
+    return { success: true, data: { id: payment.id, depositPaid } };
+  } catch (error) {
+    console.error("Error adding appointment deposit:", error);
+    return { success: false, error: "Failed to record deposit" };
+  }
+}

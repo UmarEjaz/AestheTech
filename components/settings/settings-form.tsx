@@ -38,6 +38,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
 import { CURRENCIES } from "@/lib/currencies";
+import { getTimezoneOptions } from "@/lib/utils/timezone-options";
 
 const CURRENCY_CODES = new Set(CURRENCIES.map((c) => c.code));
 
@@ -52,6 +53,7 @@ const settingsSchema = z.object({
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   appointmentInterval: z.coerce.number().min(15).max(120),
+  defaultAppointmentClientType: z.enum(["EXISTING", "WALK_IN"]),
   loyaltyProgramEnabled: z.boolean(),
   loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
   goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
@@ -85,6 +87,7 @@ type SettingsFormData = {
   businessHoursStart: string;
   businessHoursEnd: string;
   appointmentInterval: number;
+  defaultAppointmentClientType: "EXISTING" | "WALK_IN";
   loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
@@ -127,23 +130,6 @@ function generateTimeOptions() {
 
 const timeOptions = generateTimeOptions();
 
-function getTimezoneOptions() {
-  const supported = Intl.supportedValuesOf("timeZone");
-  // Some runtimes omit "UTC" from supportedValuesOf even though it's a valid zone
-  // (and our default). Ensure it's always selectable.
-  const timezones = supported.includes("UTC") ? supported : ["UTC", ...supported];
-  return timezones.map((tz) => {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      timeZoneName: "shortOffset",
-    });
-    const parts = formatter.formatToParts(now);
-    const offset = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
-    return { value: tz, label: `(${offset}) ${tz.replace(/_/g, " ")}` };
-  });
-}
-
 export function SettingsForm({ settings, canManage }: SettingsFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -167,6 +153,8 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
       appointmentInterval: settings.appointmentInterval,
+      defaultAppointmentClientType:
+        settings.defaultAppointmentClientType === "WALK_IN" ? "WALK_IN" : "EXISTING",
       loyaltyProgramEnabled: settings.loyaltyProgramEnabled,
       loyaltyPointsPerDollar: settings.loyaltyPointsPerDollar,
       goldThreshold: settings.goldThreshold,
@@ -311,9 +299,17 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             {errors.timezone && (
               <p className="text-sm text-destructive">{errors.timezone.message}</p>
             )}
-            <p className="text-sm text-muted-foreground">
-              All dates and times in the app will be shown in this timezone
-            </p>
+            {watchedTimezone !== settings.timezone ? (
+              <p className="text-sm text-amber-600 dark:text-amber-500">
+                Heads up: changing the timezone will re-display your existing appointments at their
+                equivalent local time (the appointments themselves don&apos;t move). New bookings
+                use the new timezone.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                All dates and times in the app will be shown in this timezone
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -394,6 +390,27 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             </Select>
             <p className="text-sm text-muted-foreground">
               Time slots in the booking calendar will be displayed in this interval
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="defaultAppointmentClientType">Default client type for new appointments</Label>
+            <Select
+              value={watch("defaultAppointmentClientType")}
+              onValueChange={(value) =>
+                setValue("defaultAppointmentClientType", value as "EXISTING" | "WALK_IN", { shouldDirty: true })
+              }
+              disabled={!canManage}
+            >
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="EXISTING">Existing client</SelectItem>
+                <SelectItem value="WALK_IN">Walk-in client</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              Which tab the Book Appointment form starts on. Walk-in-heavy shops may prefer Walk-in.
             </p>
           </div>
         </CardContent>

@@ -44,7 +44,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
 
   // Fetch clients, services, and staff for the form (org-scoped)
   const orgSalonIds = await getOrganizationSalonIds(salonId);
-  const [clients, services, staffRows] = await Promise.all([
+  const [clients, services, staffRows, settingsRow] = await Promise.all([
     prisma.client.findMany({
       where: { salonId: { in: orgSalonIds }, isActive: true },
       select: {
@@ -80,8 +80,15 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       distinct: ["userId"],
       orderBy: { user: { firstName: "asc" } },
     }),
+    prisma.settings.findUnique({
+      where: { salonId },
+      select: { defaultAppointmentClientType: true, timezone: true },
+    }),
   ]);
   const staff = staffRows.map((row) => row.user);
+  const defaultClientType =
+    settingsRow?.defaultAppointmentClientType === "WALK_IN" ? "WALK_IN" : "EXISTING";
+  const timezone = settingsRow?.timezone || "UTC";
 
   // Parse initial date from URL if provided
   const initialDate = params.startTime ? new Date(params.startTime) : undefined;
@@ -116,6 +123,8 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
           }))}
           staff={staff}
           initialDate={initialDate}
+          defaultClientType={defaultClientType}
+          timezone={timezone}
         />
       </div>
     </>

@@ -1,16 +1,32 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
+import luxonPlugin from "@fullcalendar/luxon3";
 import { EventClickArg, DateSelectArg, DatesSetArg, EventDropArg } from "@fullcalendar/core";
 import { AppointmentStatus } from "@prisma/client";
 import { AppointmentListItem, getAppointmentsForCalendar, rescheduleAppointment } from "@/lib/actions/appointment";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { AppointmentDetailModal } from "./appointment-detail-modal";
+
+const CALENDAR_VIEWS = [
+  { key: "dayGridMonth", label: "month" },
+  { key: "timeGridWeek", label: "week" },
+  { key: "timeGridDay", label: "day" },
+] as const;
 
 interface AppointmentCalendarProps {
   initialAppointments: AppointmentListItem[];
@@ -18,7 +34,7 @@ interface AppointmentCalendarProps {
   canUpdate?: boolean;
   canCancel?: boolean;
   canDelete?: boolean;
-  staffFilter?: string;
+  staff?: { id: string; firstName: string; lastName: string }[];
   businessHoursStart?: string;
   businessHoursEnd?: string;
   timezone: string;
@@ -42,16 +58,29 @@ export function AppointmentCalendar({
   canUpdate = false,
   canCancel = false,
   canDelete = false,
-  staffFilter,
+  staff = [],
   businessHoursStart = "08:00",
   businessHoursEnd = "20:00",
   timezone,
 }: AppointmentCalendarProps) {
   const router = useRouter();
+  const calendarRef = useRef<FullCalendar>(null);
   const [appointments, setAppointments] = useState<AppointmentListItem[]>(initialAppointments);
-  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentListItem | null>(null);
+  // "all" = no staff filter; otherwise a staff user id.
+  const [staffFilter, setStaffFilter] = useState<string>("all");
+  // Driven by datesSet so our custom toolbar stays in sync with the calendar.
+  const [viewTitle, setViewTitle] = useState("");
+  const [currentView, setCurrentView] = useState("timeGridWeek");
+
+  const calendarApi = () => calendarRef.current?.getApi();
+  // Track only the id; derive the live object from `appointments` so the open modal
+  // always reflects the latest data (e.g. a deposit just recorded), not a stale snapshot.
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentViewDates, setCurrentViewDates] = useState<{ start: Date; end: Date } | null>(null);
+
+  const selectedAppointment =
+    appointments.find((apt) => apt.id === selectedAppointmentId) ?? null;
 
   // Convert appointments to FullCalendar events
   const events = appointments.map((apt) => {
@@ -85,11 +114,13 @@ export function AppointmentCalendar({
   const handleDatesSet = useCallback(
     async (arg: DatesSetArg) => {
       setCurrentViewDates({ start: arg.start, end: arg.end });
+      setViewTitle(arg.view.title);
+      setCurrentView(arg.view.type);
 
       const result = await getAppointmentsForCalendar({
         startDate: arg.start,
         endDate: arg.end,
-        staffId: staffFilter,
+        staffId: staffFilter === "all" ? undefined : staffFilter,
       });
 
       if (result.success) {
@@ -106,7 +137,7 @@ export function AppointmentCalendar({
     const result = await getAppointmentsForCalendar({
       startDate: currentViewDates.start,
       endDate: currentViewDates.end,
-      staffId: staffFilter,
+      staffId: staffFilter === "all" ? undefined : staffFilter,
     });
 
     if (result.success) {
@@ -114,17 +145,37 @@ export function AppointmentCalendar({
     }
   }, [currentViewDates, staffFilter]);
 
+  // Change the staff filter and immediately refetch for the current view range.
+  const handleStaffFilterChange = useCallback(
+    async (value: string) => {
+      setStaffFilter(value);
+      if (!currentViewDates) return;
+      const result = await getAppointmentsForCalendar({
+        startDate: currentViewDates.start,
+        endDate: currentViewDates.end,
+        staffId: value === "all" ? undefined : value,
+      });
+      if (result.success) {
+        setAppointments(result.data);
+      }
+    },
+    [currentViewDates]
+  );
+
   // Handle event click
   const handleEventClick = (arg: EventClickArg) => {
     const appointment = arg.event.extendedProps.appointment as AppointmentListItem;
-    setSelectedAppointment(appointment);
+    setSelectedAppointmentId(appointment.id);
     setIsModalOpen(true);
   };
 
   // Handle date selection (for creating new appointments)
   const handleDateSelect = (arg: DateSelectArg) => {
     if (canCreate) {
-      const startTime = arg.start.toISOString();
+      // arg.startStr is offset-aware in the salon timezone (e.g. "...T10:00:00+05:00"),
+      // so the clicked wall-clock time round-trips correctly. arg.start.toISOString()
+      // would mislabel the wall clock as UTC.
+      const startTime = arg.startStr;
       router.push(`/dashboard/appointments/new?startTime=${encodeURIComponent(startTime)}`);
     }
   };
@@ -160,7 +211,7 @@ export function AppointmentCalendar({
   // Refresh appointments after modal closes
   const handleModalClose = () => {
     setIsModalOpen(false);
-    setSelectedAppointment(null);
+    setSelectedAppointmentId(null);
   };
 
   return (
@@ -214,7 +265,18 @@ export function AppointmentCalendar({
 
         .appointment-calendar .fc-timegrid-event {
           border-radius: 4px;
-          padding: 4px;
+          padding: 2px 4px;
+        }
+
+        /* Taller half-hour rows so short (20-min) events stay proportional but still
+           have room for two lines of text. 30-min cell = 3.25rem → 20-min ≈ 34px. */
+        .appointment-calendar .fc-timegrid-slot {
+          height: 3.25rem;
+        }
+
+        /* Keep custom event content clipped inside the event box (no overflow). */
+        .appointment-calendar .fc-timegrid-event .fc-event-main {
+          overflow: hidden;
         }
 
         .appointment-calendar .fc-event-title {
@@ -244,16 +306,92 @@ export function AppointmentCalendar({
         }
       `}</style>
 
+      {/* Custom single-row toolbar: nav · title · staff filter + view switcher */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Button size="icon" onClick={() => calendarApi()?.prev()} aria-label="Previous">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button size="icon" onClick={() => calendarApi()?.next()} aria-label="Next">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="secondary" onClick={() => calendarApi()?.today()}>
+            today
+          </Button>
+        </div>
+
+        <div className="order-last w-full text-center text-lg font-semibold sm:order-none sm:w-auto sm:flex-1">
+          {viewTitle}
+        </div>
+
+        <div className="ml-auto flex items-center gap-3 sm:ml-0">
+          {staff.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="hidden text-sm font-medium text-foreground sm:inline">Staff</span>
+              <Select value={staffFilter} onValueChange={handleStaffFilterChange}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All staff</SelectItem>
+                  {staff.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.firstName} {member.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="inline-flex overflow-hidden rounded-md border">
+            {CALENDAR_VIEWS.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                onClick={() => {
+                  calendarApi()?.changeView(v.key);
+                  setCurrentView(v.key);
+                }}
+                className={`px-3 py-1.5 text-sm capitalize transition-colors ${
+                  currentView === v.key
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background hover:bg-muted"
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <FullCalendar
+        ref={calendarRef}
         timeZone={timezone}
-        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, luxonPlugin]}
         initialView="timeGridWeek"
-        headerToolbar={{
-          left: "prev,next today",
-          center: "title",
-          right: "dayGridMonth,timeGridWeek,timeGridDay",
+        headerToolbar={false}
+        views={{
+          timeGridWeek: { dayHeaderFormat: { weekday: "short", day: "numeric" } },
+          timeGridDay: { dayHeaderFormat: { weekday: "long", month: "short", day: "numeric" } },
         }}
+        eventMinHeight={24}
         events={events}
+        eventContent={(arg) => {
+          const apt = arg.event.extendedProps.appointment as AppointmentListItem;
+          const name = `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}`;
+          const recurring = apt.series?.isActive ? "↻ " : "";
+          const walkIn = apt.client.isWalkIn ? " (Walk-in)" : "";
+          return (
+            <div className="h-full overflow-hidden leading-tight px-0.5">
+              <div className="truncate font-semibold">{recurring}{name}{walkIn}</div>
+              <div className="truncate text-[0.7rem] opacity-90">
+                {arg.timeText}
+                {apt.service?.name ? ` · ${apt.service.name}` : ""}
+              </div>
+            </div>
+          );
+        }}
         eventClick={handleEventClick}
         eventDrop={handleEventDrop}
         selectable={canCreate}

@@ -14,7 +14,15 @@ import {
 } from "@/lib/validations/invoice";
 import { Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 import { getSettings } from "./settings";
+import { getTodayRange } from "@/lib/utils/timezone";
 import { calculateTier } from "@/lib/utils/loyalty";
+
+// Start-of-today in the salon timezone — the cutoff for "overdue" (an invoice is overdue
+// only once its due day has fully passed in the salon's zone, not at server midnight).
+async function salonOverdueCutoff(): Promise<Date> {
+  const s = await getSettings();
+  return getTodayRange(s.success ? s.data.timezone : "UTC").start;
+}
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
@@ -137,12 +145,14 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
   //  - OVERDUE        → outstanding (PENDING/PARTIALLY_PAID) with a past due date
   //  - PENDING/PART…  → that stored status, but NOT past due (else it's "overdue")
   //  - others         → exact stored status
-  const now = new Date();
+  // "Overdue" means the due day has fully passed in the SALON timezone, so the cutoff is
+  // start-of-today in the salon zone (an invoice due *today* is not overdue yet).
+  const overdueCutoff = await salonOverdueCutoff();
   let statusFilter: Prisma.InvoiceWhereInput | undefined;
   if (status === "OVERDUE") {
-    statusFilter = { status: { in: ["PENDING", "PARTIALLY_PAID"] }, dueDate: { lt: now } };
+    statusFilter = { status: { in: ["PENDING", "PARTIALLY_PAID"] }, dueDate: { lt: overdueCutoff } };
   } else if (status === "PENDING" || status === "PARTIALLY_PAID") {
-    statusFilter = { status, OR: [{ dueDate: null }, { dueDate: { gte: now } }] };
+    statusFilter = { status, OR: [{ dueDate: null }, { dueDate: { gte: overdueCutoff } }] };
   } else if (status) {
     statusFilter = { status };
   }
@@ -183,7 +193,7 @@ export async function getInvoices(params: InvoiceSearchParams = {}): Promise<Act
     // Surface OVERDUE as the displayed status for past-due outstanding invoices.
     const invoices = invoicesRaw.map((inv) => ({
       ...inv,
-      status: effectiveInvoiceStatus(inv.status, inv.dueDate, now),
+      status: effectiveInvoiceStatus(inv.status, inv.dueDate, overdueCutoff),
     }));
 
     return {
@@ -218,7 +228,7 @@ export async function getInvoice(id: string): Promise<ActionResult<InvoiceListIt
       return { success: false, error: "Invoice not found" };
     }
 
-    return { success: true, data: { ...invoice, status: effectiveInvoiceStatus(invoice.status, invoice.dueDate) } };
+    return { success: true, data: { ...invoice, status: effectiveInvoiceStatus(invoice.status, invoice.dueDate, await salonOverdueCutoff()) } };
   } catch (error) {
     console.error("Error fetching invoice:", error);
     return { success: false, error: "Failed to fetch invoice" };
@@ -242,7 +252,7 @@ export async function getInvoiceByNumber(invoiceNumber: string): Promise<ActionR
       return { success: false, error: "Invoice not found" };
     }
 
-    return { success: true, data: { ...invoice, status: effectiveInvoiceStatus(invoice.status, invoice.dueDate) } };
+    return { success: true, data: { ...invoice, status: effectiveInvoiceStatus(invoice.status, invoice.dueDate, await salonOverdueCutoff()) } };
   } catch (error) {
     console.error("Error fetching invoice:", error);
     return { success: false, error: "Failed to fetch invoice" };
@@ -439,10 +449,10 @@ export async function getClientInvoices(clientId: string): Promise<ActionResult<
       orderBy: { createdAt: "desc" },
       take: 20,
     });
-    const now = new Date();
+    const overdueCutoff = await salonOverdueCutoff();
     const invoices = invoicesRaw.map((inv) => ({
       ...inv,
-      status: effectiveInvoiceStatus(inv.status, inv.dueDate, now),
+      status: effectiveInvoiceStatus(inv.status, inv.dueDate, overdueCutoff),
     }));
 
     return { success: true, data: invoices };
@@ -475,7 +485,7 @@ export async function getInvoiceStats(): Promise<ActionResult<{
       select: { total: true, dueDate: true, payments: { select: { amount: true } } },
     });
 
-    const now = new Date();
+    const overdueCutoff = await salonOverdueCutoff();
     let totalPending = 0;
     let totalOverdue = 0;
     let pendingCount = 0;
@@ -484,7 +494,7 @@ export async function getInvoiceStats(): Promise<ActionResult<{
     for (const inv of outstanding) {
       const paid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const due = Math.max(0, Number(inv.total) - paid);
-      const overdue = inv.dueDate != null && inv.dueDate < now;
+      const overdue = inv.dueDate != null && inv.dueDate < overdueCutoff;
       if (overdue) {
         totalOverdue += due;
         overdueCount += 1;
