@@ -31,20 +31,23 @@ const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
       isWalkIn: true,
     },
   },
-  service: {
-    select: {
-      id: true,
-      name: true,
-      duration: true,
-      price: true,
-      category: { select: { id: true, name: true } },
-    },
-  },
+  // Primary provider (denormalized = first service's staff), used for calendar lanes/filters.
   staff: {
     select: {
       id: true,
       firstName: true,
       lastName: true,
+    },
+  },
+  // All services (1..N), each with its own staff + price/duration snapshot. order 0 = primary.
+  services: {
+    orderBy: { order: "asc" },
+    select: {
+      id: true,
+      price: true,
+      duration: true,
+      service: { select: { id: true, name: true, category: { select: { id: true, name: true } } } },
+      staff: { select: { id: true, firstName: true, lastName: true } },
     },
   },
   series: {
@@ -196,6 +199,58 @@ async function checkConflict(
   return !!conflict;
 }
 
+type ResolvedService = { id: string; duration: number; price: Prisma.Decimal; isActive: boolean };
+
+// Validate all services on an appointment and compute the total duration.
+// Returns a map (serviceId -> row) so callers can snapshot price/duration per line.
+async function resolveServices(
+  services: { serviceId: string; staffId: string }[],
+  orgSalonIds: string[]
+): Promise<
+  | { ok: true; totalDuration: number; serviceMap: Map<string, ResolvedService> }
+  | { ok: false; error: string }
+> {
+  const ids = services.map((s) => s.serviceId);
+  const rows = await prisma.service.findMany({
+    where: { id: { in: ids }, salonId: { in: orgSalonIds } },
+    select: { id: true, duration: true, price: true, isActive: true },
+  });
+  const serviceMap = new Map<string, ResolvedService>(rows.map((s) => [s.id, s]));
+
+  let totalDuration = 0;
+  for (const s of services) {
+    const row = serviceMap.get(s.serviceId);
+    if (!row) return { ok: false, error: "A selected service was not found" };
+    if (!row.isActive) return { ok: false, error: "A selected service is not available" };
+    totalDuration += row.duration;
+  }
+
+  return { ok: true, totalDuration, serviceMap };
+}
+
+// Verify every staff id is assigned to the branch, active, and a service provider.
+async function verifyStaffProviders(
+  staffIds: string[],
+  salonId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const valid = await prisma.userSalon.findMany({
+    where: {
+      userId: { in: staffIds },
+      salonId,
+      isActive: true,
+      user: { isActive: true, isServiceProvider: true },
+    },
+    select: { userId: true },
+  });
+  const validIds = new Set(valid.map((v) => v.userId));
+  for (const sid of staffIds) {
+    if (!validIds.has(sid)) {
+      return { ok: false, error: "Staff member not found, inactive, or not a service provider in this branch" };
+    }
+  }
+  return { ok: true };
+}
+
 // Create appointment
 export async function createAppointment(
   data: AppointmentFormData
@@ -210,34 +265,32 @@ export async function createAppointment(
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { clientId, serviceId, staffId, startTime, notes } = validationResult.data;
+  const { clientId, services, startTime, notes } = validationResult.data;
+  // Primary provider = the first service's staff (denormalized onto the appointment).
+  const primaryStaffId = services[0].staffId;
 
   try {
     // Get org salon IDs to validate cross-branch references within the organization
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
 
-    // Get service to calculate end time (org-scoped)
-    const service = await prisma.service.findFirst({
-      where: { id: serviceId, salonId: { in: orgSalonIds } },
-      select: { duration: true, isActive: true },
-    });
-
-    if (!service) {
-      return { success: false, error: "Service not found" };
+    // Resolve every service for duration/price and validity
+    const serviceResolution = await resolveServices(services, orgSalonIds);
+    if (!serviceResolution.ok) {
+      return { success: false, error: serviceResolution.error };
     }
+    const { totalDuration, serviceMap } = serviceResolution;
 
-    if (!service.isActive) {
-      return { success: false, error: "Service is not available" };
-    }
-
-    // Calculate end time
+    // Calculate end time from the total duration across all services
     const endTime = new Date(startTime);
-    endTime.setMinutes(endTime.getMinutes() + service.duration);
+    endTime.setMinutes(endTime.getMinutes() + totalDuration);
 
-    // Check for conflicts
-    const hasConflict = await checkConflict(staffId, startTime, endTime, undefined, authResult.salonId);
-    if (hasConflict) {
-      return { success: false, error: "This time slot conflicts with another appointment" };
+    // Every distinct staff member involved must be free for the whole block
+    const distinctStaffIds = Array.from(new Set(services.map((s) => s.staffId)));
+    for (const sid of distinctStaffIds) {
+      const hasConflict = await checkConflict(sid, startTime, endTime, undefined, authResult.salonId);
+      if (hasConflict) {
+        return { success: false, error: "This time slot conflicts with another appointment" };
+      }
     }
 
     // Verify client exists and is active (org-scoped)
@@ -250,33 +303,35 @@ export async function createAppointment(
       return { success: false, error: "Client not found or inactive" };
     }
 
-    // Verify staff is assigned to this branch (via UserSalon), active, and flagged as a
-    // service provider. Defense-in-depth — the dropdown already filters service providers,
-    // but a scripted client could submit any staffId without this guard.
-    const staffMembership = await prisma.userSalon.findFirst({
-      where: {
-        userId: staffId,
-        salonId: authResult.salonId,
-        isActive: true,
-        user: { isActive: true, isServiceProvider: true },
-      },
-      select: { id: true },
-    });
-
-    if (!staffMembership) {
-      return { success: false, error: "Staff member not found, inactive, or not a service provider in this branch" };
+    // Verify EVERY involved staff member is assigned to this branch, active, and a service
+    // provider. Defense-in-depth — the dropdowns filter, but a scripted client could submit anything.
+    const staffCheck = await verifyStaffProviders(distinctStaffIds, authResult.salonId);
+    if (!staffCheck.ok) {
+      return { success: false, error: staffCheck.error };
     }
 
     const appointment = await prisma.appointment.create({
       data: {
         salonId: authResult.salonId,
         clientId,
-        serviceId,
-        staffId,
+        staffId: primaryStaffId,
         startTime,
         endTime,
         notes: notes || null,
         status: "SCHEDULED",
+        services: {
+          create: services.map((s, i) => {
+            const row = serviceMap.get(s.serviceId)!;
+            return {
+              salonId: authResult.salonId,
+              serviceId: s.serviceId,
+              staffId: s.staffId,
+              price: row.price,
+              duration: row.duration,
+              order: i,
+            };
+          }),
+        },
       },
       include: appointmentListInclude,
     });
@@ -287,7 +342,7 @@ export async function createAppointment(
       entityId: appointment.id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { clientId, serviceId, staffId, startTime: startTime.toISOString() },
+      details: { clientId, staffId: primaryStaffId, startTime: startTime.toISOString(), services: services.length },
     });
 
     revalidatePath("/dashboard/appointments");
@@ -314,7 +369,8 @@ export async function updateAppointment(
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { clientId, serviceId, staffId, startTime, notes } = validationResult.data;
+  const { clientId, services, startTime, notes } = validationResult.data;
+  const primaryStaffId = services[0].staffId;
 
   try {
     const existing = await prisma.appointment.findFirst({
@@ -330,20 +386,18 @@ export async function updateAppointment(
       return { success: false, error: "Cannot update completed or cancelled appointments" };
     }
 
-    // Get service to calculate end time (org-scoped)
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    const service = await prisma.service.findFirst({
-      where: { id: serviceId, salonId: { in: orgSalonIds } },
-      select: { duration: true },
-    });
 
-    if (!service) {
-      return { success: false, error: "Service not found" };
+    // Resolve every service for duration/price and validity
+    const serviceResolution = await resolveServices(services, orgSalonIds);
+    if (!serviceResolution.ok) {
+      return { success: false, error: serviceResolution.error };
     }
+    const { totalDuration, serviceMap } = serviceResolution;
 
-    // Calculate end time
+    // Calculate end time from the total duration across all services
     const endTime = new Date(startTime);
-    endTime.setMinutes(endTime.getMinutes() + service.duration);
+    endTime.setMinutes(endTime.getMinutes() + totalDuration);
 
     // Verify client exists and is active (org-scoped)
     const client = await prisma.client.findFirst({
@@ -355,21 +409,43 @@ export async function updateAppointment(
       return { success: false, error: "Client not found or inactive" };
     }
 
-    // Check for conflicts (excluding this appointment)
-    const hasConflict = await checkConflict(staffId, startTime, endTime, id, authResult.salonId);
-    if (hasConflict) {
-      return { success: false, error: "This time slot conflicts with another appointment" };
+    // Every distinct staff member must be free for the whole block (excluding this appointment)
+    const distinctStaffIds = Array.from(new Set(services.map((s) => s.staffId)));
+    for (const sid of distinctStaffIds) {
+      const hasConflict = await checkConflict(sid, startTime, endTime, id, authResult.salonId);
+      if (hasConflict) {
+        return { success: false, error: "This time slot conflicts with another appointment" };
+      }
+    }
+
+    const staffCheck = await verifyStaffProviders(distinctStaffIds, authResult.salonId);
+    if (!staffCheck.ok) {
+      return { success: false, error: staffCheck.error };
     }
 
     const appointment = await prisma.appointment.update({
       where: { id },
       data: {
         clientId,
-        serviceId,
-        staffId,
+        staffId: primaryStaffId,
         startTime,
         endTime,
         notes: notes || null,
+        // Replace the whole service set
+        services: {
+          deleteMany: {},
+          create: services.map((s, i) => {
+            const row = serviceMap.get(s.serviceId)!;
+            return {
+              salonId: authResult.salonId,
+              serviceId: s.serviceId,
+              staffId: s.staffId,
+              price: row.price,
+              duration: row.duration,
+              order: i,
+            };
+          }),
+        },
       },
       include: appointmentListInclude,
     });
@@ -380,7 +456,7 @@ export async function updateAppointment(
       entityId: id,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { clientId, serviceId, staffId, startTime: startTime.toISOString() },
+      details: { clientId, staffId: primaryStaffId, startTime: startTime.toISOString(), services: services.length },
     });
 
     revalidatePath("/dashboard/appointments");
@@ -504,7 +580,7 @@ export async function rescheduleAppointment(
   try {
     const existing = await prisma.appointment.findFirst({
       where: { id, salonId: authResult.salonId },
-      include: { service: { select: { duration: true } } },
+      include: { services: { select: { id: true, duration: true, order: true } } },
     });
 
     if (!existing) {
@@ -517,9 +593,10 @@ export async function rescheduleAppointment(
 
     const staffId = newStaffId || existing.staffId;
 
-    // Calculate end time
+    // End time spans the total duration of all services
+    const totalDuration = existing.services.reduce((sum, s) => sum + s.duration, 0);
     const endTime = new Date(startTime);
-    endTime.setMinutes(endTime.getMinutes() + existing.service.duration);
+    endTime.setMinutes(endTime.getMinutes() + totalDuration);
 
     // Check for conflicts
     const hasConflict = await checkConflict(staffId, startTime, endTime, id, authResult.salonId);
@@ -527,12 +604,20 @@ export async function rescheduleAppointment(
       return { success: false, error: "This time slot conflicts with another appointment" };
     }
 
+    // If the primary provider changed (dragged to a different staff lane), move the primary
+    // service line to that staff too so appointment.staffId stays == the first service's staff.
+    const primaryLine = existing.services.slice().sort((a, b) => a.order - b.order)[0];
+    const movePrimary = primaryLine && staffId !== existing.staffId;
+
     const appointment = await prisma.appointment.update({
       where: { id },
       data: {
         startTime,
         endTime,
         staffId,
+        ...(movePrimary
+          ? { services: { update: { where: { id: primaryLine.id }, data: { staffId } } } }
+          : {}),
       },
       include: appointmentListInclude,
     });
@@ -647,7 +732,7 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
 export async function getAvailableSlots(params: {
   staffId: string;
   date: Date;
-  serviceId: string;
+  serviceIds: string[]; // all services on the appointment — slot length = sum of their durations
   excludeAppointmentId?: string; // Exclude this appointment from conflict check (for edit mode)
 }): Promise<ActionResult<{ startTime: Date; endTime: Date }[]>> {
   const authResult = await checkAuth("appointments:view");
@@ -655,18 +740,26 @@ export async function getAvailableSlots(params: {
     return { success: false, error: "Unauthorized" };
   }
 
-  const { staffId, date, serviceId, excludeAppointmentId } = params;
+  const { staffId, date, serviceIds, excludeAppointmentId } = params;
 
   try {
-    // Get service duration (org-scoped)
+    // Total duration across all services drives the slot length (org-scoped)
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    const service = await prisma.service.findFirst({
-      where: { id: serviceId, salonId: { in: orgSalonIds } },
-      select: { duration: true },
-    });
-
-    if (!service) {
+    if (!serviceIds || serviceIds.length === 0) {
       return { success: false, error: "Service not found" };
+    }
+    const serviceRows = await prisma.service.findMany({
+      where: { id: { in: serviceIds }, salonId: { in: orgSalonIds } },
+      select: { id: true, duration: true },
+    });
+    const durationById = new Map(serviceRows.map((s) => [s.id, s.duration]));
+    let totalDuration = 0;
+    for (const sid of serviceIds) {
+      const d = durationById.get(sid);
+      if (d === undefined) {
+        return { success: false, error: "Service not found" };
+      }
+      totalDuration += d;
     }
 
     // Get business hours from settings
@@ -724,7 +817,7 @@ export async function getAvailableSlots(params: {
     while (currentTime.getTime() < dayEndMs) {
       const slotStartMs = currentTime.getTime();
       const slotEnd = new TZDate(slotStartMs, tz);
-      slotEnd.setMinutes(slotEnd.getMinutes() + service.duration);
+      slotEnd.setMinutes(slotEnd.getMinutes() + totalDuration);
       const slotEndMs = slotEnd.getTime();
 
       // Check if slot fits within business hours

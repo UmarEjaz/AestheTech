@@ -492,10 +492,16 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     // Partial / pay-later are allowed (under-payment); only an
     // over-payment is rejected. The invoice status is derived from the amount paid.
     const toIntCents = (n: number) => Math.round(n * 100);
-    // Amount collected at checkout PLUS any deposit already taken = total paid.
-    const checkoutCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
-    const paymentTotalCents = checkoutCents + depositCents;
     const invoiceTotalCents = toIntCents(totalWithTax);
+    // A deposit can exceed the (possibly reduced) invoice total — e.g. a service was
+    // removed after the deposit was taken. Apply only up to the total toward the invoice;
+    // the excess is refunded to the client in cash below.
+    const depositAppliedCents = Math.min(depositCents, invoiceTotalCents);
+    const overpaidDepositCents = depositCents - depositAppliedCents;
+    // Amount collected at checkout PLUS the applied portion of the deposit = total paid.
+    const checkoutCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
+    const paymentTotalCents = checkoutCents + depositAppliedCents;
+    // Only a checkout over-collection is rejected now (the deposit excess is refunded, not blocked).
     if (paymentTotalCents > invoiceTotalCents) {
       return {
         success: false,
@@ -608,6 +614,19 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         await tx.payment.updateMany({
           where: { id: { in: appointmentDeposits.map((d) => d.id) } },
           data: { invoiceId: invoice.id },
+        });
+      }
+
+      // If the deposit exceeded the (reduced) invoice total, refund the excess in cash.
+      // The invoice is still fully paid; net collected = total (deposit − refund).
+      if (overpaidDepositCents > 0) {
+        await tx.refund.create({
+          data: {
+            invoiceId: invoice.id,
+            amount: overpaidDepositCents / 100,
+            reason: "Deposit exceeded the invoice total (services reduced) — excess refunded to the client",
+            refundedById: authResult.userId,
+          },
         });
       }
 

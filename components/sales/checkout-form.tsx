@@ -117,7 +117,7 @@ interface AppointmentContext {
   appointmentId: string;
   client: Client;
   depositPaid: number;
-  seedItem: CartItem;
+  seedItems: CartItem[];
   staffId: string;
 }
 
@@ -158,7 +158,7 @@ export function CheckoutForm({
   const canDefer = canPartial || canPayLater;
   const [selectedClient, setSelectedClient] = useState<Client | null>(appointmentContext?.client ?? null);
   const [clientSearch, setClientSearch] = useState("");
-  const [cart, setCart] = useState<CartItem[]>(appointmentContext ? [appointmentContext.seedItem] : []);
+  const [cart, setCart] = useState<CartItem[]>(appointmentContext ? appointmentContext.seedItems : []);
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<"fixed" | "percentage">("fixed");
   const [redeemPoints, setRedeemPoints] = useState(0);
@@ -219,6 +219,9 @@ export function CheckoutForm({
   // BALANCE; the deposit is applied server-side toward the full invoice total.
   const depositPaid = appointmentContext?.depositPaid ?? 0;
   const payableNow = Math.max(0, Math.round((total - depositPaid) * 100) / 100);
+  // If the deposit exceeds the total (e.g. a service was removed after booking), the
+  // excess is refunded to the client in cash at checkout.
+  const refundDue = Math.max(0, Math.round((depositPaid - total) * 100) / 100);
 
   // Calculate points to be earned
   const pointsToEarn = cart.reduce((sum, item) => sum + item.points * item.quantity, 0);
@@ -1023,20 +1026,32 @@ export function CheckoutForm({
                   </div>
                   {depositPaid > 0 && (
                     <>
-                      <div className="flex justify-between text-green-600">
+                      <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
                         <span>Deposit paid</span>
                         <span>-{formatCurrency(depositPaid, currencyCode)}</span>
                       </div>
-                      <div className="flex justify-between text-base font-bold">
-                        <span>Balance due now</span>
-                        <span className="text-purple-600">{formatCurrency(payableNow, currencyCode)}</span>
-                      </div>
+                      {refundDue > 0 ? (
+                        <div className="flex items-center justify-between text-sm">
+                          <span>Refund to client</span>
+                          <span className="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                            {formatCurrency(refundDue, currencyCode)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between text-sm font-semibold">
+                          <span>Balance due now</span>
+                          <span className="text-purple-600">{formatCurrency(payableNow, currencyCode)}</span>
+                        </div>
+                      )}
                     </>
                   )}
                   {loyaltyProgramEnabled && pointsToEarn > 0 && (
-                    <div className="flex justify-between text-xs text-amber-600">
+                    <div className="flex items-center justify-between text-sm">
                       <span>Points to earn</span>
-                      <span>+{pointsToEarn} pts</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                        <Star className="h-3 w-3 fill-current" />
+                        +{pointsToEarn} pts
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1096,7 +1111,14 @@ export function CheckoutForm({
             /* Deposit already covers the full amount — just complete the sale. */
             <>
               <p className="py-4 text-center text-sm text-muted-foreground">
-                Fully covered by the {formatCurrency(depositPaid, currencyCode)} deposit. Nothing left to collect.
+                {refundDue > 0 ? (
+                  <>
+                    The {formatCurrency(depositPaid, currencyCode)} deposit exceeds the {formatCurrency(total, currencyCode)} total.
+                    Complete the sale and <span className="font-semibold text-rose-700 dark:text-rose-300">refund {formatCurrency(refundDue, currencyCode)}</span> to the client.
+                  </>
+                ) : (
+                  <>Fully covered by the {formatCurrency(depositPaid, currencyCode)} deposit. Nothing left to collect.</>
+                )}
               </p>
               <DialogFooter className="flex-row justify-end">
                 <Button onClick={() => submitPayment([])} disabled={isSubmitting}>

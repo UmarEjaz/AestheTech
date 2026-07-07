@@ -21,7 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { getClient } from "@/lib/actions/client";
+import { getClient, getClientHeldDeposits } from "@/lib/actions/client";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
@@ -67,9 +67,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
     hasPermission(userRoleId, "appointments:cancel", isSuperAdmin, salonId, permUserId),
   ]);
 
-  const [result, settingsResult] = await Promise.all([
+  const [result, settingsResult, heldDeposits] = await Promise.all([
     getClient(id),
     getSettings(),
+    getClientHeldDeposits(id),
   ]);
 
   if (!result.success || !result.data) {
@@ -165,8 +166,8 @@ export default async function ClientDetailPage({ params }: PageProps) {
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{client.appointments.length}</div>
-              <p className="text-xs text-muted-foreground">Total visits</p>
+              <div className="text-2xl font-bold">{client._count.appointments}</div>
+              <p className="text-xs text-muted-foreground">Completed visits</p>
             </CardContent>
           </Card>
 
@@ -183,6 +184,11 @@ export default async function ClientDetailPage({ params }: PageProps) {
                   .toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground">Lifetime value</p>
+              {heldDeposits > 0 && (
+                <p className="mt-1 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  ${heldDeposits.toFixed(2)} on deposit
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -354,7 +360,10 @@ export default async function ClientDetailPage({ params }: PageProps) {
                       className="flex items-center justify-between border-b pb-3 last:border-0"
                     >
                       <div>
-                        <p className="font-medium">{appointment.service.name}</p>
+                        <p className="font-medium">
+                          {(appointment.services[0]?.service.name ?? "") +
+                            (appointment.services.length > 1 ? ` +${appointment.services.length - 1}` : "")}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           with {appointment.staff.firstName} {appointment.staff.lastName}
                         </p>

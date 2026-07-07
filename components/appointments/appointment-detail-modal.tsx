@@ -91,6 +91,9 @@ interface AppointmentDetailModalProps {
   canCancel?: boolean;
   canDelete?: boolean;
   timezone: string;
+  // Info-only view (e.g. from a staff profile): hides all actions — edit/export/delete,
+  // the checkout/lifecycle footer, and the "Take deposit" button. Just the details.
+  readOnly?: boolean;
 }
 
 const statusConfig: Record<AppointmentStatus, { label: string; className: string }> = {
@@ -102,7 +105,7 @@ const statusConfig: Record<AppointmentStatus, { label: string; className: string
   CONFIRMED: {
     label: "Confirmed",
     className:
-      "bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-900/30 dark:text-teal-200 dark:border-teal-800",
+      "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/30 dark:text-violet-200 dark:border-violet-800",
   },
   IN_PROGRESS: {
     label: "In Progress",
@@ -139,11 +142,16 @@ export function AppointmentDetailModal({
   isOpen,
   onClose,
   onDataChange,
-  canUpdate = false,
-  canCancel = false,
-  canDelete = false,
+  canUpdate: canUpdateProp = false,
+  canCancel: canCancelProp = false,
+  canDelete: canDeleteProp = false,
   timezone,
+  readOnly = false,
 }: AppointmentDetailModalProps) {
+  // In read-only mode, every capability is off so no action UI renders.
+  const canUpdate = readOnly ? false : canUpdateProp;
+  const canCancel = readOnly ? false : canCancelProp;
+  const canDelete = readOnly ? false : canDeleteProp;
   const router = useRouter();
   const [isUpdating, setIsUpdating] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -161,11 +169,16 @@ export function AppointmentDetailModal({
   // Deposits taken against this appointment (applied at checkout).
   const depositPaid = appointment.payments.reduce((sum, p) => sum + Number(p.amount), 0);
   const isCheckedOut = !!appointment.sale;
-  const servicePrice = Number(appointment.service.price);
+  // Total across all services on the appointment.
+  const servicePrice = appointment.services.reduce((sum, s) => sum + Number(s.price), 0);
+  const totalDuration = appointment.services.reduce((sum, s) => sum + s.duration, 0);
   const balanceDue = Math.max(0, Math.round((servicePrice - depositPaid) * 100) / 100);
+  // When the deposit exceeds the total (e.g. a service was removed), the excess is refunded at checkout.
+  const refundDue = Math.max(0, Math.round((depositPaid - servicePrice) * 100) / 100);
   const canTakeDeposit =
     canUpdate &&
     !isCheckedOut &&
+    balanceDue > 0 && // nothing more to collect once the deposit covers the total
     !["CANCELLED", "NO_SHOW"].includes(appointment.status);
   const initials = `${appointment.client.firstName?.[0] ?? ""}${appointment.client.lastName?.[0] ?? ""}`.toUpperCase();
 
@@ -180,7 +193,7 @@ export function AppointmentDetailModal({
       const result = await addAppointmentDeposit(appointment.id, { amount, method: depositMethod });
       if (result.success) {
         toast.success(
-          `$${amount.toFixed(2)} deposit recorded for ${appointment.client.firstName} ${appointment.client.lastName}`
+          `$${amount.toFixed(2)} deposit recorded for ${appointment.client.firstName} ${appointment.client.lastName || ""}`.trim()
         );
         setShowDepositDialog(false);
         setDepositAmount("");
@@ -425,9 +438,11 @@ export function AppointmentDetailModal({
                   <Edit className="h-4 w-4" />
                 </Button>
               )}
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.open(`/api/ical/appointment/${appointment.id}`, "_blank")} disabled={isUpdating} title="Export" aria-label="Export appointment">
-                <Download className="h-4 w-4" />
-              </Button>
+              {!readOnly && (
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.open(`/api/ical/appointment/${appointment.id}`, "_blank")} disabled={isUpdating} title="Export" aria-label="Export appointment">
+                  <Download className="h-4 w-4" />
+                </Button>
+              )}
               {canDelete && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -472,18 +487,38 @@ export function AppointmentDetailModal({
           {/* Body (scrolls) — soft pastel cards */}
           <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
 
-            {/* Service */}
-            <div className="flex items-center gap-3 rounded-2xl bg-blue-50 p-3.5 dark:bg-blue-950/40">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                <Scissors className="h-5 w-5" />
+            {/* Services (1..N), each with its own staff */}
+            <div className="rounded-2xl bg-blue-50 p-3.5 dark:bg-blue-950/40">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                  <Scissors className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700/80 dark:text-blue-400">
+                    {appointment.services.length > 1 ? "Services" : "Service"}
+                  </div>
+                </div>
+                {/* Aggregate total only when there are 2+ services — otherwise it just
+                    repeats the single line's price/duration. */}
+                {appointment.services.length > 1 && (
+                  <div className="shrink-0 text-right text-sm">
+                    <div className="font-bold">${servicePrice.toFixed(2)}</div>
+                    <div className="text-xs text-muted-foreground">{totalDuration} min</div>
+                  </div>
+                )}
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700/80 dark:text-blue-400">Service</div>
-                <div className="mt-0.5 truncate font-bold">{appointment.service.name}</div>
-              </div>
-              <div className="shrink-0 text-right text-sm">
-                <div className="font-bold">${Number(appointment.service.price).toFixed(2)}</div>
-                <div className="text-xs text-muted-foreground">{appointment.service.duration} min</div>
+              <div className="mt-2 space-y-1.5 pl-[52px]">
+                {appointment.services.map((line) => (
+                  <div key={line.id} className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">{line.service.name}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {line.staff.firstName} {line.staff.lastName} · {line.duration} min
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-sm font-semibold">${Number(line.price).toFixed(2)}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -500,10 +535,6 @@ export function AppointmentDetailModal({
                 <div className="truncate text-xs text-muted-foreground">
                   {formatInTz(appointment.startTime, "h:mm a", timezone)} – {formatInTz(appointment.endTime, "h:mm a", timezone)}
                 </div>
-              </div>
-              <div className="shrink-0 text-right text-sm">
-                <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Staff</div>
-                <div className="font-semibold">{appointment.staff.firstName} {appointment.staff.lastName}</div>
               </div>
             </div>
 
@@ -606,9 +637,17 @@ export function AppointmentDetailModal({
                   {depositPaid > 0 ? (
                     <div className="mt-0.5 font-bold">
                       ${depositPaid.toFixed(2)} paid
-                      <span className="font-medium text-muted-foreground">
-                        {isCheckedOut ? " · applied at checkout" : ` · balance $${balanceDue.toFixed(2)}`}
-                      </span>
+                      {isCheckedOut ? (
+                        <span className="font-medium text-muted-foreground"> · applied at checkout</span>
+                      ) : refundDue > 0 ? (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                          ${refundDue.toFixed(2)} to refund
+                        </span>
+                      ) : balanceDue > 0 ? (
+                        <span className="font-medium text-muted-foreground"> · balance ${balanceDue.toFixed(2)}</span>
+                      ) : (
+                        <span className="font-medium text-muted-foreground"> · fully covered</span>
+                      )}
                     </div>
                   ) : (
                     <div className="mt-0.5 text-sm text-muted-foreground">No deposit taken yet.</div>
@@ -624,9 +663,18 @@ export function AppointmentDetailModal({
 
           </div>
 
-          {/* Sticky footer */}
+          {/* Sticky footer — hidden in read-only mode (no checkout / lifecycle) */}
+          {!readOnly && (
           <div className="space-y-3 border-t bg-background px-5 py-4">
-            {depositPaid > 0 && !isCheckedOut && (
+            {depositPaid > 0 && !isCheckedOut && refundDue > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Refund at checkout</span>
+                <span className="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-1 text-base font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                  ${refundDue.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {depositPaid > 0 && !isCheckedOut && refundDue === 0 && (
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Balance due now</span>
                 <span className="text-xl font-bold">${balanceDue.toFixed(2)}</span>
@@ -698,6 +746,7 @@ export function AppointmentDetailModal({
               </div>
             )}
           </div>
+          )}
         </SheetContent>
       </Sheet>
 
@@ -839,7 +888,7 @@ export function AppointmentDetailModal({
         timezone={timezone}
         isLoading={isUpdating}
         mode="cancel"
-        clientName={`${appointment.client.firstName} ${appointment.client.lastName}`}
+        clientName={`${appointment.client.firstName} ${appointment.client.lastName || ""}`.trim()}
       />
     </>
   );

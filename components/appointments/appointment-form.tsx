@@ -24,7 +24,7 @@ function toSalonLocalDay(instant: Date, tz: string): Date {
   const z = new TZDate(instant, tz);
   return new Date(z.getFullYear(), z.getMonth(), z.getDate());
 }
-import { Loader2, Calendar as CalendarIcon, UserPlus, Users, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, Zap } from "lucide-react";
+import { Loader2, Calendar as CalendarIcon, UserPlus, Users, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, Zap, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -60,11 +60,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  appointmentSchema,
-  AppointmentFormData,
-  AppointmentFormInput,
-} from "@/lib/validations/appointment";
 import { RecurrencePattern, RecurrenceEndType, PaymentMethod } from "@prisma/client";
 import { SELECTABLE_PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 import { PatternSelector, getPatternSummary } from "./pattern-selector";
@@ -102,6 +97,17 @@ interface Staff {
   firstName: string;
   lastName: string;
 }
+
+// Form-local schema. Services (1..N, each with its own staff) are managed uniformly in the
+// `services` state array — index 0 is the primary. clientId is relaxed here (enforced
+// per-tab in onSubmit); services are validated in onSubmit too.
+const bookingFormSchema = z.object({
+  clientId: z.string(),
+  startTime: z.coerce.date({ message: "Start time is required" }),
+  notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
+});
+type BookingFormInput = z.input<typeof bookingFormSchema>;
+type BookingFormValues = z.infer<typeof bookingFormSchema>;
 
 interface AppointmentFormProps {
   mode: "create" | "edit";
@@ -178,22 +184,31 @@ export function AppointmentForm({
     setError,
     clearErrors,
     formState: { errors },
-  } = useForm<AppointmentFormInput, unknown, AppointmentFormData>({
+  } = useForm<BookingFormInput, unknown, BookingFormValues>({
     // clientId isn't required at the resolver level because a Walk-in booking has no
     // clientId (it's created on submit). The "existing client selected" check is done
     // in onSubmit instead, so switching to Walk-in no longer blocks submission.
-    resolver: zodResolver(appointmentSchema.extend({ clientId: z.string() })),
+    resolver: zodResolver(bookingFormSchema),
     defaultValues: {
       clientId: appointment?.clientId || "",
-      serviceId: appointment?.serviceId || "",
-      staffId: appointment?.staffId || "",
       startTime: appointment ? new Date(appointment.startTime) : initialDate || new Date(),
       notes: appointment?.notes || "",
     },
   });
 
-  const watchedStaffId = watch("staffId");
-  const watchedServiceId = watch("serviceId");
+  // The chosen services on the appointment (1..N), each with its own staff. Index 0 = primary.
+  // Named serviceLines to avoid colliding with the `services` prop (list of available services).
+  const [serviceLines, setServiceLines] = useState<{ serviceId: string; staffId: string }[]>(
+    appointment && appointment.services.length > 0
+      ? appointment.services.map((s) => ({ serviceId: s.service.id, staffId: s.staff.id }))
+      : [{ serviceId: "", staffId: "" }]
+  );
+  const [servicesError, setServicesError] = useState<string | null>(null);
+
+  // Primary = first service. Drives the calendar lane, slot staff, and recurring series.
+  const primaryServiceId = serviceLines[0]?.serviceId ?? "";
+  const primaryStaffId = serviceLines[0]?.staffId ?? "";
+
   const watchedStartTime = watch("startTime");
 
   // Update dayOfWeek when selected date changes
@@ -250,18 +265,22 @@ export function AppointmentForm({
     return () => clearTimeout(timeoutId);
   }, [isRecurring, watchedStartTime, recurrencePattern, customWeeks, specificDays, nthWeek, dayOfWeek, endType, endAfterCount, endByDate, timezone]);
 
-  // Fetch available slots when staff, service, or date changes
+  // Slot length = total duration of ALL services on the appointment.
+  const allServiceIdsKey = serviceLines.map((s) => s.serviceId).filter(Boolean).join(",");
+
+  // Fetch available slots when staff, services, or date changes
   useEffect(() => {
     const fetchSlots = async () => {
-      if (!watchedStaffId || !watchedServiceId || !selectedDate) return;
+      const serviceIds = allServiceIdsKey ? allServiceIdsKey.split(",") : [];
+      if (!primaryStaffId || serviceIds.length === 0 || !selectedDate) return;
 
       setIsLoadingSlots(true);
       try {
         const result = await getAvailableSlots({
-          staffId: watchedStaffId,
+          staffId: primaryStaffId,
           // Resolve slots for the salon's calendar day, not the browser's.
           date: salonDayAnchor(selectedDate, timezone),
-          serviceId: watchedServiceId,
+          serviceIds,
           // In edit mode, exclude the current appointment from conflict check
           excludeAppointmentId: mode === "edit" ? appointment?.id : undefined,
         });
@@ -275,7 +294,7 @@ export function AppointmentForm({
     };
 
     fetchSlots();
-  }, [watchedStaffId, watchedServiceId, selectedDate, mode, appointment?.id, timezone]);
+  }, [primaryStaffId, allServiceIdsKey, selectedDate, mode, appointment?.id, timezone]);
 
   // Auto-select the matching time slot when slots load
   useEffect(() => {
@@ -322,11 +341,11 @@ export function AppointmentForm({
     setConflictPreview(null);
     setSelectedAlternatives([]);
     setSkippedDates([]);
-  }, [recurrencePattern, customWeeks, specificDays, nthWeek, endType, endAfterCount, endByDate, watchedStartTime, watchedStaffId, watchedServiceId]);
+  }, [recurrencePattern, customWeeks, specificDays, nthWeek, endType, endAfterCount, endByDate, watchedStartTime, primaryStaffId, primaryServiceId]);
 
   // Handle conflict preview
   const handlePreviewConflicts = async () => {
-    if (!watchedServiceId || !watchedStaffId || !watchedStartTime) {
+    if (!primaryServiceId || !primaryStaffId || !watchedStartTime) {
       toast.error("Please select service, staff, and time first");
       return;
     }
@@ -348,8 +367,8 @@ export function AppointmentForm({
       const startTime = watchedStartTime instanceof Date ? watchedStartTime : new Date(watchedStartTime as string | number);
       const result = await previewRecurringConflicts({
         clientId: clientId || "placeholder",
-        serviceId: watchedServiceId,
-        staffId: watchedStaffId,
+        serviceId: primaryServiceId,
+        staffId: primaryStaffId,
         pattern: recurrencePattern,
         customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
         dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
@@ -414,21 +433,35 @@ export function AppointmentForm({
     );
   };
 
+  // Validate the services list: at least one, every row must have a service AND a staff.
+  // Returns the array, or null (and sets an inline error) if incomplete.
+  const buildServices = (): { serviceId: string; staffId: string }[] | null => {
+    // Recurring series are single-service — only the first line applies.
+    const lines = isRecurring ? serviceLines.slice(0, 1) : serviceLines;
+    if (lines.length === 0) {
+      setServicesError("Add at least one service");
+      return null;
+    }
+    for (const s of lines) {
+      if (!s.serviceId || !s.staffId) {
+        setServicesError("Choose a service and staff for every line");
+        return null;
+      }
+    }
+    setServicesError(null);
+    return lines.map((s) => ({ serviceId: s.serviceId, staffId: s.staffId }));
+  };
+
   // Walk-in is here right now: book at the current time (bypassing the slot grid and
   // business hours) and go straight to checkout so they can pay and start immediately.
   const handleWalkInNow = async () => {
-    const serviceId = watch("serviceId");
-    const staffId = watch("staffId");
     if (!walkInName.trim()) {
       toast.error("Please enter the walk-in client's name");
       return;
     }
-    if (!serviceId) {
-      toast.error("Please select a service");
-      return;
-    }
-    if (!staffId) {
-      toast.error("Please select a staff member");
+    const services = buildServices();
+    if (!services) {
+      toast.error("Please choose a service and staff for every line");
       return;
     }
 
@@ -446,8 +479,7 @@ export function AppointmentForm({
 
       const result = await createAppointment({
         clientId: walkInResult.data.id,
-        serviceId,
-        staffId,
+        services,
         startTime: new Date(),
         notes: watch("notes") || undefined,
       });
@@ -465,10 +497,16 @@ export function AppointmentForm({
     }
   };
 
-  const onSubmit = async (data: AppointmentFormData) => {
+  const onSubmit = async (data: BookingFormValues) => {
     // Existing-client bookings need a selected client (walk-ins don't — created below).
     if (!isWalkIn && !data.clientId) {
       setError("clientId", { message: "Client is required" });
+      return;
+    }
+    // Merge primary + additional services; block if any additional row is incomplete.
+    const services = buildServices();
+    if (!services) {
+      toast.error("Please choose a service and staff for every line");
       return;
     }
     // A time slot must be explicitly chosen — otherwise startTime silently defaults to
@@ -518,8 +556,9 @@ export function AppointmentForm({
           const startTime = data.startTime instanceof Date ? data.startTime : new Date(data.startTime);
           const result = await createRecurringSeries({
             clientId,
-            serviceId: data.serviceId,
-            staffId: data.staffId,
+            // Recurring series are single-service — use the primary service.
+            serviceId: services[0].serviceId,
+            staffId: services[0].staffId,
             pattern: recurrencePattern,
             customWeeks: recurrencePattern === "CUSTOM" ? customWeeks : undefined,
             dayOfWeek: recurrencePattern === "SPECIFIC_DAYS"
@@ -554,7 +593,7 @@ export function AppointmentForm({
             toast.error(result.error);
           }
         } else {
-          const result = await createAppointment({ ...data, clientId });
+          const result = await createAppointment({ clientId, services, startTime: data.startTime, notes: data.notes });
           if (result.success) {
             // Optionally record a deposit taken at booking time.
             const depositValue = Number(depositAmount);
@@ -581,7 +620,12 @@ export function AppointmentForm({
           }
         }
       } else if (appointment) {
-        const result = await updateAppointment(appointment.id, data);
+        const result = await updateAppointment(appointment.id, {
+          clientId: data.clientId,
+          services,
+          startTime: data.startTime,
+          notes: data.notes,
+        });
         if (result.success) {
           toast.success("Appointment updated successfully");
           router.push("/dashboard/appointments");
@@ -649,7 +693,8 @@ export function AppointmentForm({
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          {/* Existing client = full-width picker; walk-in = name + phone side by side. */}
+          <div className={isWalkIn ? "grid gap-4 sm:grid-cols-2" : ""}>
             {/* Client Selection - Show based on walk-in toggle */}
             {!isWalkIn ? (
               <div className="space-y-2">
@@ -732,7 +777,7 @@ export function AppointmentForm({
             )}
 
             {/* Walk-in Phone (optional) - only show in walk-in mode */}
-            {isWalkIn ? (
+            {isWalkIn && (
               <div className="space-y-2">
                 <Label htmlFor="walkInPhone">Phone (Optional)</Label>
                 <Input
@@ -742,58 +787,27 @@ export function AppointmentForm({
                   placeholder="Enter phone number"
                 />
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Label htmlFor="serviceId">Service *</Label>
-                <Select
-                  value={watch("serviceId")}
-                  onValueChange={(value) => setValue("serviceId", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {services.map((service) => (
-                      <SelectItem key={service.id} value={service.id}>
-                        {service.name} ({service.duration} min - ${Number(service.price).toFixed(2)})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.serviceId && (
-                  <p className="text-sm text-destructive">{errors.serviceId.message}</p>
-                )}
-              </div>
             )}
           </div>
 
-          {/* Service selection for walk-in mode */}
-          {isWalkIn && (
-            <div className="space-y-2">
-              <Label htmlFor="serviceId">Service *</Label>
-              <Select
-                value={watch("serviceId")}
-                onValueChange={(value) => setValue("serviceId", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a service" />
-                </SelectTrigger>
-                <SelectContent>
-                  {services.map((service) => (
-                    <SelectItem key={service.id} value={service.id}>
-                      {service.name} ({service.duration} min - ${Number(service.price).toFixed(2)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.serviceId && (
-                <p className="text-sm text-destructive">{errors.serviceId.message}</p>
-              )}
+          {/* Services (1..N) — each row is a service + its own staff. Any row is removable. */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>{isRecurring ? "Service *" : "Services *"}</Label>
+              {(() => {
+                const chosen = (isRecurring ? serviceLines.slice(0, 1) : serviceLines)
+                  .map((l) => services.find((s) => s.id === l.serviceId))
+                  .filter((s): s is Service => Boolean(s));
+                const totalPrice = chosen.reduce((sum, s) => sum + Number(s.price), 0);
+                const totalDur = chosen.reduce((sum, s) => sum + s.duration, 0);
+                return chosen.length > 0 ? (
+                  <span className="text-sm text-muted-foreground">
+                    Total: <span className="font-semibold text-foreground">${totalPrice.toFixed(2)}</span> · {totalDur} min
+                  </span>
+                ) : null;
+              })()}
             </div>
-          )}
 
-          <div className="space-y-2">
-            <Label htmlFor="staffId">Staff Member *</Label>
             {staff.length === 0 ? (
               <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
                 No service providers found. Mark a staff member as a{" "}
@@ -804,25 +818,73 @@ export function AppointmentForm({
                 page to book appointments.
               </p>
             ) : (
-              <Select
-                value={watch("staffId")}
-                onValueChange={(value) => setValue("staffId", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select staff member" />
-                </SelectTrigger>
-                <SelectContent>
-                  {staff.map((member) => (
-                    <SelectItem key={member.id} value={member.id}>
-                      {member.firstName} {member.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                {(isRecurring ? serviceLines.slice(0, 1) : serviceLines).map((row, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <div className="grid flex-1 gap-2 sm:grid-cols-2">
+                      <Select
+                        value={row.serviceId}
+                        onValueChange={(v) => {
+                          setServiceLines((prev) => prev.map((s, i) => (i === idx ? { ...s, serviceId: v } : s)));
+                          setServicesError(null);
+                        }}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Select a service" /></SelectTrigger>
+                        <SelectContent>
+                          {services.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.name} ({s.duration} min - ${Number(s.price).toFixed(2)})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={row.staffId}
+                        onValueChange={(v) => {
+                          setServiceLines((prev) => prev.map((s, i) => (i === idx ? { ...s, staffId: v } : s)));
+                          setServicesError(null);
+                        }}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Select staff" /></SelectTrigger>
+                        <SelectContent>
+                          {staff.map((m) => (
+                            <SelectItem key={m.id} value={m.id}>
+                              {m.firstName} {m.lastName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {!isRecurring && serviceLines.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="mt-0.5 shrink-0"
+                        onClick={() => setServiceLines((prev) => prev.filter((_, i) => i !== idx))}
+                        aria-label="Remove service"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+
+                {!isRecurring && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setServiceLines((prev) => [...prev, { serviceId: "", staffId: prev[0]?.staffId || "" }])
+                    }
+                  >
+                    <Plus className="mr-1 h-4 w-4" /> Add another service
+                  </Button>
+                )}
+              </>
             )}
-            {errors.staffId && (
-              <p className="text-sm text-destructive">{errors.staffId.message}</p>
-            )}
+            {servicesError && <p className="text-sm text-destructive">{servicesError}</p>}
           </div>
         </CardContent>
       </Card>
@@ -896,7 +958,7 @@ export function AppointmentForm({
             </Popover>
           </div>
 
-          {watchedStaffId && watchedServiceId && selectedDate && (
+          {primaryStaffId && primaryServiceId && selectedDate && (
             <div className="space-y-2">
               <Label>Available Time Slots</Label>
               {isLoadingSlots ? (
@@ -939,7 +1001,7 @@ export function AppointmentForm({
             </div>
           )}
 
-          {(!watchedStaffId || !watchedServiceId) && (
+          {(!primaryStaffId || !primaryServiceId) && (
             <p className="text-sm text-muted-foreground py-4 text-center">
               Please select a client, service, and staff member to view available time slots.
             </p>
@@ -1124,7 +1186,7 @@ export function AppointmentForm({
                     type="button"
                     variant="outline"
                     onClick={handlePreviewConflicts}
-                    disabled={isPreviewingConflicts || !watchedServiceId || !watchedStaffId}
+                    disabled={isPreviewingConflicts || !primaryServiceId || !primaryStaffId}
                     className="w-full"
                   >
                     {isPreviewingConflicts ? (

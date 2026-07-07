@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
 import { hasAnyPermission } from "@/lib/permissions";
 import { ActionResult } from "@/lib/types";
-import { expenseCategorySchema, ExpenseCategoryInput } from "@/lib/validations/expense";
+import { categorySchema, CategoryInput } from "@/lib/validations/category";
 import { getOrgRootSalonId } from "./branch";
 import { logAudit } from "./audit";
 
@@ -146,14 +146,14 @@ export async function getActiveExpenseCategories(): Promise<
  * Create a new expense category.
  */
 export async function createExpenseCategory(
-  data: ExpenseCategoryInput
+  data: CategoryInput
 ): Promise<ActionResult<{ id: string }>> {
   const authResult = await checkAuth("expense-categories:create");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
-  const validation = expenseCategorySchema.safeParse(data);
+  const validation = categorySchema.safeParse(data);
   if (!validation.success) {
     return { success: false, error: validation.error.issues[0].message };
   }
@@ -201,14 +201,14 @@ export async function createExpenseCategory(
  */
 export async function updateExpenseCategory(
   id: string,
-  data: ExpenseCategoryInput
+  data: CategoryInput
 ): Promise<ActionResult<{ id: string }>> {
   const authResult = await checkAuth("expense-categories:update");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
-  const validation = expenseCategorySchema.safeParse(data);
+  const validation = categorySchema.safeParse(data);
   if (!validation.success) {
     return { success: false, error: validation.error.issues[0].message };
   }

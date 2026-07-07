@@ -93,11 +93,20 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
 function getClientInclude() {
   return {
     loyaltyPoints: true,
+    // "Total visits" = completed appointments only (not scheduled/cancelled/no-show).
+    _count: {
+      select: {
+        appointments: { where: { status: "COMPLETED" as const } },
+      },
+    },
     appointments: {
       orderBy: { startTime: "desc" as const },
       take: 10,
       include: {
-        service: true,
+        services: {
+          orderBy: { order: "asc" as const },
+          select: { service: { select: { name: true } } },
+        },
         staff: {
           select: { firstName: true, lastName: true },
         },
@@ -155,6 +164,22 @@ function getClientInclude() {
 export type ClientWithRelations = Prisma.ClientGetPayload<{
   include: ReturnType<typeof getClientInclude>;
 }>;
+
+// Sum of deposits/prepayments taken against this client's appointments that haven't yet
+// been applied at checkout (invoiceId null) — i.e. money held but not yet earned.
+export async function getClientHeldDeposits(clientId: string): Promise<number> {
+  const authResult = await checkAuth("clients:view");
+  if (!authResult) return 0;
+
+  const result = await prisma.payment.aggregate({
+    where: {
+      invoiceId: null,
+      appointment: { clientId, salonId: authResult.salonId },
+    },
+    _sum: { amount: true },
+  });
+  return Number(result._sum.amount ?? 0);
+}
 
 export async function getClient(id: string): Promise<ActionResult<ClientWithRelations | null>> {
   const authResult = await checkAuth("clients:view");

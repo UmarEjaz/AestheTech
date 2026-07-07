@@ -61,9 +61,9 @@ export type UserDetail = {
       lastName: string | null;
       isWalkIn: boolean;
     };
-    service: {
-      name: string;
-    };
+    services: {
+      service: { name: string };
+    }[];
   }[];
   schedules: {
     id: string;
@@ -214,8 +214,9 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
             client: {
               select: { firstName: true, lastName: true, isWalkIn: true },
             },
-            service: {
-              select: { name: true },
+            services: {
+              orderBy: { order: "asc" },
+              select: { service: { select: { name: true } } },
             },
           },
         },

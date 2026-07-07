@@ -19,7 +19,7 @@ const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
   },
   _count: {
     select: {
-      appointments: true,
+      appointmentServices: true,
       saleItems: true,
     },
   },
@@ -240,7 +240,7 @@ export async function deleteService(id: string): Promise<ActionResult> {
     include: {
       _count: {
         select: {
-          appointments: true,
+          appointmentServices: true,
           saleItems: true,
         },
       },

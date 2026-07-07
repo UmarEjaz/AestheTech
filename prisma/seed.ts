@@ -713,11 +713,13 @@ async function main() {
     data: {
       salonId: salon.id,
       clientId: clients[0].id,
-      serviceId: services[0].id, // Women's haircut
       staffId: staff1.id,
       startTime: new Date(today.setHours(10, 0, 0, 0)),
       endTime: new Date(today.setHours(11, 0, 0, 0)),
       status: "SCHEDULED",
+      services: {
+        create: [{ salonId: salon.id, serviceId: services[0].id, staffId: staff1.id, price: services[0].price, duration: services[0].duration, order: 0 }], // Women's haircut
+      },
     },
   });
 
@@ -725,11 +727,13 @@ async function main() {
     data: {
       salonId: salon.id,
       clientId: clients[1].id,
-      serviceId: services[1].id, // Men's haircut
       staffId: staff2.id,
       startTime: new Date(today.setHours(14, 0, 0, 0)),
       endTime: new Date(today.setHours(14, 30, 0, 0)),
       status: "CONFIRMED",
+      services: {
+        create: [{ salonId: salon.id, serviceId: services[1].id, staffId: staff2.id, price: services[1].price, duration: services[1].duration, order: 0 }], // Men's haircut
+      },
     },
   });
 
@@ -737,11 +741,13 @@ async function main() {
     data: {
       salonId: salon.id,
       clientId: clients[2].id,
-      serviceId: services[8].id, // Basic facial
       staffId: staff1.id,
       startTime: new Date(tomorrow.setHours(11, 0, 0, 0)),
       endTime: new Date(tomorrow.setHours(12, 0, 0, 0)),
       status: "SCHEDULED",
+      services: {
+        create: [{ salonId: salon.id, serviceId: services[8].id, staffId: staff1.id, price: services[8].price, duration: services[8].duration, order: 0 }], // Basic facial
+      },
     },
   });
 

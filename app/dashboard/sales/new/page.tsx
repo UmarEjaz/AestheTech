@@ -111,22 +111,23 @@ export default async function NewSalePage({
   // If launched from an appointment ("Check out"), build the appointment context:
   // lock the client, seed the cart with the booked service, and carry the deposit.
   const { appointmentId } = await searchParams;
+  type SeedItem = {
+    id: string;
+    type: "service";
+    serviceId: string;
+    name: string;
+    staffId: string;
+    staffName: string;
+    price: number;
+    quantity: number;
+    points: number;
+  };
   type ApptCtx = {
     appointmentId: string;
     client: (typeof clientsWithLoyalty)[number];
     depositPaid: number;
     staffId: string;
-    seedItem: {
-      id: string;
-      type: "service";
-      serviceId: string;
-      name: string;
-      staffId: string;
-      staffName: string;
-      price: number;
-      quantity: number;
-      points: number;
-    };
+    seedItems: SeedItem[];
   };
   let appointmentContext: ApptCtx | undefined;
 
@@ -134,7 +135,6 @@ export default async function NewSalePage({
     const apptResult = await getAppointment(appointmentId);
     if (apptResult.success && !apptResult.data.sale) {
       const appt = apptResult.data;
-      const seedService = services.find((s) => s.id === appt.serviceId);
       const fullClient = clientsWithLoyalty.find((c) => c.id === appt.clientId) ?? {
         id: appt.client.id,
         firstName: appt.client.firstName,
@@ -144,22 +144,27 @@ export default async function NewSalePage({
         isWalkIn: appt.client.isWalkIn,
         loyaltyPoints: null,
       };
+      // Seed one cart item per booked service (each with its own staff + snapshot price).
+      const seedItems: SeedItem[] = appt.services.map((line) => {
+        const seedService = services.find((s) => s.id === line.service.id);
+        return {
+          id: `appt-${line.id}`,
+          type: "service" as const,
+          serviceId: line.service.id,
+          name: seedService?.name ?? line.service.name,
+          staffId: line.staff.id,
+          staffName: `${line.staff.firstName} ${line.staff.lastName}`,
+          price: Number(line.price),
+          quantity: 1,
+          points: seedService?.points ?? 0,
+        };
+      });
       appointmentContext = {
         appointmentId: appt.id,
         client: fullClient,
         depositPaid: appt.payments.reduce((s, p) => s + Number(p.amount), 0),
         staffId: appt.staffId,
-        seedItem: {
-          id: `appt-${appt.serviceId}`,
-          type: "service",
-          serviceId: appt.serviceId,
-          name: seedService?.name ?? appt.service.name,
-          staffId: appt.staffId,
-          staffName: `${appt.staff.firstName} ${appt.staff.lastName}`,
-          price: seedService?.price ?? Number(appt.service.price),
-          quantity: 1,
-          points: seedService?.points ?? 0,
-        },
+        seedItems,
       };
     }
   }

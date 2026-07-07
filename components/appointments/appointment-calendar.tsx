@@ -42,12 +42,23 @@ interface AppointmentCalendarProps {
 
 const statusColors: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
   SCHEDULED: { bg: "bg-blue-100 dark:bg-blue-900/30", border: "border-blue-500", text: "text-blue-800 dark:text-blue-200" },
-  CONFIRMED: { bg: "bg-green-100 dark:bg-green-900/30", border: "border-green-500", text: "text-green-800 dark:text-green-200" },
-  IN_PROGRESS: { bg: "bg-yellow-100 dark:bg-yellow-900/30", border: "border-yellow-500", text: "text-yellow-800 dark:text-yellow-200" },
-  COMPLETED: { bg: "bg-gray-100 dark:bg-gray-800/30", border: "border-gray-400", text: "text-gray-600 dark:text-gray-400" },
+  CONFIRMED: { bg: "bg-violet-100 dark:bg-violet-900/30", border: "border-violet-500", text: "text-violet-800 dark:text-violet-200" },
+  IN_PROGRESS: { bg: "bg-amber-100 dark:bg-amber-900/30", border: "border-amber-500", text: "text-amber-800 dark:text-amber-200" },
+  COMPLETED: { bg: "bg-green-100 dark:bg-green-900/30", border: "border-green-500", text: "text-green-800 dark:text-green-200" },
   CANCELLED: { bg: "bg-red-100 dark:bg-red-900/30", border: "border-red-400", text: "text-red-600 dark:text-red-400" },
   NO_SHOW: { bg: "bg-orange-100 dark:bg-orange-900/30", border: "border-orange-400", text: "text-orange-600 dark:text-orange-400" },
 };
+
+// Human labels for the status color legend shown under the calendar.
+const STATUS_LABELS: Record<AppointmentStatus, string> = {
+  SCHEDULED: "Scheduled",
+  CONFIRMED: "Confirmed",
+  IN_PROGRESS: "In progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  NO_SHOW: "No-show",
+};
+const STATUS_ORDER: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"];
 
 // Statuses that allow dragging (defined outside component to avoid recreation on each render)
 const DRAGGABLE_STATUSES: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED"];
@@ -88,10 +99,14 @@ export function AppointmentCalendar({
     const clientName = `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}`;
     const walkInLabel = apt.client.isWalkIn ? " (Walk-in)" : "";
     const recurringIndicator = isRecurring ? "↻ " : "";
+    // First service + a "+N" hint when there are extra services.
+    const primaryServiceName = apt.services[0]?.service.name ?? "";
+    const extraCount = apt.services.length - 1;
+    const serviceLabel = extraCount > 0 ? `${primaryServiceName} +${extraCount}` : primaryServiceName;
 
     return {
       id: apt.id,
-      title: `${recurringIndicator}${clientName}${walkInLabel} - ${apt.service.name}`,
+      title: `${recurringIndicator}${clientName}${walkInLabel} - ${serviceLabel}`,
       start: apt.startTime,
       end: apt.endTime,
       editable: canUpdate && DRAGGABLE_STATUSES.includes(apt.status),
@@ -387,7 +402,9 @@ export function AppointmentCalendar({
               <div className="truncate font-semibold">{recurring}{name}{walkIn}</div>
               <div className="truncate text-[0.7rem] opacity-90">
                 {arg.timeText}
-                {apt.service?.name ? ` · ${apt.service.name}` : ""}
+                {apt.services[0]?.service.name
+                  ? ` · ${apt.services[0].service.name}${apt.services.length > 1 ? ` +${apt.services.length - 1}` : ""}`
+                  : ""}
               </div>
             </div>
           );
@@ -407,6 +424,18 @@ export function AppointmentCalendar({
         dayMaxEvents={3}
         weekends={true}
       />
+
+      {/* Status color legend */}
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t pt-3 text-xs text-muted-foreground">
+        {STATUS_ORDER.map((status) => (
+          <div key={status} className="flex items-center gap-1.5">
+            <span
+              className={`inline-block h-3.5 w-6 rounded-sm border-l-4 ${statusColors[status].bg} ${statusColors[status].border}`}
+            />
+            <span>{STATUS_LABELS[status]}</span>
+          </div>
+        ))}
+      </div>
 
       {selectedAppointment && (
         <AppointmentDetailModal

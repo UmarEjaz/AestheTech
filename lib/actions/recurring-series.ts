@@ -271,13 +271,22 @@ export async function createRecurringSeries(
           data: {
             salonId: authResult.salonId,
             clientId: validData.clientId,
-            serviceId: validData.serviceId,
             staffId: altStaffId,
             startTime: altStartTime,
             endTime: altEndTime,
             notes: validData.notes || null,
             status: "SCHEDULED",
             seriesId: series.id,
+            services: {
+              create: [{
+                salonId: authResult.salonId,
+                serviceId: validData.serviceId,
+                staffId: altStaffId,
+                price: service.price,
+                duration: service.duration,
+                order: 0,
+              }],
+            },
           },
         });
         createdCount++;
@@ -304,13 +313,22 @@ export async function createRecurringSeries(
         data: {
           salonId: authResult.salonId,
           clientId: validData.clientId,
-          serviceId: validData.serviceId,
           staffId: validData.staffId,
           startTime,
           endTime,
           notes: validData.notes || null,
           status: "SCHEDULED",
           seriesId: series.id,
+          services: {
+            create: [{
+              salonId: authResult.salonId,
+              serviceId: validData.serviceId,
+              staffId: validData.staffId,
+              price: service.price,
+              duration: service.duration,
+              order: 0,
+            }],
+          },
         },
       });
       createdCount++;
@@ -541,6 +559,8 @@ export async function updateSeriesAppointments(
 
       if (staffId) {
         appointmentUpdateData.staff = { connect: { id: staffId } };
+        // Keep the (single) service line's staff in sync with the primary provider.
+        appointmentUpdateData.services = { updateMany: { where: {}, data: { staffId } } };
       }
 
       if (timeOfDay) {
@@ -791,7 +811,7 @@ export async function extendSeries(
     const series = await prisma.recurringAppointmentSeries.findFirst({
       where: { id: seriesId, salonId: authResult.salonId },
       include: {
-        service: { select: { duration: true } },
+        service: { select: { duration: true, price: true } },
         appointments: {
           select: { startTime: true },
           orderBy: { startTime: "desc" },
@@ -892,13 +912,22 @@ export async function extendSeries(
         data: {
           salonId: series.salonId,
           clientId: series.clientId,
-          serviceId: series.serviceId,
           staffId: series.staffId,
           startTime,
           endTime,
           notes: series.notes,
           status: "SCHEDULED",
           seriesId: series.id,
+          services: {
+            create: [{
+              salonId: series.salonId,
+              serviceId: series.serviceId,
+              staffId: series.staffId,
+              price: series.service.price,
+              duration: series.service.duration,
+              order: 0,
+            }],
+          },
         },
       });
       createdCount++;

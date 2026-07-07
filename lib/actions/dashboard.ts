@@ -286,7 +286,10 @@ export async function getDashboardStats(params?: {
             },
             include: {
               client: { select: { firstName: true, lastName: true } },
-              service: { select: { name: true } },
+              services: {
+                orderBy: { order: "asc" },
+                select: { service: { select: { name: true } } },
+              },
               staff: { select: { firstName: true, lastName: true } },
             },
             orderBy: { startTime: "asc" },
@@ -417,7 +420,7 @@ export async function getDashboardStats(params?: {
     // Process recent sales
     const recentSales = recentSalesData.map((sale) => ({
       id: sale.id,
-      clientName: `${sale.client.firstName} ${sale.client.lastName}`,
+      clientName: `${sale.client.firstName} ${sale.client.lastName || ""}`.trim(),
       amount: Number(sale.finalAmount),
       createdAt: sale.createdAt,
       invoiceNumber: sale.invoice?.invoiceNumber || null,
@@ -426,8 +429,10 @@ export async function getDashboardStats(params?: {
     // Process upcoming appointments
     const upcomingAppointments = upcomingAppointmentsData.map((apt) => ({
       id: apt.id,
-      clientName: `${apt.client.firstName} ${apt.client.lastName}`,
-      serviceName: apt.service.name,
+      clientName: `${apt.client.firstName} ${apt.client.lastName || ""}`.trim(),
+      serviceName:
+        (apt.services[0]?.service.name ?? "") +
+        (apt.services.length > 1 ? ` +${apt.services.length - 1}` : ""),
       staffName: `${apt.staff.firstName} ${apt.staff.lastName}`,
       startTime: apt.startTime,
       status: apt.status,

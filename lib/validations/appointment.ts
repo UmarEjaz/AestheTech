@@ -36,10 +36,19 @@ export const recurrenceEndTypeEnum = z.enum([
 export type RecurrenceEndTypeType = z.infer<typeof recurrenceEndTypeEnum>;
 
 // Schema for creating/updating appointments
-export const appointmentSchema = z.object({
-  clientId: z.string().min(1, "Client is required"),
+// A single service line on an appointment (each with its own staff member).
+export const appointmentServiceSchema = z.object({
   serviceId: z.string().min(1, "Service is required"),
   staffId: z.string().min(1, "Staff member is required"),
+});
+
+export const appointmentSchema = z.object({
+  clientId: z.string().min(1, "Client is required"),
+  // One or more services; services[0] is the primary (its staff becomes the appointment's staff).
+  services: z
+    .array(appointmentServiceSchema)
+    .min(1, "At least one service is required")
+    .max(10, "At most 10 services"),
   startTime: z.coerce.date({ message: "Start time is required" }),
   notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
 });
