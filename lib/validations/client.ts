@@ -49,6 +49,22 @@ export const walkInClientSchema = z.object({
     .or(z.literal("")),
 });
 
+// Schema for adding a client inline during booking — name required, everything else optional.
+// A real client (not flagged walk-in); "walk-in" is now a visit mode, not a client type.
+export const bookingClientSchema = z.object({
+  firstName: z.string().trim().min(1, "Name is required").max(50, "Name must be less than 50 characters"),
+  lastName: z.string().trim().max(50, "Last name must be less than 50 characters").optional().or(z.literal("")),
+  phone: z
+    .string()
+    .trim()
+    .max(20, "Phone number must be less than 20 characters")
+    .regex(/^[\d\s\-+()]*$/, "Invalid phone number format")
+    .optional()
+    .or(z.literal("")),
+  email: z.string().trim().email("Invalid email address").optional().or(z.literal("")),
+});
+export type BookingClientData = z.infer<typeof bookingClientSchema>;
+
 export const clientUpdateSchema = clientSchema.partial().extend({
   id: z.string().min(1, "Client ID is required"),
 });
