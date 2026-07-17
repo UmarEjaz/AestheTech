@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { formatInTz } from "@/lib/utils/timezone";
 import { AppointmentStatus, PaymentMethod } from "@prisma/client";
@@ -163,6 +163,15 @@ export function AppointmentDetailModal({
   const [depositAmount, setDepositAmount] = useState("");
   const [depositMethod, setDepositMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
 
+  // Optimistic status so the stepper + lifecycle buttons update the instant a status button is
+  // pressed (the drawer stays open). Cleared whenever the real appointment prop changes — either
+  // a different appointment is opened, or router.refresh() delivers the server-confirmed status.
+  const [optimisticStatus, setOptimisticStatus] = useState<AppointmentStatus | null>(null);
+  useEffect(() => {
+    setOptimisticStatus(null);
+  }, [appointment.id, appointment.status]);
+  const status = optimisticStatus ?? appointment.status;
+
   // Check if this is a series appointment
   const isSeriesAppointment = !!appointment.series && appointment.series.isActive;
 
@@ -179,7 +188,7 @@ export function AppointmentDetailModal({
     canUpdate &&
     !isCheckedOut &&
     balanceDue > 0 && // nothing more to collect once the deposit covers the total
-    !["CANCELLED", "NO_SHOW"].includes(appointment.status);
+    !["CANCELLED", "NO_SHOW"].includes(status);
   const initials = `${appointment.client.firstName?.[0] ?? ""}${appointment.client.lastName?.[0] ?? ""}`.toUpperCase();
 
   const handleAddDeposit = async () => {
@@ -212,8 +221,10 @@ export function AppointmentDetailModal({
     try {
       const result = await updateAppointmentStatus(appointment.id, { status: "SCHEDULED" });
       if (result.success) {
+        setOptimisticStatus("SCHEDULED");
         toast.success("Appointment reactivated — it's back to Scheduled");
         onDataChange?.();
+        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -227,10 +238,11 @@ export function AppointmentDetailModal({
     try {
       const result = await updateAppointmentStatus(appointment.id, { status: newStatus });
       if (result.success) {
+        // Advance the stepper immediately and keep the drawer open; sync the rest in the background.
+        setOptimisticStatus(newStatus);
         toast.success(`Appointment marked as ${statusConfig[newStatus].label}`);
         onDataChange?.();
         router.refresh();
-        onClose();
       } else {
         toast.error(result.error);
       }
@@ -393,26 +405,83 @@ export function AppointmentDetailModal({
     }
   };
 
-  const canConfirm = appointment.status === "SCHEDULED";
-  const canStart = appointment.status === "SCHEDULED" || appointment.status === "CONFIRMED";
+  const canConfirm = status === "SCHEDULED";
+  const canStart = status === "SCHEDULED" || status === "CONFIRMED";
   // No standalone "Complete": an appointment is completed by checking it out (which
   // creates the sale, applies the deposit, and settles the balance). Marking complete
   // without checkout would strand the deposit and skip the sale.
-  const statusAllowsCancel = !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(appointment.status);
+  const statusAllowsCancel = !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(status);
   const canMarkNoShow =
-    appointment.status === "SCHEDULED" || appointment.status === "CONFIRMED";
+    status === "SCHEDULED" || status === "CONFIRMED";
   // Reactivate a no-show (client came late) or a cancelled booking → back to Scheduled.
-  const canUndoNoShow = canUpdate && appointment.status === "NO_SHOW";
-  const canReopen = canUpdate && appointment.status === "CANCELLED";
+  const canUndoNoShow = canUpdate && status === "NO_SHOW";
+  const canReopen = canUpdate && status === "CANCELLED";
   const showLifecycleFooter =
     (canUpdate && (canConfirm || canStart || canMarkNoShow)) ||
     (canCancel && statusAllowsCancel) ||
     canUndoNoShow ||
     canReopen;
 
-  // Status stepper: happy path (Scheduled→Completed) or an off-path strip (cancelled/no-show).
-  const isOffPath = appointment.status === "CANCELLED" || appointment.status === "NO_SHOW";
-  const currentStep = LIFECYCLE_STEPS.findIndex((s) => s.key === appointment.status);
+  // Status tracker: happy-path stepper (Scheduled→Completed) or an off-path strip
+  // (cancelled/no-show). Rendered once here and placed near the lifecycle actions it drives
+  // (in the footer for interactive mode; at the body bottom for the read-only staff view).
+  const isOffPath = status === "CANCELLED" || status === "NO_SHOW";
+  const currentStep = LIFECYCLE_STEPS.findIndex((s) => s.key === status);
+  const statusTracker = isOffPath ? (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
+        status === "CANCELLED"
+          ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+          : "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+      )}
+    >
+      {status === "CANCELLED" ? <XCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+      {status === "CANCELLED" ? "This appointment was cancelled" : "Marked as a no-show"}
+    </div>
+  ) : (
+    <div className="space-y-2">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Progress</div>
+      <div className="flex items-start px-1">
+        {LIFECYCLE_STEPS.map((step, i) => {
+          const done = i < currentStep;
+          const current = i === currentStep;
+          return (
+            <div key={step.key} className="relative flex flex-1 flex-col items-center text-center">
+              {i < LIFECYCLE_STEPS.length - 1 && (
+                <span
+                  className={cn(
+                    "absolute left-[calc(50%+14px)] right-[calc(-50%+14px)] top-3 h-0.5",
+                    done ? "bg-primary" : "bg-muted-foreground/25"
+                  )}
+                />
+              )}
+              <div
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold",
+                  done
+                    ? "bg-primary text-primary-foreground"
+                    : current
+                      ? "border-[3px] border-primary bg-background text-primary"
+                      : "bg-muted text-muted-foreground"
+                )}
+              >
+                {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+              </div>
+              <div
+                className={cn(
+                  "mt-1.5 text-[11px] font-semibold leading-tight",
+                  current ? "text-foreground" : done ? "text-primary" : "text-muted-foreground"
+                )}
+              >
+                {step.label}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -429,11 +498,11 @@ export function AppointmentDetailModal({
           <div className="border-b bg-gradient-to-br from-violet-50 to-purple-50/60 dark:from-violet-950/40 dark:to-purple-950/25">
           {/* Top bar: status + actions */}
           <div className="flex items-center justify-between px-5 pb-2 pt-4">
-            <Badge variant="outline" className={statusConfig[appointment.status].className}>
-              {statusConfig[appointment.status].label}
+            <Badge variant="outline" className={statusConfig[status].className}>
+              {statusConfig[status].label}
             </Badge>
             <div className="flex items-center gap-0.5">
-              {canUpdate && appointment.status !== "COMPLETED" && (
+              {canUpdate && status !== "COMPLETED" && (
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleEditClick} disabled={isUpdating} title="Edit" aria-label="Edit appointment">
                   <Edit className="h-4 w-4" />
                 </Button>
@@ -538,64 +607,6 @@ export function AppointmentDetailModal({
               </div>
             </div>
 
-            {/* Status stepper — after the facts, dividing them from the money section */}
-            {isOffPath ? (
-              <div
-                className={cn(
-                  "flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold",
-                  appointment.status === "CANCELLED"
-                    ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                    : "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
-                )}
-              >
-                {appointment.status === "CANCELLED" ? (
-                  <XCircle className="h-4 w-4" />
-                ) : (
-                  <AlertCircle className="h-4 w-4" />
-                )}
-                {appointment.status === "CANCELLED" ? "This appointment was cancelled" : "Marked as a no-show"}
-              </div>
-            ) : (
-              <div className="flex items-start px-1 py-2">
-                {LIFECYCLE_STEPS.map((step, i) => {
-                  const done = i < currentStep;
-                  const current = i === currentStep;
-                  return (
-                    <div key={step.key} className="relative flex flex-1 flex-col items-center text-center">
-                      {i < LIFECYCLE_STEPS.length - 1 && (
-                        <span
-                          className={cn(
-                            "absolute left-[calc(50%+14px)] right-[calc(-50%+14px)] top-3 h-0.5",
-                            done ? "bg-primary" : "bg-muted-foreground/25"
-                          )}
-                        />
-                      )}
-                      <div
-                        className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold",
-                          done
-                            ? "bg-primary text-primary-foreground"
-                            : current
-                              ? "border-2 border-primary bg-background text-primary"
-                              : "bg-muted text-muted-foreground"
-                        )}
-                      >
-                        {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
-                      </div>
-                      <div
-                        className={cn(
-                          "mt-1.5 text-[11px] font-semibold leading-tight",
-                          current ? "text-foreground" : done ? "text-primary" : "text-muted-foreground"
-                        )}
-                      >
-                        {step.label}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
             {/* Recurring Series Info */}
             {appointment.series && (
               <div className="space-y-1.5 rounded-2xl bg-muted/60 p-3.5">
@@ -626,91 +637,100 @@ export function AppointmentDetailModal({
               </div>
             )}
 
-            {/* Deposit — pushed to the bottom so the money sits right above the Balance-due / Check out footer */}
-            {(depositPaid > 0 || canTakeDeposit) && (
-              <div className="mt-auto flex items-center gap-3 rounded-2xl bg-emerald-50 p-3.5 dark:bg-emerald-950/40">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-                  <Wallet className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700/80 dark:text-emerald-400">Deposit</div>
-                  {depositPaid > 0 ? (
-                    <div className="mt-0.5 font-bold">
-                      ${depositPaid.toFixed(2)} paid
-                      {isCheckedOut ? (
-                        <span className="font-medium text-muted-foreground"> · applied at checkout</span>
-                      ) : refundDue > 0 ? (
-                        <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
-                          ${refundDue.toFixed(2)} to refund
-                        </span>
-                      ) : balanceDue > 0 ? (
-                        <span className="font-medium text-muted-foreground"> · balance ${balanceDue.toFixed(2)}</span>
-                      ) : (
-                        <span className="font-medium text-muted-foreground"> · fully covered</span>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="mt-0.5 text-sm text-muted-foreground">No deposit taken yet.</div>
+            {/* Money block (Deposit + balance + Check out) pushed to the bottom so it fills the empty
+                space, leaving the sticky footer below to the Progress tracker + lifecycle buttons with
+                room to breathe. Read-only has no footer, so the tracker shows here instead. */}
+            <div className="mt-auto space-y-3 pt-2">
+              {/* Deposit — grouped directly above the balance/checkout money section */}
+              {(depositPaid > 0 || canTakeDeposit) && (
+                <div className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-3.5 dark:bg-emerald-950/40">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                    <Wallet className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700/80 dark:text-emerald-400">Deposit</div>
+                    {depositPaid > 0 ? (
+                      <div className="mt-0.5 font-bold">
+                        ${depositPaid.toFixed(2)} paid
+                        {isCheckedOut ? (
+                          <span className="font-medium text-muted-foreground"> · applied at checkout</span>
+                        ) : refundDue > 0 ? (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                            ${refundDue.toFixed(2)} to refund
+                          </span>
+                        ) : balanceDue > 0 ? (
+                          <span className="font-medium text-muted-foreground"> · balance ${balanceDue.toFixed(2)}</span>
+                        ) : (
+                          <span className="font-medium text-muted-foreground"> · fully covered</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-0.5 text-sm text-muted-foreground">No deposit taken yet.</div>
+                    )}
+                  </div>
+                  {canTakeDeposit && (
+                    <Button size="sm" variant="outline" className="shrink-0 bg-background" onClick={() => setShowDepositDialog(true)} disabled={isUpdating}>
+                      Take deposit
+                    </Button>
                   )}
                 </div>
-                {canTakeDeposit && (
-                  <Button size="sm" variant="outline" className="shrink-0 bg-background" onClick={() => setShowDepositDialog(true)} disabled={isUpdating}>
-                    Take deposit
-                  </Button>
-                )}
-              </div>
-            )}
+              )}
+              {readOnly ? (
+                statusTracker
+              ) : (
+                <>
+                  {depositPaid > 0 && !isCheckedOut && refundDue > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Refund at checkout</span>
+                      <span className="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-1 text-base font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                        ${refundDue.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  {depositPaid > 0 && !isCheckedOut && refundDue === 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Balance due now</span>
+                      <span className="text-xl font-bold">${balanceDue.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {isCheckedOut ? (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => {
+                        if (appointment.sale) {
+                          router.push(`/dashboard/sales/${appointment.sale.id}`);
+                          onClose();
+                        }
+                      }}
+                    >
+                      <DollarSign className="mr-1 h-4 w-4" />
+                      View sale
+                    </Button>
+                  ) : (
+                    !["CANCELLED", "NO_SHOW"].includes(status) && (
+                      <Button
+                        size="lg"
+                        className="w-full"
+                        onClick={() => {
+                          router.push(`/dashboard/sales/new?appointmentId=${appointment.id}`);
+                          onClose();
+                        }}
+                      >
+                        <DollarSign className="mr-1 h-4 w-4" />
+                        Check out
+                      </Button>
+                    )
+                  )}
+                </>
+              )}
+            </div>
 
           </div>
 
-          {/* Sticky footer — hidden in read-only mode (no checkout / lifecycle) */}
+          {/* Sticky footer — status tracker + lifecycle actions (hidden in read-only mode) */}
           {!readOnly && (
-          <div className="space-y-3 border-t bg-background px-5 py-4">
-            {depositPaid > 0 && !isCheckedOut && refundDue > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Refund at checkout</span>
-                <span className="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-1 text-base font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
-                  ${refundDue.toFixed(2)}
-                </span>
-              </div>
-            )}
-            {depositPaid > 0 && !isCheckedOut && refundDue === 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Balance due now</span>
-                <span className="text-xl font-bold">${balanceDue.toFixed(2)}</span>
-              </div>
-            )}
-
-            {isCheckedOut ? (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  if (appointment.sale) {
-                    router.push(`/dashboard/sales/${appointment.sale.id}`);
-                    onClose();
-                  }
-                }}
-              >
-                <DollarSign className="mr-1 h-4 w-4" />
-                View sale
-              </Button>
-            ) : (
-              !["CANCELLED", "NO_SHOW"].includes(appointment.status) && (
-                <Button
-                  size="lg"
-                  className="w-full"
-                  onClick={() => {
-                    router.push(`/dashboard/sales/new?appointmentId=${appointment.id}`);
-                    onClose();
-                  }}
-                >
-                  <DollarSign className="mr-1 h-4 w-4" />
-                  Check out
-                </Button>
-              )
-            )}
-
+          <div className="space-y-6 border-t bg-background px-5 pt-4 pb-7">
             {showLifecycleFooter && (
               <div className="flex gap-2">
                 {(canUndoNoShow || canReopen) && (
@@ -745,6 +765,8 @@ export function AppointmentDetailModal({
                 )}
               </div>
             )}
+
+            {statusTracker}
           </div>
           )}
         </SheetContent>

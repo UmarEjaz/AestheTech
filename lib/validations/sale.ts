@@ -8,6 +8,9 @@ export const saleItemSchema = z.object({
   productId: z.string().min(1).optional(),
   quantity: z.number().int().min(1, "Quantity must be at least 1").default(1),
   price: z.number().min(0, "Price must be a positive number"),
+  // Per-line discount amount (currency) and free-text note.
+  discount: z.number().min(0, "Discount cannot be negative").default(0),
+  note: z.string().trim().max(500, "Note must be less than 500 characters").optional().or(z.literal("")),
 }).refine(
   (data) => (data.serviceId && !data.productId) || (!data.serviceId && data.productId),
   { message: "Exactly one of service or product is required" }

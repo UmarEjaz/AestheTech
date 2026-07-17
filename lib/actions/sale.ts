@@ -4,6 +4,7 @@ import { addMonths } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
+import { hasPermission } from "@/lib/permissions";
 import {
   createSaleSchema,
   completeSaleSchema,
@@ -241,6 +242,21 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
 
   const { clientId, items, discount, discountType, appointmentId } = validationResult.data;
 
+  // Applying any discount (whole-bill or per-line) requires the sales:discount permission.
+  const hasAnyDiscount = discount > 0 || items.some((i) => (i.discount ?? 0) > 0);
+  if (hasAnyDiscount) {
+    const allowed = await hasPermission(
+      authResult.roleId,
+      "sales:discount",
+      authResult.isSuperAdmin,
+      authResult.salonId,
+      authResult.userId
+    );
+    if (!allowed) {
+      return { success: false, error: "You don't have permission to apply discounts." };
+    }
+  }
+
   try {
     // Get org salon IDs to validate cross-branch references within the organization
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
@@ -317,18 +333,25 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       }
     }
 
-    // Calculate total
+    // Totals with per-line discounts. totalAmount = gross subtotal; itemDiscountTotal = the sum of
+    // per-line discounts (each clamped to its line's gross); the whole-bill discount then applies to
+    // the net subtotal. Sale.discount stores the combined total so finalAmount = totalAmount − discount.
     let totalAmount = 0;
+    let itemDiscountTotal = 0;
     for (const item of items) {
-      totalAmount += item.price * item.quantity;
+      const lineGross = item.price * item.quantity;
+      totalAmount += lineGross;
+      itemDiscountTotal += Math.min(item.discount ?? 0, lineGross);
     }
+    const subtotalNet = totalAmount - itemDiscountTotal;
 
-    // Apply discount
-    let discountAmount = discount;
+    let overallDiscount = discount;
     if (discountType === "percentage") {
-      discountAmount = (totalAmount * discount) / 100;
+      overallDiscount = (subtotalNet * discount) / 100;
     }
+    overallDiscount = Math.min(overallDiscount, subtotalNet);
 
+    const discountAmount = itemDiscountTotal + overallDiscount;
     const finalAmount = Math.max(0, totalAmount - discountAmount);
 
     // Create sale with items
@@ -359,6 +382,8 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
               productId: item.productId || null,
               quantity: item.quantity,
               price: item.price,
+              discount: Math.min(item.discount ?? 0, item.price * item.quantity),
+              note: item.note ? item.note : null,
               costAtSale,
             };
           }),

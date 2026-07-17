@@ -26,6 +26,8 @@ export const DEFAULT_PERMISSION_ROLES: Record<string, string[]> = {
   "sales:create": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST],
   "sales:update": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
   "sales:delete": [SYSTEM_ROLES.OWNER],
+  // Applying a discount (whole-bill or per-line) is a money-control action, like refunds.
+  "sales:discount": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN],
 
   // Invoices
   "invoices:view": [SYSTEM_ROLES.OWNER, SYSTEM_ROLES.ADMIN, SYSTEM_ROLES.STAFF, SYSTEM_ROLES.RECEPTIONIST],
@@ -155,6 +157,7 @@ export const PERMISSION_REGISTRY: Array<{
   { code: "sales:create", module: "sales", label: "Create Sales", sortOrder: 1 },
   { code: "sales:update", module: "sales", label: "Update Sales", sortOrder: 2 },
   { code: "sales:delete", module: "sales", label: "Delete Sales", sortOrder: 3 },
+  { code: "sales:discount", module: "sales", label: "Apply Discounts", description: "Give whole-bill or per-line discounts at checkout", sortOrder: 4 },
 
   // Invoices
   { code: "invoices:view", module: "invoices", label: "View Invoices", sortOrder: 0 },

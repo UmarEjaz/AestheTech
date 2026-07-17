@@ -35,6 +35,7 @@ enum InvoiceStatus {
 enum PaymentMethod {
   CASH
   CARD
+  BANK_TRANSFER
   DIGITAL_WALLET
   LOYALTY_POINTS
   OTHER
@@ -470,6 +471,8 @@ model SaleItem {
   productId  String?
   quantity   Int      @default(1)
   price      Decimal  @db.Decimal(10, 2)
+  discount   Decimal  @db.Decimal(10, 2) @default(0) // per-line discount amount (currency) off this line
+  note       String? // per-line note (e.g. colour formula, special request) — shown on sale/invoice/receipt
   costAtSale Decimal? @db.Decimal(10, 2) // snapshot of cost at time of sale (for profit tracking)
   createdAt  DateTime @default(now())
 

@@ -1,6 +1,7 @@
 import {
   Banknote,
   CreditCard,
+  Landmark,
   Wallet,
   Receipt,
   Star,
@@ -10,6 +11,7 @@ import { PaymentMethod } from "@prisma/client";
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH: "Cash",
   CARD: "Card",
+  BANK_TRANSFER: "Bank Transfer",
   DIGITAL_WALLET: "Digital Wallet",
   LOYALTY_POINTS: "Loyalty Points",
   OTHER: "Other",
@@ -18,6 +20,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 const METHOD_ICONS: Record<PaymentMethod, React.ComponentType<{ className?: string }>> = {
   CASH: Banknote,
   CARD: CreditCard,
+  BANK_TRANSFER: Landmark,
   DIGITAL_WALLET: Wallet,
   LOYALTY_POINTS: Star,
   OTHER: Receipt,
@@ -27,6 +30,7 @@ const METHOD_ICONS: Record<PaymentMethod, React.ComponentType<{ className?: stri
 export const SELECTABLE_PAYMENT_METHODS: PaymentMethod[] = [
   PaymentMethod.CASH,
   PaymentMethod.CARD,
+  PaymentMethod.BANK_TRANSFER,
   PaymentMethod.DIGITAL_WALLET,
   PaymentMethod.OTHER,
 ];

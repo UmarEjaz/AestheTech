@@ -35,6 +35,7 @@ export default async function NewSalePage({
   if (!(await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, permUserId))) {
     redirectAccessDenied(["sales:create"]);
   }
+  const canDiscount = await hasPermission(userRoleId, "sales:discount", isSuperAdmin, salonId, permUserId);
 
   // Fetch all required data in parallel
   const [clientsResult, servicesResult, productsResult, staffResult, settingsResult] = await Promise.all([
@@ -82,6 +83,7 @@ export default async function NewSalePage({
     loyaltyProgramEnabled: true,
     allowPartialPayment: false,
     allowPayLater: false,
+    timezone: "UTC",
   };
 
   // Transform clients to include loyalty points
@@ -122,12 +124,20 @@ export default async function NewSalePage({
     quantity: number;
     points: number;
   };
+  type BookedService = {
+    name: string;
+    staffName: string;
+    durationMin: number;
+    price: number;
+  };
   type ApptCtx = {
     appointmentId: string;
     client: (typeof clientsWithLoyalty)[number];
     depositPaid: number;
     staffId: string;
     seedItems: SeedItem[];
+    scheduleLabel: string;
+    bookedServices: BookedService[];
   };
   let appointmentContext: ApptCtx | undefined;
 
@@ -159,12 +169,30 @@ export default async function NewSalePage({
           points: seedService?.points ?? 0,
         };
       });
+      // Preformat the booked schedule in the salon timezone (server-side) so the
+      // checkout page can show a compact appointment summary without timezone plumbing.
+      const tz = settings.timezone || "UTC";
+      const dateStr = new Intl.DateTimeFormat("en-US", {
+        weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: tz,
+      }).format(appt.startTime);
+      const timeFmt = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "2-digit", timeZone: tz,
+      });
+      const scheduleLabel = `${dateStr} · ${timeFmt.format(appt.startTime)} – ${timeFmt.format(appt.endTime)}`;
+      const bookedServices: BookedService[] = appt.services.map((line) => ({
+        name: services.find((s) => s.id === line.service.id)?.name ?? line.service.name,
+        staffName: `${line.staff.firstName} ${line.staff.lastName}`,
+        durationMin: services.find((s) => s.id === line.service.id)?.duration ?? 0,
+        price: Number(line.price),
+      }));
       appointmentContext = {
         appointmentId: appt.id,
         client: fullClient,
         depositPaid: appt.payments.reduce((s, p) => s + Number(p.amount), 0),
         staffId: appt.staffId,
         seedItems,
+        scheduleLabel,
+        bookedServices,
       };
     }
   }
@@ -193,6 +221,7 @@ export default async function NewSalePage({
           allowPartialPayment={settings.allowPartialPayment}
           allowPayLater={settings.allowPayLater}
           appointmentContext={appointmentContext}
+          canDiscount={canDiscount}
         />
       </div>
     </>

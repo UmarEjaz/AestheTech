@@ -99,10 +99,8 @@ export function AppointmentCalendar({
     const clientName = `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}`;
     const walkInLabel = apt.client.isWalkIn ? " (Walk-in)" : "";
     const recurringIndicator = isRecurring ? "↻ " : "";
-    // First service + a "+N" hint when there are extra services.
-    const primaryServiceName = apt.services[0]?.service.name ?? "";
-    const extraCount = apt.services.length - 1;
-    const serviceLabel = extraCount > 0 ? `${primaryServiceName} +${extraCount}` : primaryServiceName;
+    // All service names, comma-separated (e.g. "Beard Trim, Express Facial").
+    const serviceLabel = apt.services.map((s) => s.service.name).join(", ");
 
     return {
       id: apt.id,
@@ -321,27 +319,13 @@ export function AppointmentCalendar({
         }
       `}</style>
 
-      {/* Custom single-row toolbar: nav · title · staff filter + view switcher */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Button size="icon" onClick={() => calendarApi()?.prev()} aria-label="Previous">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button size="icon" onClick={() => calendarApi()?.next()} aria-label="Next">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <Button variant="secondary" onClick={() => calendarApi()?.today()}>
-            today
-          </Button>
-        </div>
-
-        <div className="order-last w-full text-center text-lg font-semibold sm:order-none sm:w-auto sm:flex-1">
-          {viewTitle}
-        </div>
-
-        <div className="ml-auto flex items-center gap-3 sm:ml-0">
+      {/* Toolbar: staff filter (left) · ‹ title › (center of the card) · today + views (right).
+          A 3-column grid centers the date on the card itself, not between the side controls. */}
+      <div className="mb-4 flex flex-col gap-3 sm:grid sm:grid-cols-3 sm:items-center">
+        {/* Left: staff filter */}
+        <div className="flex items-center gap-2 sm:justify-self-start">
           {staff.length > 0 && (
-            <div className="flex items-center gap-2">
+            <>
               <span className="hidden text-sm font-medium text-foreground sm:inline">Staff</span>
               <Select value={staffFilter} onValueChange={handleStaffFilterChange}>
                 <SelectTrigger className="w-[160px]">
@@ -356,8 +340,26 @@ export function AppointmentCalendar({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </>
           )}
+        </div>
+
+        {/* Center: date flanked by prev/next so the arrows read as "move the date". */}
+        <div className="order-first flex items-center justify-center gap-2 sm:order-none sm:justify-self-center">
+          <Button size="icon" className="h-8 w-8" onClick={() => calendarApi()?.prev()} aria-label="Previous">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="min-w-[9.5rem] text-center text-lg font-semibold">{viewTitle}</span>
+          <Button size="icon" className="h-8 w-8" onClick={() => calendarApi()?.next()} aria-label="Next">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Right: today + view switcher */}
+        <div className="flex items-center gap-3 sm:justify-self-end">
+          <Button variant="secondary" onClick={() => calendarApi()?.today()}>
+            today
+          </Button>
           <div className="inline-flex overflow-hidden rounded-md border">
             {CALENDAR_VIEWS.map((v) => (
               <button
@@ -397,15 +399,31 @@ export function AppointmentCalendar({
           const name = `${apt.client.firstName}${apt.client.lastName ? ` ${apt.client.lastName}` : ""}`;
           const recurring = apt.series?.isActive ? "↻ " : "";
           const walkIn = apt.client.isWalkIn ? " (Walk-in)" : "";
+          // Longer appointments have vertical room, so break the time onto its own line and
+          // give each service its own line; short events stay compact on a single wrapped line.
+          const durationMin =
+            (new Date(apt.endTime).getTime() - new Date(apt.startTime).getTime()) / 60000;
+          const expanded = durationMin >= 45;
           return (
             <div className="h-full overflow-hidden leading-tight px-0.5">
               <div className="truncate font-semibold">{recurring}{name}{walkIn}</div>
-              <div className="truncate text-[0.7rem] opacity-90">
-                {arg.timeText}
-                {apt.services[0]?.service.name
-                  ? ` · ${apt.services[0].service.name}${apt.services.length > 1 ? ` +${apt.services.length - 1}` : ""}`
-                  : ""}
-              </div>
+              {expanded ? (
+                <>
+                  <div className="truncate text-[0.7rem] opacity-90">{arg.timeText}</div>
+                  {apt.services.map((s, i) => (
+                    <div key={i} className="truncate text-[0.7rem] opacity-90">
+                      {s.service.name}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="break-words text-[0.7rem] opacity-90">
+                  {arg.timeText}
+                  {apt.services.length > 0
+                    ? ` · ${apt.services.map((s) => s.service.name).join(", ")}`
+                    : ""}
+                </div>
+              )}
             </div>
           );
         }}

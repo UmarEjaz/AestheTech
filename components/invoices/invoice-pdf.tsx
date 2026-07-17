@@ -215,6 +215,8 @@ export interface InvoicePDFData {
     product: { name: string } | null;
     price: number;
     quantity: number;
+    discount: number;
+    note: string | null;
   }>;
   subtotal: number;
   discount: number;
@@ -316,9 +318,15 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
             {/* Table Rows */}
             {data.items.map((item) => (
               <View key={item.id} style={styles.tableRow}>
-                <Text style={[styles.tableCell, styles.colService]}>
-                  {item.service?.name || item.product?.name || "Unknown"}
-                </Text>
+                <View style={[styles.tableCell, styles.colService]}>
+                  <Text>{item.service?.name || item.product?.name || "Unknown"}</Text>
+                  {item.discount > 0 && (
+                    <Text style={{ fontSize: 8, color: "#16a34a" }}>
+                      -{formatCurrency(item.discount, data.currencyCode)} discount
+                    </Text>
+                  )}
+                  {item.note ? <Text style={{ fontSize: 8, color: "#666" }}>Note: {item.note}</Text> : null}
+                </View>
                 <Text style={[styles.tableCell, styles.colStaff]}>
                   {item.staff
                     ? `${item.staff.firstName} ${item.staff.lastName}`.trim() || "-"
