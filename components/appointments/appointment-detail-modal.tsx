@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { formatInTz } from "@/lib/utils/timezone";
+import { formatCurrency } from "@/lib/utils/currency";
 import { AppointmentStatus, PaymentMethod } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -91,6 +92,7 @@ interface AppointmentDetailModalProps {
   canCancel?: boolean;
   canDelete?: boolean;
   timezone: string;
+  currencyCode: string;
   // Info-only view (e.g. from a staff profile): hides all actions — edit/export/delete,
   // the checkout/lifecycle footer, and the "Take deposit" button. Just the details.
   readOnly?: boolean;
@@ -146,6 +148,7 @@ export function AppointmentDetailModal({
   canCancel: canCancelProp = false,
   canDelete: canDeleteProp = false,
   timezone,
+  currencyCode,
   readOnly = false,
 }: AppointmentDetailModalProps) {
   // In read-only mode, every capability is off so no action UI renders.
@@ -202,7 +205,7 @@ export function AppointmentDetailModal({
       const result = await addAppointmentDeposit(appointment.id, { amount, method: depositMethod });
       if (result.success) {
         toast.success(
-          `$${amount.toFixed(2)} deposit recorded for ${appointment.client.firstName} ${appointment.client.lastName || ""}`.trim()
+          `${formatCurrency(amount, currencyCode)} deposit recorded for ${appointment.client.firstName} ${appointment.client.lastName || ""}`.trim()
         );
         setShowDepositDialog(false);
         setDepositAmount("");
@@ -571,7 +574,7 @@ export function AppointmentDetailModal({
                     repeats the single line's price/duration. */}
                 {appointment.services.length > 1 && (
                   <div className="shrink-0 text-right text-sm">
-                    <div className="font-bold">${servicePrice.toFixed(2)}</div>
+                    <div className="font-bold">{formatCurrency(servicePrice, currencyCode)}</div>
                     <div className="text-xs text-muted-foreground">{totalDuration} min</div>
                   </div>
                 )}
@@ -585,7 +588,7 @@ export function AppointmentDetailModal({
                         {line.staff.firstName} {line.staff.lastName} · {line.duration} min
                       </div>
                     </div>
-                    <div className="shrink-0 text-sm font-semibold">${Number(line.price).toFixed(2)}</div>
+                    <div className="shrink-0 text-sm font-semibold">{formatCurrency(Number(line.price), currencyCode)}</div>
                   </div>
                 ))}
               </div>
@@ -651,15 +654,15 @@ export function AppointmentDetailModal({
                     <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700/80 dark:text-emerald-400">Deposit</div>
                     {depositPaid > 0 ? (
                       <div className="mt-0.5 font-bold">
-                        ${depositPaid.toFixed(2)} paid
+                        {formatCurrency(depositPaid, currencyCode)} paid
                         {isCheckedOut ? (
                           <span className="font-medium text-muted-foreground"> · applied at checkout</span>
                         ) : refundDue > 0 ? (
                           <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
-                            ${refundDue.toFixed(2)} to refund
+                            {formatCurrency(refundDue, currencyCode)} to refund
                           </span>
                         ) : balanceDue > 0 ? (
-                          <span className="font-medium text-muted-foreground"> · balance ${balanceDue.toFixed(2)}</span>
+                          <span className="font-medium text-muted-foreground"> · balance {formatCurrency(balanceDue, currencyCode)}</span>
                         ) : (
                           <span className="font-medium text-muted-foreground"> · fully covered</span>
                         )}
@@ -683,14 +686,14 @@ export function AppointmentDetailModal({
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Refund at checkout</span>
                       <span className="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-1 text-base font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
-                        ${refundDue.toFixed(2)}
+                        {formatCurrency(refundDue, currencyCode)}
                       </span>
                     </div>
                   )}
                   {depositPaid > 0 && !isCheckedOut && refundDue === 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Balance due now</span>
-                      <span className="text-xl font-bold">${balanceDue.toFixed(2)}</span>
+                      <span className="text-xl font-bold">{formatCurrency(balanceDue, currencyCode)}</span>
                     </div>
                   )}
                   {isCheckedOut ? (
@@ -782,7 +785,7 @@ export function AppointmentDetailModal({
               {appointment.client.firstName} {appointment.client.lastName}?
               {depositPaid > 0 && (
                 <span className="mt-2 block font-medium text-destructive">
-                  Heads up: a ${depositPaid.toFixed(2)} deposit was taken — remember to refund it to the client.
+                  Heads up: a {formatCurrency(depositPaid, currencyCode)} deposit was taken — remember to refund it to the client.
                 </span>
               )}
             </AlertDialogDescription>
@@ -859,12 +862,14 @@ export function AppointmentDetailModal({
                 id="deposit-amount"
                 type="number"
                 min={0}
+                max={balanceDue}
                 step="0.01"
                 inputMode="decimal"
                 value={depositAmount}
                 onChange={(e) => setDepositAmount(e.target.value)}
                 placeholder="0.00"
               />
+              <p className="text-xs text-muted-foreground">Balance due: {formatCurrency(balanceDue, currencyCode)}</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="deposit-method">Method</Label>

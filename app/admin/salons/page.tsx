@@ -14,7 +14,8 @@ export default async function AdminSalonsPage() {
     redirect("/dashboard");
   }
 
-  const result = await getSalons();
+  const PAGE_SIZE = 20;
+  const result = await getSalons({ page: 1, limit: PAGE_SIZE });
 
   return (
     <div className="container mx-auto max-w-6xl p-4 md:p-8">
@@ -49,7 +50,7 @@ export default async function AdminSalonsPage() {
               <p className="text-destructive">{result.error}</p>
             </CardContent>
           </Card>
-        ) : result.data.length === 0 ? (
+        ) : result.data.total === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <p className="text-muted-foreground">
@@ -66,12 +67,16 @@ export default async function AdminSalonsPage() {
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle>
-                All Salons ({result.data.length})
-              </CardTitle>
+              <CardTitle>All Salons</CardTitle>
             </CardHeader>
             <CardContent>
-              <SalonAdminTable salons={result.data} />
+              <SalonAdminTable
+                initialSalons={result.data.salons}
+                initialTotal={result.data.total}
+                initialPage={result.data.page}
+                initialTotalPages={result.data.totalPages}
+                pageSize={PAGE_SIZE}
+              />
             </CardContent>
           </Card>
         )}

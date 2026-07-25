@@ -41,9 +41,11 @@ const STATUS_COLORS: Record<string, string> = {
 export function StaffRecentAppointments({
   appointments,
   timezone,
+  currencyCode,
 }: {
   appointments: Row[];
   timezone: string;
+  currencyCode: string;
 }) {
   const [selected, setSelected] = useState<AppointmentListItem | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -51,12 +53,18 @@ export function StaffRecentAppointments({
   const openAppointment = async (id: string) => {
     if (loadingId) return;
     setLoadingId(id);
-    const result = await getAppointment(id);
-    setLoadingId(null);
-    if (result.success) {
-      setSelected(result.data);
-    } else {
-      toast.error(result.error || "Couldn't load this appointment");
+    try {
+      const result = await getAppointment(id);
+      if (result.success) {
+        setSelected(result.data);
+      } else {
+        toast.error(result.error || "Couldn't load this appointment");
+      }
+    } catch {
+      // A transport/runtime rejection must still clear loading, or every row stays blocked.
+      toast.error("Couldn't load this appointment");
+    } finally {
+      setLoadingId(null);
     }
   };
 
@@ -82,8 +90,17 @@ export function StaffRecentAppointments({
             appointments.map((appointment) => (
               <TableRow
                 key={appointment.id}
-                className="cursor-pointer hover:bg-muted/50"
+                role="button"
+                tabIndex={0}
+                aria-label="Open appointment details"
+                className="cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                 onClick={() => openAppointment(appointment.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openAppointment(appointment.id);
+                  }
+                }}
               >
                 <TableCell>
                   <div>
@@ -128,6 +145,7 @@ export function StaffRecentAppointments({
           isOpen={!!selected}
           onClose={() => setSelected(null)}
           timezone={timezone}
+          currencyCode={currencyCode}
           readOnly
         />
       )}

@@ -35,9 +35,12 @@ export async function GET(
       include: {
         services: {
           orderBy: { order: "asc" },
-          select: { duration: true, service: { select: { name: true } } },
+          select: {
+            duration: true,
+            service: { select: { name: true } },
+            staff: { select: { firstName: true, lastName: true } },
+          },
         },
-        staff: { select: { firstName: true, lastName: true } },
         client: { select: { firstName: true, lastName: true, email: true } },
       },
     });
@@ -53,7 +56,7 @@ export async function GET(
       service: {
         name: appointment.services.map((s) => s.service.name).join(", "),
       },
-      staff: appointment.staff,
+      staff: appointment.services[0].staff,
       client: appointment.client,
       notes: appointment.notes,
       status: appointment.status,

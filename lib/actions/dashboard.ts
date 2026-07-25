@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { primaryStaff } from "@/lib/utils/appointment";
 import { checkAuthBasic } from "@/lib/auth-helpers";
 import { hasPermission } from "@/lib/permissions";
 import { subDays, startOfDay, endOfDay } from "date-fns";
@@ -288,9 +289,11 @@ export async function getDashboardStats(params?: {
               client: { select: { firstName: true, lastName: true } },
               services: {
                 orderBy: { order: "asc" },
-                select: { service: { select: { name: true } } },
+                select: {
+                  service: { select: { name: true } },
+                  staff: { select: { firstName: true, lastName: true } },
+                },
               },
-              staff: { select: { firstName: true, lastName: true } },
             },
             orderBy: { startTime: "asc" },
             take: 5,
@@ -355,7 +358,7 @@ export async function getDashboardStats(params?: {
       // Cash collected today (by paidAt, includes deposits taken today) — for the
       // Revenue-vs-Collected reconciliation. Scoped via invoice or appointment salon.
       canViewSales
-        ? prisma.payment.findMany({
+        ? prisma.payment.aggregate({
             where: {
               paidAt: { gte: todayStart, lt: todayEnd },
               OR: [
@@ -363,21 +366,22 @@ export async function getDashboardStats(params?: {
                 { appointment: { salonId: salonFilter } },
               ],
             },
-            select: { amount: true },
+            _sum: { amount: true },
           })
-        : Promise.resolve([]),
+        : Promise.resolve({ _sum: { amount: null } }),
 
       // Deposits held = outstanding prepayments not yet applied to an invoice (a liability).
+      // Summed in the database so this doesn't grow with payment history.
       canViewSales
-        ? prisma.payment.findMany({
+        ? prisma.payment.aggregate({
             where: {
               invoiceId: null,
               appointmentId: { not: null },
               appointment: { salonId: salonFilter },
             },
-            select: { amount: true },
+            _sum: { amount: true },
           })
-        : Promise.resolve([]),
+        : Promise.resolve({ _sum: { amount: null } }),
     ]);
 
     // Process appointments data
@@ -400,8 +404,8 @@ export async function getDashboardStats(params?: {
     const revenueComparison = yesterdaysRevenue > 0
       ? ((todaysRevenue - yesterdaysRevenue) / yesterdaysRevenue) * 100
       : todaysRevenue > 0 ? 100 : 0;
-    const todaysCollected = todaysCollectedData.reduce((sum, p) => sum + Number(p.amount), 0);
-    const depositsHeld = depositsHeldData.reduce((sum, p) => sum + Number(p.amount), 0);
+    const todaysCollected = Number(todaysCollectedData._sum.amount ?? 0);
+    const depositsHeld = Number(depositsHeldData._sum.amount ?? 0);
 
     // Get service names for top services
     const serviceIds = topServicesData.map((s) => s.serviceId).filter((id): id is string => id !== null);
@@ -433,7 +437,7 @@ export async function getDashboardStats(params?: {
       serviceName:
         (apt.services[0]?.service.name ?? "") +
         (apt.services.length > 1 ? ` +${apt.services.length - 1}` : ""),
-      staffName: `${apt.staff.firstName} ${apt.staff.lastName}`,
+      staffName: `${primaryStaff(apt.services).firstName} ${primaryStaff(apt.services).lastName}`,
       startTime: apt.startTime,
       status: apt.status,
     }));

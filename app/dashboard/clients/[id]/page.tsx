@@ -365,7 +365,7 @@ export default async function ClientDetailPage({ params }: PageProps) {
                             (appointment.services.length > 1 ? ` +${appointment.services.length - 1}` : "")}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          with {appointment.staff.firstName} {appointment.staff.lastName}
+                          with {appointment.services[0]?.staff.firstName} {appointment.services[0]?.staff.lastName}
                         </p>
                       </div>
                       <div className="text-right">

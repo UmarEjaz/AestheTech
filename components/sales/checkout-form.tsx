@@ -28,8 +28,9 @@ import {
   CalendarDays,
   Wallet,
 } from "lucide-react";
+import { z } from "zod";
 import { toast } from "sonner";
-import { createWalkInClient } from "@/lib/actions/client";
+import { createWalkInClient, getClients } from "@/lib/actions/client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,6 +113,33 @@ interface CartItem {
   discount?: number; // per-line discount amount (currency), already resolved from $/%
   note?: string; // per-line note (colour formula, special request, etc.)
 }
+
+// A persisted checkout draft (sessionStorage) is untyped, user-controlled data. Validate it
+// strictly before hydrating state so a corrupt/tampered entry can't inject NaN totals or
+// malformed cart lines. `.finite()` rejects NaN/Infinity that `typeof === "number"` would pass.
+const persistedDraftSchema = z.object({
+  cart: z.array(
+    z.object({
+      id: z.string(),
+      type: z.enum(["service", "product"]),
+      serviceId: z.string().optional(),
+      productId: z.string().optional(),
+      name: z.string(),
+      staffId: z.string().optional(),
+      staffName: z.string().optional(),
+      price: z.number().finite(),
+      quantity: z.number().int().positive(),
+      points: z.number().finite(),
+      maxQuantity: z.number().finite().optional(),
+      discount: z.number().finite().optional(),
+      note: z.string().optional(),
+    })
+  ),
+  discount: z.number().finite(),
+  discountType: z.enum(["fixed", "percentage"]),
+  discountMode: z.enum(["whole", "item"]),
+  redeemPoints: z.number().finite(),
+});
 
 interface Client {
   id: string;
@@ -248,7 +276,6 @@ interface AppointmentContext {
 }
 
 interface CheckoutFormProps {
-  clients: Client[];
   services: Service[];
   products?: Product[];
   staff: Staff[];
@@ -267,7 +294,6 @@ interface CheckoutFormProps {
 }
 
 export function CheckoutForm({
-  clients,
   services,
   products = [],
   staff,
@@ -287,6 +313,37 @@ export function CheckoutForm({
   const canDefer = canPartial || canPayLater;
   const [selectedClient, setSelectedClient] = useState<Client | null>(appointmentContext?.client ?? null);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  // Client picker searches the DB on demand (debounced) instead of loading a capped list up front,
+  // so it scales to any number of clients.
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientResults, setClientResults] = useState<Client[]>([]);
+  useEffect(() => {
+    if (!clientPickerOpen) return;
+    let active = true;
+    const t = setTimeout(async () => {
+      const res = await getClients({ query: clientQuery.trim() || undefined, limit: 20 });
+      if (!active) return;
+      if (res.success) {
+        setClientResults(
+          res.data.clients.map((c) => ({
+            id: c.id,
+            firstName: c.firstName,
+            lastName: c.lastName,
+            phone: c.phone,
+            email: c.email,
+            isWalkIn: c.isWalkIn,
+            loyaltyPoints: c.loyaltyPoints,
+          }))
+        );
+      }
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [clientQuery, clientPickerOpen]);
+  // Services are a bounded menu (like products), so they're loaded up front and filtered in the
+  // browser — no per-keystroke round-trip, and nothing can slip past a list cap.
   const [cart, setCart] = useState<CartItem[]>(appointmentContext ? appointmentContext.seedItems : []);
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<"fixed" | "percentage">("fixed");
@@ -296,7 +353,9 @@ export function CheckoutForm({
   const [submittingMethod, setSubmittingMethod] = useState<PaymentMethod | null>(null);
   // The "add a line" flow (like the appointment form): pick a service + who performs it, then Add —
   // no page-level staff select, no grid of cards. Products: pick + quantity, then Add.
-  const [activeItemTab, setActiveItemTab] = useState<"services" | "products">("services");
+  const [activeItemTab, setActiveItemTab] = useState<"services" | "products">(
+    staff.length === 0 && products.length > 0 ? "products" : "services"
+  );
   const [pendingService, setPendingService] = useState("");
   const [pendingStaff, setPendingStaff] = useState<string>(appointmentContext?.staffId || staff[0]?.id || "");
   const [pendingProduct, setPendingProduct] = useState("");
@@ -334,12 +393,14 @@ export function CheckoutForm({
     try {
       const raw = sessionStorage.getItem(storageKey);
       if (raw) {
-        const saved = JSON.parse(raw);
-        if (Array.isArray(saved.cart)) setCart(saved.cart);
-        if (typeof saved.discount === "number") setDiscount(saved.discount);
-        if (saved.discountType === "fixed" || saved.discountType === "percentage") setDiscountType(saved.discountType);
-        if (saved.discountMode === "whole" || saved.discountMode === "item") setDiscountMode(saved.discountMode);
-        if (typeof saved.redeemPoints === "number") setRedeemPoints(saved.redeemPoints);
+        const parsed = persistedDraftSchema.safeParse(JSON.parse(raw));
+        if (parsed.success) {
+          setCart(parsed.data.cart);
+          setDiscount(parsed.data.discount);
+          setDiscountType(parsed.data.discountType);
+          setDiscountMode(parsed.data.discountMode);
+          setRedeemPoints(parsed.data.redeemPoints);
+        }
       }
     } catch {
       // Corrupt/blocked storage — ignore and start fresh.
@@ -895,12 +956,12 @@ export function CheckoutForm({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search by name or phone…" />
+                  <Command shouldFilter={false}>
+                    <CommandInput placeholder="Search by name or phone…" value={clientQuery} onValueChange={setClientQuery} />
                     <CommandList>
                       <CommandEmpty>No clients found.</CommandEmpty>
                       <CommandGroup>
-                        {clients.map((client) => {
+                        {clientResults.map((client) => {
                           const label = `${client.firstName} ${client.lastName || ""}`.trim();
                           return (
                             <CommandItem
@@ -1020,16 +1081,6 @@ export function CheckoutForm({
             </div>
           </CardHeader>
           <CardContent>
-            {staff.length === 0 ? (
-              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                No service providers found. Mark a staff member as a{" "}
-                <span className="font-medium text-foreground">Service Provider</span> on the{" "}
-                <Link href="/dashboard/staff" className="font-medium text-primary underline underline-offset-2">
-                  Staff
-                </Link>{" "}
-                page to sell services.
-              </p>
-            ) : (
             <Tabs value={activeItemTab} onValueChange={(v) => setActiveItemTab(v as "services" | "products")}>
               {/* Full-width tabs now that there's no search bar sharing the row. */}
               <TabsList className={cn("mb-4", products.length > 0 && "grid w-full grid-cols-2")}>
@@ -1046,6 +1097,17 @@ export function CheckoutForm({
               </TabsList>
 
               <TabsContent value="services">
+                {staff.length === 0 ? (
+                  <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                    No service providers found. Mark a staff member as a{" "}
+                    <span className="font-medium text-foreground">Service Provider</span> on the{" "}
+                    <Link href="/dashboard/staff" className="font-medium text-primary underline underline-offset-2">
+                      Staff
+                    </Link>{" "}
+                    page to sell services.
+                  </p>
+                ) : (
+                <>
                 <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                   <ComboBox
                     value={pendingService}
@@ -1070,6 +1132,8 @@ export function CheckoutForm({
                 <p className="mt-2 text-xs text-muted-foreground">
                   Pick the service and who&apos;s performing it, then Add — each line keeps its own staff.
                 </p>
+                </>
+                )}
               </TabsContent>
 
               {products.length > 0 && (
@@ -1101,7 +1165,6 @@ export function CheckoutForm({
                 </TabsContent>
               )}
             </Tabs>
-            )}
           </CardContent>
         </Card>
         )}

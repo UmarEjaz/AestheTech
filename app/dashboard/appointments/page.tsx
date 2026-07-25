@@ -44,7 +44,7 @@ export default async function AppointmentsPage() {
   const settingsResult = await getSettings();
   const settings = settingsResult.success
     ? settingsResult.data
-    : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC" };
+    : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", currencyCode: "USD" };
 
   const { start: weekStart, end: weekEnd } = getWeekRange(settings.timezone);
 
@@ -110,6 +110,7 @@ export default async function AppointmentsPage() {
             businessHoursStart={settings.businessHoursStart}
             businessHoursEnd={settings.businessHoursEnd}
             timezone={settings.timezone}
+            currencyCode={settings.currencyCode}
           />
         </div>
       </div>

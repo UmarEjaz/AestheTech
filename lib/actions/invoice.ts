@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { assertPaymentOwner } from "@/lib/payment-guards";
 import { checkAuth } from "@/lib/auth-helpers";
 import { effectiveInvoiceStatus } from "@/lib/utils/invoice-status";
 import {
@@ -14,14 +15,18 @@ import {
 } from "@/lib/validations/invoice";
 import { Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 import { getSettings } from "./settings";
-import { getTodayRange } from "@/lib/utils/timezone";
+import { formatInTz } from "@/lib/utils/timezone";
 import { calculateTier } from "@/lib/utils/loyalty";
 
-// Start-of-today in the salon timezone — the cutoff for "overdue" (an invoice is overdue
-// only once its due day has fully passed in the salon's zone, not at server midnight).
+// The cutoff for "overdue". Due dates are date-only values stored at UTC midnight, so we compare
+// against the salon's CURRENT calendar date turned back into a UTC-midnight instant. Using an
+// absolute timezone boundary here (e.g. start-of-today in a UTC- zone = 04:00Z) would wrongly
+// flag an invoice due today (00:00Z) as overdue.
 async function salonOverdueCutoff(): Promise<Date> {
   const s = await getSettings();
-  return getTodayRange(s.success ? s.data.timezone : "UTC").start;
+  const tz = s.success ? s.data.timezone : "UTC";
+  const localDate = formatInTz(new Date(), "yyyy-MM-dd", tz);
+  return new Date(`${localDate}T00:00:00Z`);
 }
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
@@ -305,6 +310,7 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
           };
         }
 
+        assertPaymentOwner({ invoiceId });
         await tx.payment.create({
           data: { invoiceId, amount, method },
         });

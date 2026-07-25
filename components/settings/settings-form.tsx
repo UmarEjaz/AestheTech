@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { BOOKING_MODES, BOOKING_MODE_LABELS, type BookingMode } from "@/lib/constants/booking-modes";
 import { useMemo } from "react";
 import { Loader2, Building2, Clock, DollarSign, Star, Globe, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
@@ -53,7 +54,7 @@ const settingsSchema = z.object({
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   appointmentInterval: z.coerce.number().min(15).max(120),
-  defaultAppointmentClientType: z.enum(["EXISTING", "WALK_IN"]),
+  defaultBookingMode: z.enum(BOOKING_MODES),
   loyaltyProgramEnabled: z.boolean(),
   loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
   goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
@@ -87,7 +88,7 @@ type SettingsFormData = {
   businessHoursStart: string;
   businessHoursEnd: string;
   appointmentInterval: number;
-  defaultAppointmentClientType: "EXISTING" | "WALK_IN";
+  defaultBookingMode: BookingMode;
   loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
@@ -153,8 +154,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
       appointmentInterval: settings.appointmentInterval,
-      defaultAppointmentClientType:
-        settings.defaultAppointmentClientType === "WALK_IN" ? "WALK_IN" : "EXISTING",
+      defaultBookingMode: settings.defaultBookingMode === "WALK_IN" ? "WALK_IN" : "APPOINTMENT",
       loyaltyProgramEnabled: settings.loyaltyProgramEnabled,
       loyaltyPointsPerDollar: settings.loyaltyPointsPerDollar,
       goldThreshold: settings.goldThreshold,
@@ -393,24 +393,25 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="defaultAppointmentClientType">Default client type for new appointments</Label>
+            <Label htmlFor="defaultBookingMode">Default mode for new bookings</Label>
             <Select
-              value={watch("defaultAppointmentClientType")}
+              value={watch("defaultBookingMode")}
               onValueChange={(value) =>
-                setValue("defaultAppointmentClientType", value as "EXISTING" | "WALK_IN", { shouldDirty: true })
+                setValue("defaultBookingMode", value as BookingMode, { shouldDirty: true })
               }
               disabled={!canManage}
             >
-              <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="EXISTING">Existing client</SelectItem>
-                <SelectItem value="WALK_IN">Walk-in client</SelectItem>
+                {BOOKING_MODES.map((m) => (
+                  <SelectItem key={m} value={m}>{BOOKING_MODE_LABELS[m]}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <p className="text-sm text-muted-foreground">
-              Which tab the Book Appointment form starts on. Walk-in-heavy shops may prefer Walk-in.
+              Which mode the New-booking screen opens in. Walk-in-heavy shops may prefer Walk-in.
             </p>
           </div>
         </CardContent>

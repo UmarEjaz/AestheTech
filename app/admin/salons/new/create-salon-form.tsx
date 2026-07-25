@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,8 +39,14 @@ export function CreateSalonForm() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [plan, setPlan] = useState("");
-  const [timezone, setTimezone] = useState(() => detectBrowserTimezone());
+  // Start with a server-safe default and switch to the browser's timezone after mount —
+  // initializing from the browser directly would cause an SSR/client hydration mismatch.
+  const [timezone, setTimezone] = useState("UTC");
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
+
+  useEffect(() => {
+    setTimezone(detectBrowserTimezone());
+  }, []);
 
   const handleNameChange = (value: string) => {
     setName(value);

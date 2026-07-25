@@ -2,7 +2,6 @@
 
 import { useEffect } from "react";
 import { RecurrencePattern } from "@prisma/client";
-import { CalendarDays, CalendarRange, Calendar, Repeat, Hash, Grid3X3, CalendarCheck } from "lucide-react";
 
 import {
   Select,
@@ -13,12 +12,19 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"] as const;
 const FULL_DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 const WEEK_LABELS = ["1st", "2nd", "3rd", "4th", "Last"] as const;
+
+// "1st", "2nd", "3rd", "21st"… for the day-of-month a monthly series lands on.
+export function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 interface PatternSelectorProps {
   pattern: RecurrencePattern;
@@ -31,50 +37,41 @@ interface PatternSelectorProps {
   onDayOfWeekChange?: (day: number) => void;
   nthWeek?: number;
   onNthWeekChange?: (week: number) => void;
+  /** Day-of-month the series lands on (from the appointment's start date) — drives the Monthly note. */
+  dayOfMonth?: number;
   disabled?: boolean;
-  compact?: boolean;
 }
 
-const patternConfig: Record<
-  RecurrencePattern,
-  { label: string; description: string; icon: React.ComponentType<{ className?: string }> }
-> = {
-  DAILY: {
-    label: "Daily",
-    description: "Every day",
-    icon: Calendar,
-  },
-  WEEKLY: {
-    label: "Weekly",
-    description: "Same day each week",
-    icon: CalendarDays,
-  },
-  BIWEEKLY: {
-    label: "Bi-weekly",
-    description: "Every 2 weeks",
-    icon: CalendarRange,
-  },
-  MONTHLY: {
-    label: "Monthly",
-    description: "Same day each month",
-    icon: CalendarCheck,
-  },
-  CUSTOM: {
-    label: "Custom",
-    description: "Every N weeks",
-    icon: Hash,
-  },
-  SPECIFIC_DAYS: {
-    label: "Specific Days",
-    description: "Select multiple days per week",
-    icon: Grid3X3,
-  },
-  NTH_WEEKDAY: {
-    label: "Nth Weekday",
-    description: "e.g., 2nd Tuesday of each month",
-    icon: Repeat,
-  },
+// Chip order shown to the user. All app-supported patterns are included (chips wrap as needed).
+const PATTERN_ORDER: RecurrencePattern[] = [
+  "DAILY",
+  "WEEKLY",
+  "BIWEEKLY",
+  "MONTHLY",
+  "SPECIFIC_DAYS",
+  "NTH_WEEKDAY",
+  "CUSTOM",
+];
+
+const PATTERN_LABELS: Record<RecurrencePattern, string> = {
+  DAILY: "Daily",
+  WEEKLY: "Weekly",
+  BIWEEKLY: "Every 2 weeks",
+  MONTHLY: "Monthly",
+  CUSTOM: "Custom",
+  SPECIFIC_DAYS: "Specific days",
+  NTH_WEEKDAY: "Nth weekday",
 };
+
+// Shared chip styling (matches the checkout/booking chip look — purple when active).
+function chipClass(active: boolean) {
+  return cn(
+    "flex-[1_1_auto] whitespace-nowrap rounded-lg border px-3 py-2 text-center text-[13px] font-semibold transition-colors",
+    active
+      ? "border-primary bg-primary text-primary-foreground shadow-sm"
+      : "border-input bg-background hover:border-primary/40 hover:bg-accent"
+  );
+}
 
 export function PatternSelector({
   pattern,
@@ -87,191 +84,187 @@ export function PatternSelector({
   onDayOfWeekChange,
   nthWeek = 1,
   onNthWeekChange,
+  dayOfMonth,
   disabled = false,
-  compact = false,
 }: PatternSelectorProps) {
-  // For SPECIFIC_DAYS, ensure at least one day is selected
+  // For SPECIFIC_DAYS, ensure at least one day is selected.
   useEffect(() => {
     if (pattern === "SPECIFIC_DAYS" && specificDays.length === 0 && onSpecificDaysChange) {
-      // Default to the current dayOfWeek if available
       onSpecificDaysChange([dayOfWeek]);
     }
   }, [pattern, specificDays.length, dayOfWeek, onSpecificDaysChange]);
 
   const handleSpecificDayToggle = (day: number) => {
     if (!onSpecificDaysChange) return;
-
     const newDays = specificDays.includes(day)
       ? specificDays.filter((d) => d !== day)
       : [...specificDays, day].sort((a, b) => a - b);
-
-    // Don't allow empty selection
     if (newDays.length > 0) {
       onSpecificDaysChange(newDays);
     }
   };
 
+  const dayOfWeekSelect = (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-medium">Day of the week</Label>
+      <Select
+        value={dayOfWeek?.toString() ?? "0"}
+        onValueChange={(value) => onDayOfWeekChange?.(parseInt(value))}
+        disabled={disabled}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="Select day" />
+        </SelectTrigger>
+        <SelectContent>
+          {FULL_DAY_LABELS.map((label, index) => (
+            <SelectItem key={index} value={index.toString()}>
+              {label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   return (
-    <div className="space-y-4">
-      {/* Pattern Selection */}
-      <div className="space-y-2">
-        <Label>Recurrence Pattern</Label>
-        <Select
-          value={pattern}
-          onValueChange={(value) => onPatternChange(value as RecurrencePattern)}
-          disabled={disabled}
-        >
-          <SelectTrigger className={cn(compact && "h-9")}>
-            <SelectValue placeholder="Select pattern" />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(patternConfig) as RecurrencePattern[]).map((key) => {
-              const config = patternConfig[key];
-              const IconComponent = config.icon;
-              return (
-                <SelectItem key={key} value={key}>
-                  <div className="flex items-center gap-2">
-                    <IconComponent className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <span className="font-medium">{config.label}</span>
-                      {!compact && (
-                        <span className="text-muted-foreground ml-2 text-xs">
-                          ({config.description})
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
+    <div className="space-y-3">
+      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Recurrence Pattern
+      </Label>
+
+      {/* Pattern chips */}
+      <div className="flex flex-wrap gap-2">
+        {PATTERN_ORDER.map((key) => (
+          <button
+            key={key}
+            type="button"
+            disabled={disabled}
+            onClick={() => onPatternChange(key)}
+            className={chipClass(pattern === key)}
+          >
+            {PATTERN_LABELS[key]}
+          </button>
+        ))}
       </div>
 
-      {/* Custom Weeks Input - for CUSTOM pattern */}
-      {pattern === "CUSTOM" && (
-        <div className="space-y-2 pl-4 border-l-2 border-muted">
-          <Label htmlFor="customWeeks">Every how many weeks?</Label>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Every</span>
-            <Input
-              id="customWeeks"
-              type="number"
-              min={1}
-              max={52}
-              value={customWeeks}
-              onChange={(e) => onCustomWeeksChange?.(parseInt(e.target.value) || 1)}
-              className="w-20"
-              disabled={disabled}
-            />
-            <span className="text-sm text-muted-foreground">week(s)</span>
-          </div>
-        </div>
-      )}
+      {/* Contextual fields for the chosen pattern */}
+      <div className="mt-2 rounded-xl border bg-muted/40 p-4">
+        {(pattern === "WEEKLY" || pattern === "BIWEEKLY") && dayOfWeekSelect}
 
-      {/* Specific Days Selection - for SPECIFIC_DAYS pattern */}
-      {pattern === "SPECIFIC_DAYS" && (
-        <div className="space-y-2 pl-4 border-l-2 border-muted">
-          <Label>Select days of the week</Label>
-          <div className="flex flex-wrap gap-2">
-            {DAY_LABELS.map((label, index) => (
-              <div key={index} className="flex items-center space-x-2">
-                <Checkbox
-                  id={`day-${index}`}
-                  checked={specificDays.includes(index)}
-                  onCheckedChange={() => handleSpecificDayToggle(index)}
-                  disabled={disabled || (specificDays.length === 1 && specificDays.includes(index))}
+        {pattern === "DAILY" && (
+          <p className="text-sm text-muted-foreground">Repeats every day.</p>
+        )}
+
+        {pattern === "MONTHLY" && (
+          <p className="flex items-start gap-2 text-sm text-muted-foreground">
+            <span aria-hidden>📅</span>
+            <span>
+              Repeats on the{" "}
+              <strong className="text-foreground">
+                {dayOfMonth ? ordinal(dayOfMonth) : "same date"}
+              </strong>{" "}
+              of each month — to use a different day, change{" "}
+              <strong className="text-foreground">Select Date</strong> above. Monthly series follow
+              the calendar date, not a weekday.
+            </span>
+          </p>
+        )}
+
+        {pattern === "CUSTOM" && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Repeat interval</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Every</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={52}
+                  value={customWeeks}
+                  onChange={(e) => onCustomWeeksChange?.(parseInt(e.target.value) || 1)}
+                  className="w-20"
+                  disabled={disabled}
                 />
-                <Label
-                  htmlFor={`day-${index}`}
-                  className={cn(
-                    "text-sm cursor-pointer",
-                    specificDays.includes(index) && "font-medium"
-                  )}
-                >
-                  {label}
-                </Label>
+                <span className="text-sm text-muted-foreground">week(s)</span>
               </div>
-            ))}
+            </div>
+            {dayOfWeekSelect}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Selected: {specificDays.map((d) => FULL_DAY_LABELS[d]).join(", ") || "None"}
-          </p>
-        </div>
-      )}
+        )}
 
-      {/* Nth Weekday Selection - for NTH_WEEKDAY pattern */}
-      {pattern === "NTH_WEEKDAY" && (
-        <div className="space-y-3 pl-4 border-l-2 border-muted">
-          <Label>Select which occurrence</Label>
-          <div className="flex flex-wrap gap-3">
-            <Select
-              value={nthWeek?.toString() ?? "1"}
-              onValueChange={(value) => onNthWeekChange?.(parseInt(value))}
-              disabled={disabled}
-            >
-              <SelectTrigger className="w-[120px]">
-                <SelectValue placeholder="Which week" />
-              </SelectTrigger>
-              <SelectContent>
-                {WEEK_LABELS.map((label, index) => (
-                  <SelectItem key={index} value={(index + 1).toString()}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={dayOfWeek?.toString() ?? "0"}
-              onValueChange={(value) => onDayOfWeekChange?.(parseInt(value))}
-              disabled={disabled}
-            >
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Which day" />
-              </SelectTrigger>
-              <SelectContent>
-                {FULL_DAY_LABELS.map((label, index) => (
-                  <SelectItem key={index} value={index.toString()}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {pattern === "SPECIFIC_DAYS" && (
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Which days of the week?</Label>
+            <div className="flex flex-wrap gap-2">
+              {DAY_LETTERS.map((letter, index) => {
+                const active = specificDays.includes(index);
+                const onlyOne = specificDays.length === 1 && active;
+                return (
+                  <button
+                    key={index}
+                    type="button"
+                    disabled={disabled || onlyOne}
+                    onClick={() => handleSpecificDayToggle(index)}
+                    aria-pressed={active}
+                    aria-label={FULL_DAY_LABELS[index]}
+                    className={cn(
+                      "h-11 w-11 rounded-lg border text-sm font-bold transition-colors",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input bg-background hover:border-primary/40",
+                      onlyOne && "cursor-not-allowed opacity-70"
+                    )}
+                  >
+                    {letter}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Selected: {specificDays.map((d) => FULL_DAY_LABELS[d]).join(", ") || "None"}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Repeats on the {WEEK_LABELS[(nthWeek ?? 1) - 1]} {FULL_DAY_LABELS[dayOfWeek ?? 0]} of each month
-          </p>
-        </div>
-      )}
+        )}
 
-      {/* Day of Week Selection - for WEEKLY, BIWEEKLY, CUSTOM, MONTHLY */}
-      {["WEEKLY", "BIWEEKLY", "CUSTOM", "MONTHLY"].includes(pattern) && (
-        <div className="space-y-2 pl-4 border-l-2 border-muted">
-          <Label>Day of the week</Label>
-          <Select
-            value={dayOfWeek?.toString() ?? "0"}
-            onValueChange={(value) => onDayOfWeekChange?.(parseInt(value))}
-            disabled={disabled}
-          >
-            <SelectTrigger className={cn("w-[180px]", compact && "h-9")}>
-              <SelectValue placeholder="Select day" />
-            </SelectTrigger>
-            <SelectContent>
-              {FULL_DAY_LABELS.map((label, index) => (
-                <SelectItem key={index} value={index.toString()}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
+        {pattern === "NTH_WEEKDAY" && (
+          <div className="space-y-3">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Which week</Label>
+                <Select
+                  value={nthWeek?.toString() ?? "1"}
+                  onValueChange={(value) => onNthWeekChange?.(parseInt(value))}
+                  disabled={disabled}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Which week" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WEEK_LABELS.map((label, index) => (
+                      <SelectItem key={index} value={(index + 1).toString()}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {dayOfWeekSelect}
+            </div>
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span aria-hidden>📅</span>
+              <strong className="text-foreground">
+                {WEEK_LABELS[(nthWeek ?? 1) - 1]} {FULL_DAY_LABELS[dayOfWeek ?? 0]}
+              </strong>{" "}
+              of each month.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// Helper function to get a human-readable label for the current pattern configuration
+// Human-readable label for the current pattern configuration.
 export function getPatternSummary(
   pattern: RecurrencePattern,
   options?: {
@@ -279,9 +272,10 @@ export function getPatternSummary(
     specificDays?: number[];
     dayOfWeek?: number;
     nthWeek?: number;
+    dayOfMonth?: number;
   }
 ): string {
-  const { customWeeks = 1, specificDays = [], dayOfWeek = 0, nthWeek = 1 } = options || {};
+  const { customWeeks = 1, specificDays = [], dayOfWeek = 0, nthWeek = 1, dayOfMonth } = options || {};
 
   switch (pattern) {
     case "DAILY":
@@ -291,7 +285,7 @@ export function getPatternSummary(
     case "BIWEEKLY":
       return `Every other ${FULL_DAY_LABELS[dayOfWeek]}`;
     case "MONTHLY":
-      return `Monthly on ${FULL_DAY_LABELS[dayOfWeek]}s`;
+      return dayOfMonth ? `On the ${ordinal(dayOfMonth)} of every month` : "Monthly";
     case "CUSTOM":
       return `Every ${customWeeks} week${customWeeks > 1 ? "s" : ""} on ${FULL_DAY_LABELS[dayOfWeek]}`;
     case "SPECIFIC_DAYS":

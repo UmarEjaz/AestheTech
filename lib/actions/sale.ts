@@ -3,6 +3,7 @@
 import { addMonths } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { assertPaymentOwner } from "@/lib/payment-guards";
 import { checkAuth } from "@/lib/auth-helpers";
 import { hasPermission } from "@/lib/permissions";
 import {
@@ -276,10 +277,15 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     if (appointmentId) {
       const appt = await prisma.appointment.findFirst({
         where: { id: appointmentId, salonId: authResult.salonId },
-        select: { sale: { select: { id: true } } },
+        select: { clientId: true, sale: { select: { id: true } } },
       });
       if (!appt) {
         return { success: false, error: "Appointment not found" };
+      }
+      // The appointment must belong to the same client being billed — otherwise a
+      // tampered request could attach one client's appointment (and deposit) to another.
+      if (appt.clientId !== clientId) {
+        return { success: false, error: "This appointment belongs to a different client." };
       }
       if (appt.sale) {
         return { success: false, error: "This appointment has already been checked out." };
@@ -310,6 +316,9 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
 
     // Validate all services exist and are active
     for (const item of items) {
+      if (!item.serviceId && !item.productId) {
+        return { success: false, error: "Each sale item must be a service or a product." };
+      }
       if (item.serviceId) {
         const service = serviceMap.get(item.serviceId);
         if (!service) {
@@ -333,13 +342,22 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       }
     }
 
+    // Unit price is ALWAYS taken from the authoritative catalog (serviceMap/productMap), never from
+    // the request — otherwise a caller with sales:create could submit a low price and apply an
+    // unauthorized discount that bypasses the sales:discount permission.
+    const unitPriceFor = (item: (typeof items)[number]): number => {
+      if (item.serviceId) return Number(serviceMap.get(item.serviceId)!.price);
+      if (item.productId) return Number(productMap.get(item.productId)!.price);
+      return 0;
+    };
+
     // Totals with per-line discounts. totalAmount = gross subtotal; itemDiscountTotal = the sum of
     // per-line discounts (each clamped to its line's gross); the whole-bill discount then applies to
     // the net subtotal. Sale.discount stores the combined total so finalAmount = totalAmount − discount.
     let totalAmount = 0;
     let itemDiscountTotal = 0;
     for (const item of items) {
-      const lineGross = item.price * item.quantity;
+      const lineGross = unitPriceFor(item) * item.quantity;
       totalAmount += lineGross;
       itemDiscountTotal += Math.min(item.discount ?? 0, lineGross);
     }
@@ -375,14 +393,15 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
               const prod = productMap.get(item.productId);
               if (prod?.cost != null) costAtSale = Number(prod.cost);
             }
+            const unitPrice = unitPriceFor(item);
             return {
               salonId: authResult.salonId,
               serviceId: item.serviceId || null,
               staffId: item.staffId || null,
               productId: item.productId || null,
               quantity: item.quantity,
-              price: item.price,
-              discount: Math.min(item.discount ?? 0, item.price * item.quantity),
+              price: unitPrice,
+              discount: Math.min(item.discount ?? 0, unitPrice * item.quantity),
               note: item.note ? item.note : null,
               costAtSale,
             };
@@ -624,6 +643,7 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
 
       // Create payments collected at checkout
       for (const payment of payments) {
+        assertPaymentOwner({ invoiceId: invoice.id });
         await tx.payment.create({
           data: {
             invoiceId: invoice.id,

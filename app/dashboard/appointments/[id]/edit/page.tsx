@@ -6,8 +6,8 @@ import { getAppointment } from "@/lib/actions/appointment";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
+import { getActiveServices } from "@/lib/actions/service";
 import { prisma } from "@/lib/prisma";
-import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -52,32 +52,10 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     redirect("/dashboard/appointments");
   }
 
-  // Fetch clients, services, and staff for the form
-  // - Clients/services: org-scoped against the appointment's organization
-  // - Staff: scoped to the appointment's branch (so the currently assigned staff appears)
-  const orgSalonIds = await getOrganizationSalonIds(appointment.salonId);
-  const [clients, services, staffRows, settingsRow] = await Promise.all([
-    prisma.client.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-      },
-      orderBy: { firstName: "asc" },
-    }),
-    prisma.service.findMany({
-      where: { salonId: appointment.salonId, isActive: true },
-      select: {
-        id: true,
-        name: true,
-        duration: true,
-        price: true,
-        category: { select: { name: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
+  // Fetch staff + services for the form. The client picker searches the DB on demand (server-side),
+  // so we no longer load every client; services are a bounded menu loaded up front for the picker.
+  const [servicesResult, staffRows, settingsRow] = await Promise.all([
+    getActiveServices(),
     // Resolve providers via branch membership (UserSalon) so staff assigned to
     // this branch are included even when it isn't their home branch.
     prisma.userSalon.findMany({
@@ -97,6 +75,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       select: { timezone: true },
     }),
   ]);
+  const services = servicesResult.success ? servicesResult.data : [];
   const staff = staffRows.map((row) => row.user);
   const timezone = settingsRow?.timezone || "UTC";
 
@@ -105,14 +84,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     <AppointmentForm
       mode="edit"
       appointment={appointment}
-      clients={clients}
-      services={services.map((s) => ({
-        id: s.id,
-        name: s.name,
-        duration: s.duration,
-        price: Number(s.price),
-        category: s.category?.name ?? null,
-      }))}
+      services={services}
       staff={staff}
       timezone={timezone}
     />

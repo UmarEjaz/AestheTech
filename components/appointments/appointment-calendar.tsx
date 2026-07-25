@@ -38,6 +38,7 @@ interface AppointmentCalendarProps {
   businessHoursStart?: string;
   businessHoursEnd?: string;
   timezone: string;
+  currencyCode: string;
 }
 
 const statusColors: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
@@ -73,6 +74,7 @@ export function AppointmentCalendar({
   businessHoursStart = "08:00",
   businessHoursEnd = "20:00",
   timezone,
+  currencyCode,
 }: AppointmentCalendarProps) {
   const router = useRouter();
   const calendarRef = useRef<FullCalendar>(null);
@@ -84,6 +86,10 @@ export function AppointmentCalendar({
   const [currentView, setCurrentView] = useState("timeGridWeek");
 
   const calendarApi = () => calendarRef.current?.getApi();
+  // Date nav, staff filter, and modal refreshes all fetch concurrently. Stamp each fetch with a
+  // sequence number and only apply the newest response, so a slow earlier request can't overwrite
+  // the latest view. (Server actions aren't fetch-cancellable, so a sequence guard is the tool.)
+  const fetchSeqRef = useRef(0);
   // Track only the id; derive the live object from `appointments` so the open modal
   // always reflects the latest data (e.g. a deposit just recorded), not a stale snapshot.
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
@@ -130,13 +136,14 @@ export function AppointmentCalendar({
       setViewTitle(arg.view.title);
       setCurrentView(arg.view.type);
 
+      const seq = ++fetchSeqRef.current;
       const result = await getAppointmentsForCalendar({
         startDate: arg.start,
         endDate: arg.end,
         staffId: staffFilter === "all" ? undefined : staffFilter,
       });
 
-      if (result.success) {
+      if (seq === fetchSeqRef.current && result.success) {
         setAppointments(result.data);
       }
     },
@@ -147,13 +154,14 @@ export function AppointmentCalendar({
   const refreshAppointments = useCallback(async () => {
     if (!currentViewDates) return;
 
+    const seq = ++fetchSeqRef.current;
     const result = await getAppointmentsForCalendar({
       startDate: currentViewDates.start,
       endDate: currentViewDates.end,
       staffId: staffFilter === "all" ? undefined : staffFilter,
     });
 
-    if (result.success) {
+    if (seq === fetchSeqRef.current && result.success) {
       setAppointments(result.data);
     }
   }, [currentViewDates, staffFilter]);
@@ -163,12 +171,13 @@ export function AppointmentCalendar({
     async (value: string) => {
       setStaffFilter(value);
       if (!currentViewDates) return;
+      const seq = ++fetchSeqRef.current;
       const result = await getAppointmentsForCalendar({
         startDate: currentViewDates.start,
         endDate: currentViewDates.end,
         staffId: value === "all" ? undefined : value,
       });
-      if (result.success) {
+      if (seq === fetchSeqRef.current && result.success) {
         setAppointments(result.data);
       }
     },
@@ -465,6 +474,7 @@ export function AppointmentCalendar({
           canCancel={canCancel}
           canDelete={canDelete}
           timezone={timezone}
+          currencyCode={currencyCode}
         />
       )}
     </div>

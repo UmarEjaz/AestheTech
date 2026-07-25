@@ -33,6 +33,12 @@ function salonTimeOnDay(ref: Date, hours: number, minutes: number, tz: string): 
 function salonDayStart(ref: Date, tz: string): Date {
   return salonTimeOnDay(ref, 0, 0, tz);
 }
+// Midnight of the NEXT salon calendar day. Advancing the calendar date (TZDate normalizes the
+// overflow) is DST-correct, unlike adding a fixed 24h which over/under-shoots on clock-change days.
+function salonNextDayStart(ref: Date, tz: string): Date {
+  const d = new TZDate(ref, tz);
+  return new Date(new TZDate(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0, tz).getTime());
+}
 function salonDayKey(ref: Date, tz: string): string {
   return formatInTz(ref, "yyyy-MM-dd", tz);
 }
@@ -101,7 +107,7 @@ async function checkConflict(
 ): Promise<boolean> {
   const conflict = await prisma.appointment.findFirst({
     where: {
-      staffId,
+      services: { some: { staffId } },
       ...(salonId && { salonId }),
       id: excludeId ? { not: excludeId } : undefined,
       status: { notIn: ["CANCELLED", "NO_SHOW"] },
@@ -271,7 +277,6 @@ export async function createRecurringSeries(
           data: {
             salonId: authResult.salonId,
             clientId: validData.clientId,
-            staffId: altStaffId,
             startTime: altStartTime,
             endTime: altEndTime,
             notes: validData.notes || null,
@@ -282,7 +287,8 @@ export async function createRecurringSeries(
                 salonId: authResult.salonId,
                 serviceId: validData.serviceId,
                 staffId: altStaffId,
-                price: service.price,
+                // Preserve the series' locked-in price; only fall back to catalog price if none.
+                price: validData.lockedPrice ?? service.price,
                 duration: service.duration,
                 order: 0,
               }],
@@ -313,7 +319,6 @@ export async function createRecurringSeries(
         data: {
           salonId: authResult.salonId,
           clientId: validData.clientId,
-          staffId: validData.staffId,
           startTime,
           endTime,
           notes: validData.notes || null,
@@ -324,7 +329,8 @@ export async function createRecurringSeries(
               salonId: authResult.salonId,
               serviceId: validData.serviceId,
               staffId: validData.staffId,
-              price: service.price,
+              // Preserve the series' locked-in price; only fall back to catalog price if none.
+              price: validData.lockedPrice ?? service.price,
               duration: service.duration,
               order: 0,
             }],
@@ -557,33 +563,42 @@ export async function updateSeriesAppointments(
     for (const appointment of series.appointments) {
       const appointmentUpdateData: Prisma.AppointmentUpdateInput = {};
 
-      if (staffId) {
-        appointmentUpdateData.staff = { connect: { id: staffId } };
-        // Keep the (single) service line's staff in sync with the primary provider.
-        appointmentUpdateData.services = { updateMany: { where: {}, data: { staffId } } };
-      }
-
+      // Resolve the FINAL staff/time target for this occurrence before touching anything.
+      const targetStaffId = staffId || series.staffId;
+      let targetStart = appointment.startTime;
+      let targetEnd = appointment.endTime;
       if (timeOfDay) {
         const { hours, minutes } = parseTimeOfDay(timeOfDay);
         // Keep the appointment's (salon) day, apply the new time in the salon timezone.
-        const newStartTime = salonTimeOnDay(appointment.startTime, hours, minutes, tz);
-        const newEndTime = new Date(newStartTime.getTime() + serviceDuration * 60 * 1000);
+        targetStart = salonTimeOnDay(appointment.startTime, hours, minutes, tz);
+        targetEnd = new Date(targetStart.getTime() + serviceDuration * 60 * 1000);
+      }
 
-        // Check for conflicts with new time
+      // A staff and/or time change is validated as ONE unit against the final combination and
+      // applied all-or-nothing. This also closes the gap where a staff-only change was applied
+      // without ever checking whether the new provider was free.
+      const staffOrTimeChanging = Boolean(staffId) || Boolean(timeOfDay);
+      if (staffOrTimeChanging) {
         const hasConflict = await checkConflict(
-          staffId || series.staffId,
-          newStartTime,
-          newEndTime,
+          targetStaffId,
+          targetStart,
+          targetEnd,
           appointment.id,
           authResult.salonId
         );
 
-        if (!hasConflict) {
-          appointmentUpdateData.startTime = newStartTime;
-          appointmentUpdateData.endTime = newEndTime;
-        } else {
-          // Track skipped appointments so user knows which couldn't be rescheduled
+        if (hasConflict) {
+          // Skip the whole staff+time change for this occurrence (notes may still apply below).
           skippedDueToConflict.push(formatInTz(appointment.startTime, "MMM d, yyyy", tz));
+        } else {
+          if (staffId) {
+            // Reassign the (single) service line's provider — services are the source of truth.
+            appointmentUpdateData.services = { updateMany: { where: {}, data: { staffId } } };
+          }
+          if (timeOfDay) {
+            appointmentUpdateData.startTime = targetStart;
+            appointmentUpdateData.endTime = targetEnd;
+          }
         }
       }
 
@@ -889,7 +904,7 @@ export async function extendSeries(
           seriesId,
           startTime: {
             gte: salonDayStart(date, tz),
-            lt: new Date(salonDayStart(date, tz).getTime() + 24 * 60 * 60 * 1000),
+            lt: salonNextDayStart(date, tz),
           },
         },
       });
@@ -912,7 +927,6 @@ export async function extendSeries(
         data: {
           salonId: series.salonId,
           clientId: series.clientId,
-          staffId: series.staffId,
           startTime,
           endTime,
           notes: series.notes,
@@ -923,7 +937,8 @@ export async function extendSeries(
               salonId: series.salonId,
               serviceId: series.serviceId,
               staffId: series.staffId,
-              price: series.service.price,
+              // Preserve the series' locked-in price; only fall back to catalog price if none.
+              price: series.lockedPrice ?? series.service.price,
               duration: series.service.duration,
               order: 0,
             }],
@@ -1083,7 +1098,7 @@ export async function addExceptionDate(
         seriesId,
         startTime: {
           gte: salonDayStart(date, tz),
-          lt: new Date(salonDayStart(date, tz).getTime() + 24 * 60 * 60 * 1000),
+          lt: salonNextDayStart(date, tz),
         },
         status: { notIn: ["COMPLETED", "CANCELLED", "NO_SHOW"] },
       },
@@ -1501,12 +1516,12 @@ async function findAlternativeSlotsForDate(
 
   // Get existing appointments for the day (salon-tz day window)
   const dayStart = salonDayStart(date, tz);
-  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  const dayEnd = salonNextDayStart(date, tz);
 
   const existingAppointments = await prisma.appointment.findMany({
     where: {
       ...(salonId && { salonId }),
-      staffId,
+      services: { some: { staffId } },
       startTime: { gte: dayStart, lt: dayEnd },
       status: { notIn: ["CANCELLED", "NO_SHOW"] },
     },
@@ -1605,12 +1620,12 @@ export async function getAlternativeSlots(params: {
 
     // Get existing appointments for the day (salon-tz day window)
     const dayStart = salonDayStart(date, tz);
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const dayEnd = salonNextDayStart(date, tz);
 
     const existingAppointments = await prisma.appointment.findMany({
       where: {
         salonId: authResult.salonId,
-        staffId,
+        services: { some: { staffId } },
         startTime: { gte: dayStart, lt: dayEnd },
         status: { notIn: ["CANCELLED", "NO_SHOW"] },
       },

@@ -106,10 +106,10 @@ function getClientInclude() {
       include: {
         services: {
           orderBy: { order: "asc" as const },
-          select: { service: { select: { name: true } } },
-        },
-        staff: {
-          select: { firstName: true, lastName: true },
+          select: {
+            service: { select: { name: true } },
+            staff: { select: { firstName: true, lastName: true } },
+          },
         },
       },
     },
@@ -172,10 +172,13 @@ export async function getClientHeldDeposits(clientId: string): Promise<number> {
   const authResult = await checkAuth("clients:view");
   if (!authResult) return 0;
 
+  // getClient allows viewing clients from any branch, so held deposits must span the whole
+  // organization too — otherwise a cross-branch client shows $0 held.
+  const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
   const result = await prisma.payment.aggregate({
     where: {
       invoiceId: null,
-      appointment: { clientId, salonId: authResult.salonId },
+      appointment: { clientId, salonId: { in: orgSalonIds } },
     },
     _sum: { amount: true },
   });
@@ -613,17 +616,23 @@ export async function getAllTags(): Promise<ActionResult<string[]>> {
 
   try {
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    const clients = await prisma.client.findMany({
-      select: { tags: true },
-      where: { salonId: { in: orgSalonIds }, isActive: true },
-    });
+    if (orgSalonIds.length === 0) {
+      return { success: true, data: [] };
+    }
 
-    const allTags = new Set<string>();
-    clients.forEach((client) => {
-      client.tags.forEach((tag) => allTags.add(tag));
-    });
+    // Compute the distinct tag set in Postgres (unnest) instead of loading every client
+    // row and de-duping in JS — so this scales regardless of client count.
+    const rows = await prisma.$queryRaw<{ tag: string }[]>`
+      SELECT DISTINCT tag
+      FROM (
+        SELECT unnest(tags) AS tag
+        FROM "Client"
+        WHERE "salonId" IN (${Prisma.join(orgSalonIds)}) AND "isActive" = true
+      ) t
+      ORDER BY tag ASC
+    `;
 
-    return { success: true, data: Array.from(allTags).sort() };
+    return { success: true, data: rows.map((r) => r.tag) };
   } catch (error) {
     console.error("Error fetching tags:", error);
     return { success: false, error: "Failed to fetch tags" };

@@ -95,6 +95,56 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
   }
 }
 
+/**
+ * Load every active service for the current branch (no pagination/cap) for the
+ * booking & checkout pickers. A salon's service menu is a bounded list — like
+ * products — so loading it all lets the picker filter instantly in the browser
+ * and guarantees nothing is hidden behind a page limit.
+ */
+export async function getActiveServices(): Promise<ActionResult<{
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+  category: string | null;
+  points: number;
+}[]>> {
+  const authResult = await checkAuth("services:view");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const services = await prisma.service.findMany({
+      where: { salonId: authResult.salonId, isActive: true },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        duration: true,
+        points: true,
+        category: { select: { name: true } },
+      },
+      orderBy: [{ category: { name: "asc" } }, { name: "asc" }],
+    });
+
+    return {
+      success: true,
+      data: services.map((s) => ({
+        id: s.id,
+        name: s.name,
+        price: Number(s.price),
+        duration: s.duration,
+        category: s.category?.name ?? null,
+        points: s.points,
+      })),
+    };
+  } catch (error) {
+    console.error("Error fetching active services:", error);
+    return { success: false, error: "Failed to fetch services" };
+  }
+}
+
 export async function getService(id: string): Promise<ActionResult<ServiceListItem | null>> {
   const authResult = await checkAuth("services:view");
   if (!authResult) {

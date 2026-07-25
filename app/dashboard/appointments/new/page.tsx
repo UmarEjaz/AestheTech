@@ -5,8 +5,8 @@ import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
+import { getActiveServices } from "@/lib/actions/service";
 import { prisma } from "@/lib/prisma";
-import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
 interface PageProps {
   searchParams: Promise<{ startTime?: string }>;
@@ -39,30 +39,10 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirect("/dashboard");
   }
 
-  // Fetch clients, services, and staff for the form (org-scoped)
-  const orgSalonIds = await getOrganizationSalonIds(salonId);
-  const [clients, services, staffRows, settingsRow] = await Promise.all([
-    prisma.client.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-      },
-      orderBy: { firstName: "asc" },
-    }),
-    prisma.service.findMany({
-      where: { salonId, isActive: true },
-      select: {
-        id: true,
-        name: true,
-        duration: true,
-        price: true,
-        category: { select: { name: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
+  // The client picker searches the DB on demand (server-side), so we no longer load every client.
+  // Services are a bounded menu (like products), so we load them all for instant browser filtering.
+  const [servicesResult, staffRows, settingsRow] = await Promise.all([
+    getActiveServices(),
     // Resolve providers via branch membership (UserSalon) so staff assigned to this
     // branch are included regardless of their volatile `User.salonId` value.
     prisma.userSalon.findMany({
@@ -79,12 +59,13 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     }),
     prisma.settings.findUnique({
       where: { salonId },
-      select: { defaultAppointmentClientType: true, timezone: true },
+      select: { defaultBookingMode: true, timezone: true },
     }),
   ]);
+  const services = servicesResult.success ? servicesResult.data : [];
   const staff = staffRows.map((row) => row.user);
-  const defaultClientType =
-    settingsRow?.defaultAppointmentClientType === "WALK_IN" ? "WALK_IN" : "EXISTING";
+  const defaultBookingMode =
+    settingsRow?.defaultBookingMode === "WALK_IN" ? "WALK_IN" : "APPOINTMENT";
   const timezone = settingsRow?.timezone || "UTC";
 
   // Parse initial date from URL if provided
@@ -94,17 +75,10 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     // The form renders its own header (title/subtitle react to the Walk-in ⇄ Appointment toggle).
     <AppointmentForm
       mode="create"
-      clients={clients}
-      services={services.map((s) => ({
-        id: s.id,
-        name: s.name,
-        duration: s.duration,
-        price: Number(s.price),
-        category: s.category?.name ?? null,
-      }))}
+      services={services}
       staff={staff}
       initialDate={initialDate}
-      defaultClientType={defaultClientType}
+      defaultBookingMode={defaultBookingMode}
       timezone={timezone}
     />
   );

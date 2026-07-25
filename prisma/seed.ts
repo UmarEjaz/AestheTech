@@ -713,7 +713,6 @@ async function main() {
     data: {
       salonId: salon.id,
       clientId: clients[0].id,
-      staffId: staff1.id,
       startTime: new Date(today.setHours(10, 0, 0, 0)),
       endTime: new Date(today.setHours(11, 0, 0, 0)),
       status: "SCHEDULED",
@@ -727,7 +726,6 @@ async function main() {
     data: {
       salonId: salon.id,
       clientId: clients[1].id,
-      staffId: staff2.id,
       startTime: new Date(today.setHours(14, 0, 0, 0)),
       endTime: new Date(today.setHours(14, 30, 0, 0)),
       status: "CONFIRMED",
@@ -741,7 +739,6 @@ async function main() {
     data: {
       salonId: salon.id,
       clientId: clients[2].id,
-      staffId: staff1.id,
       startTime: new Date(tomorrow.setHours(11, 0, 0, 0)),
       endTime: new Date(tomorrow.setHours(12, 0, 0, 0)),
       status: "SCHEDULED",

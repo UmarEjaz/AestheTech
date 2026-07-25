@@ -8,7 +8,7 @@ import { ActionResult } from "@/lib/types";
 import { salaryConfigSchema, SalaryConfigInput } from "@/lib/validations/payroll";
 import { logAudit } from "./audit";
 import { getTimezone } from "./settings";
-import { getTodayRange } from "@/lib/utils/timezone";
+import { formatInTz } from "@/lib/utils/timezone";
 
 export type SalaryConfigListItem = {
   id: string;
@@ -115,14 +115,18 @@ export async function getStaffCurrentConfig(
       return { success: false, error: "Unauthorized access to this branch" };
     }
 
-    // "Effective as of today" in the salon timezone (effectiveDate is a date-only field).
+    // "Effective as of today" in the salon timezone. effectiveDate is a date-only field stored
+    // at UTC midnight, so compare against the salon's current calendar date as a UTC-midnight
+    // instant — an absolute tz boundary would spill into the next UTC day and select a config
+    // that only becomes effective tomorrow.
     const tz = await getTimezone();
+    const localToday = new Date(`${formatInTz(new Date(), "yyyy-MM-dd", tz)}T00:00:00Z`);
     const config = await prisma.salaryConfig.findFirst({
       where: {
         userId,
         salonId,
         isActive: true,
-        effectiveDate: { lte: getTodayRange(tz).end },
+        effectiveDate: { lte: localToday },
       },
       select: salaryConfigSelect,
       orderBy: { effectiveDate: "desc" },

@@ -3,7 +3,7 @@ import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { formatInTz } from "@/lib/utils/timezone";
-import { getTimezone } from "@/lib/actions/settings";
+import { getSettings } from "@/lib/actions/settings";
 import {
   ArrowLeft,
   Mail,
@@ -59,10 +59,12 @@ export default async function StaffDetailPage({
   const hasEditPermission = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId);
   const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, permUserId);
 
-  const [result, tz] = await Promise.all([
+  const [result, settingsResult] = await Promise.all([
     getUserById(id),
-    getTimezone(),
+    getSettings(),
   ]);
+  const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
+  const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   if (!result.success) {
     notFound();
@@ -237,7 +239,7 @@ export default async function StaffDetailPage({
             <CardDescription>Last 10 appointments handled by this staff member</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <StaffRecentAppointments appointments={user.appointments} timezone={tz} />
+            <StaffRecentAppointments appointments={user.appointments} timezone={tz} currencyCode={currencyCode} />
           </CardContent>
         </Card>
         {/* Permission Overrides (Owner/settings:manage only) */}
