@@ -626,7 +626,7 @@ export async function getAllTags(): Promise<ActionResult<string[]>> {
       SELECT DISTINCT tag
       FROM (
         SELECT unnest(tags) AS tag
-        FROM "Client"
+        FROM "clients"
         WHERE "salonId" IN (${Prisma.join(orgSalonIds)}) AND "isActive" = true
       ) t
       ORDER BY tag ASC

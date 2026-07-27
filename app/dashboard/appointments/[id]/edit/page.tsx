@@ -55,7 +55,7 @@ export default async function EditAppointmentPage({ params }: PageProps) {
   // Fetch staff + services for the form. The client picker searches the DB on demand (server-side),
   // so we no longer load every client; services are a bounded menu loaded up front for the picker.
   const [servicesResult, staffRows, settingsRow] = await Promise.all([
-    getActiveServices(),
+    getActiveServices(appointment.salonId),
     // Resolve providers via branch membership (UserSalon) so staff assigned to
     // this branch are included even when it isn't their home branch.
     prisma.userSalon.findMany({

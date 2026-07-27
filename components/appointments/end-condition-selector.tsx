@@ -14,6 +14,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { chipClass } from "./chip";
 
 interface EndConditionSelectorProps {
   endType: RecurrenceEndType;
@@ -33,16 +34,6 @@ const END_LABELS: Record<RecurrenceEndType, string> = {
   BY_DATE: "On a date",
 };
 
-// Same chip look as the pattern selector.
-function chipClass(active: boolean) {
-  return cn(
-    "flex-[1_1_auto] whitespace-nowrap rounded-lg border px-3 py-2 text-center text-[13px] font-semibold transition-colors",
-    active
-      ? "border-primary bg-primary text-primary-foreground shadow-sm"
-      : "border-input bg-background hover:border-primary/40 hover:bg-accent"
-  );
-}
-
 export function EndConditionSelector({
   endType,
   onEndTypeChange,
@@ -60,11 +51,13 @@ export function EndConditionSelector({
       </Label>
 
       {/* End-type chips */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="When the series ends">
         {END_ORDER.map((key) => (
           <button
             key={key}
             type="button"
+            role="radio"
+            aria-checked={endType === key}
             disabled={disabled}
             onClick={() => onEndTypeChange(key)}
             className={chipClass(endType === key)}
@@ -130,7 +123,9 @@ export function EndConditionSelector({
                   mode="single"
                   selected={endByDate}
                   onSelect={onEndByDateChange}
-                  disabled={(date) => date < minDate}
+                  disabled={(date) =>
+                    date < new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate())
+                  }
                   initialFocus
                 />
               </PopoverContent>

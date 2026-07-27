@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canManageRole, hasPermission } from "@/lib/permissions";
 import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
@@ -138,8 +139,8 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
               updatedAt: true,
               _count: {
                 select: {
-                  // Appointment involvement is via per-service assignments now.
-                  appointmentServices: { where: { salonId: authResult.salonId } },
+                  // Appointment count is derived separately (distinct appointments) below — a raw
+                  // appointmentServices count double-counts staff who do 2+ services in one booking.
                   sales: { where: { salonId: authResult.salonId } },
                 },
               },
@@ -149,6 +150,21 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
       }),
       prisma.userSalon.count({ where }),
     ]);
+
+    // Distinct appointment count per staff for this page, in ONE query. Counting
+    // AppointmentService rows would over-count a staff member who performs multiple services
+    // within the same appointment, so count DISTINCT appointments instead.
+    const userIds = userSalons.map((us) => us.user.id);
+    const apptCountRows =
+      userIds.length > 0
+        ? await prisma.$queryRaw<{ staffId: string; count: bigint }[]>`
+            SELECT "staffId", COUNT(DISTINCT "appointmentId") AS count
+            FROM "appointment_services"
+            WHERE "salonId" = ${authResult.salonId} AND "staffId" IN (${Prisma.join(userIds)})
+            GROUP BY "staffId"
+          `
+        : [];
+    const apptCountByStaff = new Map(apptCountRows.map((r) => [r.staffId, Number(r.count)]));
 
     const mappedUsers: UserListItem[] = userSalons.map((us) => ({
       id: us.user.id,
@@ -162,7 +178,7 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
       isActive: us.user.isActive,
       createdAt: us.user.createdAt,
       updatedAt: us.user.updatedAt,
-      _count: { appointments: us.user._count.appointmentServices, sales: us.user._count.sales },
+      _count: { appointments: apptCountByStaff.get(us.user.id) ?? 0, sales: us.user._count.sales },
     }));
 
     return {

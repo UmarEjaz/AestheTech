@@ -12,6 +12,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { getOrganizationSalonIds } from "./branch";
 
 const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
   category: {
@@ -96,12 +97,16 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
 }
 
 /**
- * Load every active service for the current branch (no pagination/cap) for the
- * booking & checkout pickers. A salon's service menu is a bounded list — like
- * products — so loading it all lets the picker filter instantly in the browser
- * and guarantees nothing is hidden behind a page limit.
+ * Load every active service for a branch (no pagination/cap) for the booking &
+ * checkout pickers. A salon's service menu is a bounded list — like products —
+ * so loading it all lets the picker filter instantly in the browser and
+ * guarantees nothing is hidden behind a page limit.
+ *
+ * Pass `salonId` to load a specific branch's catalog (e.g. when editing an
+ * appointment that belongs to a sibling branch). It's verified to be within the
+ * caller's organization; otherwise it falls back to the caller's current branch.
  */
-export async function getActiveServices(): Promise<ActionResult<{
+export async function getActiveServices(salonId?: string): Promise<ActionResult<{
   id: string;
   name: string;
   price: number;
@@ -114,9 +119,18 @@ export async function getActiveServices(): Promise<ActionResult<{
     return { success: false, error: "Unauthorized" };
   }
 
+  // Only honor a requested branch if it's in the caller's own organization.
+  let targetSalonId = authResult.salonId;
+  if (salonId && salonId !== authResult.salonId) {
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    if (orgSalonIds.includes(salonId)) {
+      targetSalonId = salonId;
+    }
+  }
+
   try {
     const services = await prisma.service.findMany({
-      where: { salonId: authResult.salonId, isActive: true },
+      where: { salonId: targetSalonId, isActive: true },
       select: {
         id: true,
         name: true,

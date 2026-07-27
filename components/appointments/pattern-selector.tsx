@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { chipClass } from "./chip";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"] as const;
@@ -62,16 +63,6 @@ const PATTERN_LABELS: Record<RecurrencePattern, string> = {
   SPECIFIC_DAYS: "Specific days",
   NTH_WEEKDAY: "Nth weekday",
 };
-
-// Shared chip styling (matches the checkout/booking chip look — purple when active).
-function chipClass(active: boolean) {
-  return cn(
-    "flex-[1_1_auto] whitespace-nowrap rounded-lg border px-3 py-2 text-center text-[13px] font-semibold transition-colors",
-    active
-      ? "border-primary bg-primary text-primary-foreground shadow-sm"
-      : "border-input bg-background hover:border-primary/40 hover:bg-accent"
-  );
-}
 
 export function PatternSelector({
   pattern,
@@ -133,11 +124,13 @@ export function PatternSelector({
       </Label>
 
       {/* Pattern chips */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Recurrence pattern">
         {PATTERN_ORDER.map((key) => (
           <button
             key={key}
             type="button"
+            role="radio"
+            aria-checked={pattern === key}
             disabled={disabled}
             onClick={() => onPatternChange(key)}
             className={chipClass(pattern === key)}

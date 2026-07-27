@@ -291,6 +291,10 @@ export async function createRecurringSeries(
                 price: validData.lockedPrice ?? service.price,
                 duration: service.duration,
                 order: 0,
+                // Busy window for the DB overlap constraint (single-service series).
+                segmentStart: altStartTime,
+                segmentEnd: altEndTime,
+                active: true,
               }],
             },
           },
@@ -333,6 +337,10 @@ export async function createRecurringSeries(
               price: validData.lockedPrice ?? service.price,
               duration: service.duration,
               order: 0,
+              // Busy window for the DB overlap constraint (single-service series).
+              segmentStart: startTime,
+              segmentEnd: endTime,
+              active: true,
             }],
           },
         },
@@ -668,6 +676,13 @@ export async function cancelRecurringSeries(seriesId: string): Promise<ActionRes
       data: { status: "CANCELLED" },
     });
 
+    // Free those providers' slots: mark the cancelled appointments' service rows inactive so they
+    // drop out of the DB overlap constraint (updateMany can't nest, so do it as a sibling write).
+    await prisma.appointmentService.updateMany({
+      where: { appointment: { seriesId, status: "CANCELLED" } },
+      data: { active: false },
+    });
+
     // Mark the series as inactive
     await prisma.recurringAppointmentSeries.update({
       where: { id: seriesId },
@@ -941,6 +956,10 @@ export async function extendSeries(
               price: series.lockedPrice ?? series.service.price,
               duration: series.service.duration,
               order: 0,
+              // Busy window for the DB overlap constraint (single-service series).
+              segmentStart: startTime,
+              segmentEnd: endTime,
+              active: true,
             }],
           },
         },

@@ -61,10 +61,14 @@ export function SalonAdminTable({
   const [perPage, setPerPage] = useState(pageSize);
   const [loading, setLoading] = useState(false);
   const firstRender = useRef(true);
+  const requestIdRef = useRef(0);
 
   async function load(q: string, p: number, size: number = perPage) {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     const res = await getSalons({ query: q.trim() || undefined, page: p, limit: size });
+    // Ignore this response if a newer request has since started (avoids stale results winning).
+    if (requestId !== requestIdRef.current) return;
     if (res.success) {
       setSalons(res.data.salons);
       setTotal(res.data.total);

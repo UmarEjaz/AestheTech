@@ -13,7 +13,7 @@
     "db:push": "prisma db push && npm run db:constraints",
     "db:constraints": "prisma db execute --file prisma/constraints.sql --schema prisma/schema.prisma",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
+    "db:deploy": "prisma migrate deploy && npm run db:constraints",
     "db:studio": "prisma studio",
     "db:seed": "npx tsx prisma/seed.ts",
     "postinstall": "prisma generate"

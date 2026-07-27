@@ -404,6 +404,12 @@ model AppointmentService {
   price         Decimal  @db.Decimal(10, 2)
   duration      Int
   order         Int      @default(0)
+  // Absolute busy window for this provider's slice (= appointment.startTime + prior durations).
+  // Stored so a Postgres exclusion constraint (see prisma/constraints.sql) can physically prevent
+  // double-booking a provider. `active` is false for cancelled/no-show rows so they free the slot.
+  segmentStart  DateTime?
+  segmentEnd    DateTime?
+  active        Boolean  @default(true)
   createdAt     DateTime @default(now())
 
   salon       Salon       @relation(fields: [salonId], references: [id], onDelete: Cascade)

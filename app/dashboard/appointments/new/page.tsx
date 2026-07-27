@@ -73,13 +73,21 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
 
   return (
     // The form renders its own header (title/subtitle react to the Walk-in ⇄ Appointment toggle).
-    <AppointmentForm
-      mode="create"
-      services={services}
-      staff={staff}
-      initialDate={initialDate}
-      defaultBookingMode={defaultBookingMode}
-      timezone={timezone}
-    />
+    <>
+      {!servicesResult.success && (
+        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200">
+          Couldn&apos;t load the service menu, so the service picker will be empty. You may not have
+          permission to view services — ask an admin to grant it.
+        </div>
+      )}
+      <AppointmentForm
+        mode="create"
+        services={services}
+        staff={staff}
+        initialDate={initialDate}
+        defaultBookingMode={defaultBookingMode}
+        timezone={timezone}
+      />
+    </>
   );
 }

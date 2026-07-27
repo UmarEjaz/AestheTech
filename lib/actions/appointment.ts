@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { TZDate } from "@date-fns/tz";
 import { prisma } from "@/lib/prisma";
+import { runSerializable } from "@/lib/db-retry";
 import { assertPaymentOwner } from "@/lib/payment-guards";
 import { primaryStaffId } from "@/lib/utils/appointment";
 import { checkAuth } from "@/lib/auth-helpers";
@@ -67,9 +68,25 @@ const appointmentListInclude = Prisma.validator<Prisma.AppointmentInclude>()({
   sale: { select: { id: true } },
 });
 
-export type AppointmentListItem = Prisma.AppointmentGetPayload<{
+type RawAppointment = Prisma.AppointmentGetPayload<{
   include: typeof appointmentListInclude;
 }>;
+
+// Client components can't receive Prisma Decimal instances across the server→client boundary, so
+// the money fields are exposed as plain numbers. `serializeAppointment` converts them before an
+// appointment leaves any server action / page loader.
+export type AppointmentListItem = Omit<RawAppointment, "services" | "payments"> & {
+  services: (Omit<RawAppointment["services"][number], "price"> & { price: number })[];
+  payments: (Omit<RawAppointment["payments"][number], "amount"> & { amount: number })[];
+};
+
+function serializeAppointment(a: RawAppointment): AppointmentListItem {
+  return {
+    ...a,
+    services: a.services.map((s) => ({ ...s, price: Number(s.price) })),
+    payments: a.payments.map((p) => ({ ...p, amount: Number(p.amount) })),
+  };
+}
 
 // Get appointments with filters
 export async function getAppointments(params: {
@@ -136,7 +153,7 @@ export async function getAppointments(params: {
     return {
       success: true,
       data: {
-        appointments,
+        appointments: appointments.map(serializeAppointment),
         total,
         page: safePage,
         totalPages: Math.max(1, Math.ceil(total / safeLimit)),
@@ -165,7 +182,7 @@ export async function getAppointment(id: string): Promise<ActionResult<Appointme
       return { success: false, error: "Appointment not found" };
     }
 
-    return { success: true, data: appointment };
+    return { success: true, data: serializeAppointment(appointment) };
   } catch (error) {
     console.error("Error fetching appointment:", error);
     return { success: false, error: "Failed to fetch appointment" };
@@ -194,13 +211,20 @@ function computeSegments(startMs: number, lines: { staffId: string; duration: nu
 // Each provider is checked ONLY for the time they actually work, compared against the other
 // appointments' per-service segments — so multi-provider bookings never over-reserve, and no
 // secondary provider is missed (which single-provider checks used to allow).
-async function hasSegmentConflict(salonId: string, segments: Segment[], excludeId?: string): Promise<boolean> {
+// `db` may be the base client or a transaction client — booking paths run this INSIDE a
+// serializable transaction (with the write) so the check and write can't interleave.
+async function hasSegmentConflict(
+  db: Prisma.TransactionClient,
+  salonId: string,
+  segments: Segment[],
+  excludeId?: string
+): Promise<boolean> {
   if (segments.length === 0) return false;
   const staffIds = Array.from(new Set(segments.map((s) => s.staffId)));
   const windowStart = Math.min(...segments.map((s) => s.startMs));
   const windowEnd = Math.max(...segments.map((s) => s.endMs));
 
-  const candidates = await prisma.appointment.findMany({
+  const candidates = await db.appointment.findMany({
     where: {
       salonId,
       id: excludeId ? { not: excludeId } : undefined,
@@ -227,6 +251,18 @@ async function hasSegmentConflict(salonId: string, segments: Segment[], excludeI
     }
   }
   return false;
+}
+
+// True when a write was rejected by the `no_provider_overlap` exclusion constraint — i.e. the DB
+// caught a double-booking (the storage-level backstop behind the hasSegmentConflict pre-check).
+function isOverlapConstraintError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    // P2004 = a database constraint failed; also match the constraint name / SQLSTATE defensively.
+    if (error.code === "P2004" || /no_provider_overlap|23P01|exclusion/i.test(error.message)) {
+      return true;
+    }
+  }
+  return error instanceof Error && /no_provider_overlap|23P01/i.test(error.message);
 }
 
 type ResolvedService = { id: string; duration: number; price: Prisma.Decimal; isActive: boolean };
@@ -297,7 +333,7 @@ export async function createAppointment(
 
   const { clientId, services, startTime, notes } = validationResult.data;
   // Primary provider = the first service's staff (denormalized onto the appointment).
-  const primaryStaffId = services[0].staffId;
+  const primaryStaff = services[0].staffId;
 
   try {
     // Get org salon IDs to validate cross-branch references within the organization
@@ -320,10 +356,6 @@ export async function createAppointment(
       startTime.getTime(),
       services.map((s) => ({ staffId: s.staffId, duration: serviceMap.get(s.serviceId)!.duration }))
     );
-    if (await hasSegmentConflict(authResult.salonId, segments)) {
-      return { success: false, error: "This time slot conflicts with another appointment" };
-    }
-
     const distinctStaffIds = Array.from(new Set(services.map((s) => s.staffId)));
 
     // Verify client exists and is active (org-scoped)
@@ -343,30 +375,47 @@ export async function createAppointment(
       return { success: false, error: staffCheck.error };
     }
 
-    const appointment = await prisma.appointment.create({
-      data: {
-        salonId: authResult.salonId,
-        clientId,
-        startTime,
-        endTime,
-        notes: notes || null,
-        status: "SCHEDULED",
-        services: {
-          create: services.map((s, i) => {
-            const row = serviceMap.get(s.serviceId)!;
-            return {
-              salonId: authResult.salonId,
-              serviceId: s.serviceId,
-              staffId: s.staffId,
-              price: row.price,
-              duration: row.duration,
-              order: i,
-            };
-          }),
+    // Conflict check + write in ONE serializable transaction (with retry) so two concurrent
+    // bookings can't both pass the check. The DB exclusion constraint is the final backstop; this
+    // makes the friendly pre-check race-proof too.
+    const outcome = await runSerializable(async (tx) => {
+      if (await hasSegmentConflict(tx, authResult.salonId, segments)) {
+        return { ok: false as const };
+      }
+      const appt = await tx.appointment.create({
+        data: {
+          salonId: authResult.salonId,
+          clientId,
+          startTime,
+          endTime,
+          notes: notes || null,
+          status: "SCHEDULED",
+          services: {
+            create: services.map((s, i) => {
+              const row = serviceMap.get(s.serviceId)!;
+              return {
+                salonId: authResult.salonId,
+                serviceId: s.serviceId,
+                staffId: s.staffId,
+                price: row.price,
+                duration: row.duration,
+                order: i,
+                // Persist the busy window so the DB exclusion constraint can enforce no overlap.
+                segmentStart: new Date(segments[i].startMs),
+                segmentEnd: new Date(segments[i].endMs),
+                active: true,
+              };
+            }),
+          },
         },
-      },
-      include: appointmentListInclude,
+        include: appointmentListInclude,
+      });
+      return { ok: true as const, appt };
     });
+    if (!outcome.ok) {
+      return { success: false, error: "This time slot conflicts with another appointment" };
+    }
+    const appointment = outcome.appt;
 
     await logAudit({
       action: "APPOINTMENT_CREATED",
@@ -375,13 +424,16 @@ export async function createAppointment(
       salonId: authResult.salonId,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { clientId, staffId: primaryStaffId, startTime: startTime.toISOString(), services: services.length },
+      details: { clientId, staffId: primaryStaff, startTime: startTime.toISOString(), services: services.length },
     });
 
     revalidatePath("/dashboard/appointments");
     await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: appointment };
+    return { success: true, data: serializeAppointment(appointment) };
   } catch (error) {
+    if (isOverlapConstraintError(error)) {
+      return { success: false, error: "This time slot conflicts with another appointment" };
+    }
     console.error("Error creating appointment:", error);
     return { success: false, error: "Failed to create appointment" };
   }
@@ -403,7 +455,7 @@ export async function updateAppointment(
   }
 
   const { clientId, services, startTime, notes } = validationResult.data;
-  const primaryStaffId = services[0].staffId;
+  const primaryStaff = services[0].staffId;
 
   try {
     const existing = await prisma.appointment.findFirst({
@@ -447,41 +499,52 @@ export async function updateAppointment(
       startTime.getTime(),
       services.map((s) => ({ staffId: s.staffId, duration: serviceMap.get(s.serviceId)!.duration }))
     );
-    if (await hasSegmentConflict(authResult.salonId, segments, id)) {
-      return { success: false, error: "This time slot conflicts with another appointment" };
-    }
-
     const distinctStaffIds = Array.from(new Set(services.map((s) => s.staffId)));
     const staffCheck = await verifyStaffProviders(distinctStaffIds, authResult.salonId);
     if (!staffCheck.ok) {
       return { success: false, error: staffCheck.error };
     }
 
-    const appointment = await prisma.appointment.update({
-      where: { id },
-      data: {
-        clientId,
-        startTime,
-        endTime,
-        notes: notes || null,
-        // Replace the whole service set
-        services: {
-          deleteMany: {},
-          create: services.map((s, i) => {
-            const row = serviceMap.get(s.serviceId)!;
-            return {
-              salonId: authResult.salonId,
-              serviceId: s.serviceId,
-              staffId: s.staffId,
-              price: row.price,
-              duration: row.duration,
-              order: i,
-            };
-          }),
+    // Conflict check + write in one serializable transaction (with retry) + DB constraint backstop.
+    const outcome = await runSerializable(async (tx) => {
+      if (await hasSegmentConflict(tx, authResult.salonId, segments, id)) {
+        return { ok: false as const };
+      }
+      const appt = await tx.appointment.update({
+        where: { id },
+        data: {
+          clientId,
+          startTime,
+          endTime,
+          notes: notes || null,
+          // Replace the whole service set
+          services: {
+            deleteMany: {},
+            create: services.map((s, i) => {
+              const row = serviceMap.get(s.serviceId)!;
+              return {
+                salonId: authResult.salonId,
+                serviceId: s.serviceId,
+                staffId: s.staffId,
+                price: row.price,
+                duration: row.duration,
+                order: i,
+                // Refresh the busy window so the DB exclusion constraint stays accurate.
+                segmentStart: new Date(segments[i].startMs),
+                segmentEnd: new Date(segments[i].endMs),
+                active: true,
+              };
+            }),
+          },
         },
-      },
-      include: appointmentListInclude,
+        include: appointmentListInclude,
+      });
+      return { ok: true as const, appt };
     });
+    if (!outcome.ok) {
+      return { success: false, error: "This time slot conflicts with another appointment" };
+    }
+    const appointment = outcome.appt;
 
     await logAudit({
       action: "APPOINTMENT_UPDATED",
@@ -490,13 +553,16 @@ export async function updateAppointment(
       salonId: authResult.salonId,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { clientId, staffId: primaryStaffId, startTime: startTime.toISOString(), services: services.length },
+      details: { clientId, staffId: primaryStaff, startTime: startTime.toISOString(), services: services.length },
     });
 
     revalidatePath("/dashboard/appointments");
     await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: appointment };
+    return { success: true, data: serializeAppointment(appointment) };
   } catch (error) {
+    if (isOverlapConstraintError(error)) {
+      return { success: false, error: "This time slot conflicts with another appointment" };
+    }
     console.error("Error updating appointment:", error);
     return { success: false, error: "Failed to update appointment" };
   }
@@ -559,26 +625,43 @@ export async function updateAppointmentStatus(
     const isReactivation =
       (existing.status === "NO_SHOW" || existing.status === "CANCELLED") &&
       validationResult.data.status === "SCHEDULED";
-    if (isReactivation) {
-      // Every provider must be free during their own slice (all services, not just the primary).
-      const hasConflict = await hasSegmentConflict(
-        authResult.salonId,
-        computeSegments(existing.startTime.getTime(), existing.services),
-        id
-      );
-      if (hasConflict) {
-        return {
-          success: false,
-          error: "That time slot is no longer free — reschedule the appointment to reactivate it.",
-        };
-      }
-    }
+    // Cancelled/no-show rows free the provider's slot (active=false); any other status keeps it
+    // reserved.
+    const rowsActive =
+      validationResult.data.status !== "CANCELLED" && validationResult.data.status !== "NO_SHOW";
 
-    const appointment = await prisma.appointment.update({
-      where: { id },
-      data: { status: validationResult.data.status },
-      include: appointmentListInclude,
+    // Reactivation must re-check availability; run that check + the status write in one serializable
+    // transaction (with retry). Flipping rows back to active also hits the DB exclusion constraint
+    // as the final backstop.
+    const outcome = await runSerializable(async (tx) => {
+      if (
+        isReactivation &&
+        (await hasSegmentConflict(
+          tx,
+          authResult.salonId,
+          computeSegments(existing.startTime.getTime(), existing.services),
+          id
+        ))
+      ) {
+        return { ok: false as const };
+      }
+      const appt = await tx.appointment.update({
+        where: { id },
+        data: {
+          status: validationResult.data.status,
+          services: { updateMany: { where: {}, data: { active: rowsActive } } },
+        },
+        include: appointmentListInclude,
+      });
+      return { ok: true as const, appt };
     });
+    if (!outcome.ok) {
+      return {
+        success: false,
+        error: "That time slot is no longer free — reschedule the appointment to reactivate it.",
+      };
+    }
+    const appointment = outcome.appt;
 
     await logAudit({
       action: "APPOINTMENT_STATUS_CHANGED",
@@ -592,8 +675,14 @@ export async function updateAppointmentStatus(
 
     revalidatePath("/dashboard/appointments");
     await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: appointment };
+    return { success: true, data: serializeAppointment(appointment) };
   } catch (error) {
+    if (isOverlapConstraintError(error)) {
+      return {
+        success: false,
+        error: "That time slot is no longer free — reschedule the appointment to reactivate it.",
+      };
+    }
     console.error("Error updating appointment status:", error);
     return { success: false, error: "Failed to update appointment status" };
   }
@@ -630,6 +719,12 @@ export async function rescheduleAppointment(
       return { success: false, error: "Cannot reschedule completed or cancelled appointments" };
     }
 
+    // Every appointment should have at least one service; guard defensively so deriving the
+    // primary provider from services[0] can never throw (e.g. legacy rows from a schema change).
+    if (existing.services.length === 0) {
+      return { success: false, error: "This appointment has no services to reschedule." };
+    }
+
     // The primary provider = the first service's staff. A crafted newStaffId could reassign the
     // appointment to an inactive, non-provider, or cross-branch user — verify before applying.
     const currentPrimary = primaryStaffId(existing.services);
@@ -653,31 +748,39 @@ export async function rescheduleAppointment(
       staffId: i === 0 ? staffId : s.staffId,
       duration: s.duration,
     }));
-    const hasConflict = await hasSegmentConflict(
-      authResult.salonId,
-      computeSegments(startTime.getTime(), rescheduleLines),
-      id
-    );
-    if (hasConflict) {
+    const rescheduleSegments = computeSegments(startTime.getTime(), rescheduleLines);
+
+    // Conflict check + write in one serializable transaction (with retry) + DB constraint backstop.
+    // The time changed, so refresh every service row's busy window (and move the primary line to the
+    // new staff if it changed) to keep the constraint's data accurate.
+    const outcome = await runSerializable(async (tx) => {
+      if (await hasSegmentConflict(tx, authResult.salonId, rescheduleSegments, id)) {
+        return { ok: false as const };
+      }
+      const appt = await tx.appointment.update({
+        where: { id },
+        data: {
+          startTime,
+          endTime,
+          services: {
+            update: existing.services.map((s, i) => ({
+              where: { id: s.id },
+              data: {
+                segmentStart: new Date(rescheduleSegments[i].startMs),
+                segmentEnd: new Date(rescheduleSegments[i].endMs),
+                ...(i === 0 && staffId !== currentPrimary ? { staffId } : {}),
+              },
+            })),
+          },
+        },
+        include: appointmentListInclude,
+      });
+      return { ok: true as const, appt };
+    });
+    if (!outcome.ok) {
       return { success: false, error: "This time slot conflicts with another appointment" };
     }
-
-    // If the primary provider changed (dragged to a different staff lane), reassign the primary
-    // service line to that staff — services are the source of truth for who does what.
-    const primaryLine = existing.services[0];
-    const movePrimary = primaryLine && staffId !== currentPrimary;
-
-    const appointment = await prisma.appointment.update({
-      where: { id },
-      data: {
-        startTime,
-        endTime,
-        ...(movePrimary
-          ? { services: { update: { where: { id: primaryLine.id }, data: { staffId } } } }
-          : {}),
-      },
-      include: appointmentListInclude,
-    });
+    const appointment = outcome.appt;
 
     await logAudit({
       action: "APPOINTMENT_RESCHEDULED",
@@ -691,8 +794,11 @@ export async function rescheduleAppointment(
 
     revalidatePath("/dashboard/appointments");
     await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: appointment };
+    return { success: true, data: serializeAppointment(appointment) };
   } catch (error) {
+    if (isOverlapConstraintError(error)) {
+      return { success: false, error: "This time slot conflicts with another appointment" };
+    }
     console.error("Error rescheduling appointment:", error);
     return { success: false, error: "Failed to reschedule appointment" };
   }
@@ -725,7 +831,8 @@ export async function cancelAppointment(id: string): Promise<ActionResult<Appoin
 
     const appointment = await prisma.appointment.update({
       where: { id },
-      data: { status: "CANCELLED" },
+      // Free the provider's slot: cancelled service rows drop out of the overlap constraint.
+      data: { status: "CANCELLED", services: { updateMany: { where: {}, data: { active: false } } } },
       include: appointmentListInclude,
     });
 
@@ -740,7 +847,7 @@ export async function cancelAppointment(id: string): Promise<ActionResult<Appoin
 
     revalidatePath("/dashboard/appointments");
     await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: appointment };
+    return { success: true, data: serializeAppointment(appointment) };
   } catch (error) {
     console.error("Error cancelling appointment:", error);
     return { success: false, error: "Failed to cancel appointment" };
@@ -795,7 +902,7 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
       salonId: authResult.salonId,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { clientId: existing.clientId, staffId: primaryStaffId(existing.services), startTime: existing.startTime },
+      details: { clientId: existing.clientId, staffId: existing.services[0]?.staffId ?? null, startTime: existing.startTime },
     });
 
     revalidatePath("/dashboard/appointments");
@@ -1000,7 +1107,7 @@ export async function getAppointmentsForCalendar(params: {
       orderBy: { startTime: "asc" },
     });
 
-    return { success: true, data: appointments };
+    return { success: true, data: appointments.map(serializeAppointment) };
   } catch (error) {
     console.error("Error fetching appointments for calendar:", error);
     return { success: false, error: "Failed to fetch appointments" };
@@ -1046,8 +1153,9 @@ export async function addAppointmentDeposit(
 
   try {
     // Re-read state, bound the deposit to the outstanding balance, and insert atomically so a
-    // concurrent checkout/deposit can't push the appointment past its total.
-    const outcome = await prisma.$transaction(async (tx) => {
+    // concurrent checkout/deposit can't push the appointment past its total. Serializable +
+    // retry closes the write-skew window where two deposits both read the same balance.
+    const outcome = await runSerializable(async (tx) => {
       const appointment = await tx.appointment.findFirst({
         where: { id: appointmentId, salonId: authResult.salonId },
         select: {

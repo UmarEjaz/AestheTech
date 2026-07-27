@@ -70,7 +70,8 @@ export const rescheduleSchema = z.object({
 export const availableSlotsSchema = z.object({
   assignments: z
     .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
-    .min(1, "At least one service is required"),
+    .min(1, "At least one service is required")
+    .max(10, "At most 10 services"),
   date: z.coerce.date({ message: "Date is required" }),
   excludeAppointmentId: z.string().min(1).optional(),
 });

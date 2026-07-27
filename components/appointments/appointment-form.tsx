@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -421,25 +421,31 @@ export function AppointmentForm({
     return () => clearTimeout(timeoutId);
   }, [isRecurring, watchedStartTime, recurrencePattern, customWeeks, specificDays, nthWeek, dayOfWeek, endType, endAfterCount, endByDate, timezone]);
 
-  // Ordered service→staff assignments (serialized for the effect dependency). Slots are validated
-  // per-provider-per-segment server-side, so each provider is only busy for the slice they'd work.
-  const assignmentsKey = serviceLines
-    .filter((s) => s.serviceId && s.staffId)
-    .map((s) => `${s.serviceId}:${s.staffId}`)
-    .join(",");
+  // Ordered service→staff assignments. Slots are validated per-provider-per-segment server-side,
+  // so each provider is only busy for the slice they'd work.
+  const assignments = useMemo(
+    () =>
+      serviceLines
+        .filter((s) => s.serviceId && s.staffId)
+        .map((s) => ({ serviceId: s.serviceId, staffId: s.staffId })),
+    [serviceLines]
+  );
+  // Stable string key of the assignments for the effect dependency.
+  const assignmentsKey = assignments.map((s) => `${s.serviceId}:${s.staffId}`).join(",");
 
   // Fetch available slots when the service/staff assignments or date change
   useEffect(() => {
+    let cancelled = false;
     const fetchSlots = async () => {
-      const assignments = assignmentsKey
-        ? assignmentsKey.split(",").map((pair) => {
-            const [serviceId, staffId] = pair.split(":");
-            return { serviceId, staffId };
-          })
-        : [];
-      if (assignments.length === 0 || !selectedDate) return;
+      // Clear stale slots whenever inputs change so the grid + submit can't validate against
+      // a previous date's times.
+      if (assignments.length === 0 || !selectedDate) {
+        setAvailableSlots([]);
+        return;
+      }
 
       setIsLoadingSlots(true);
+      setAvailableSlots([]);
       try {
         const result = await getAvailableSlots({
           assignments,
@@ -448,16 +454,22 @@ export function AppointmentForm({
           // In edit mode, exclude the current appointment from conflict check
           excludeAppointmentId: mode === "edit" ? appointment?.id : undefined,
         });
-
+        // Ignore this response if a newer fetch has started (older response must not win).
+        if (cancelled) return;
         if (result.success) {
           setAvailableSlots(result.data);
         }
       } finally {
-        setIsLoadingSlots(false);
+        if (!cancelled) setIsLoadingSlots(false);
       }
     };
 
     fetchSlots();
+    return () => {
+      cancelled = true;
+    };
+    // assignmentsKey is the stable string form of `assignments`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentsKey, selectedDate, mode, appointment?.id, timezone]);
 
   // Auto-select the matching time slot when slots load
@@ -628,6 +640,10 @@ export function AppointmentForm({
         toast.error(res.error);
         return null;
       }
+      // Persist the newly created client and leave "add new" mode, so if the booking itself fails
+      // (conflict, etc.) a retry reuses this client instead of creating a duplicate record.
+      setValue("clientId", res.data.id, { shouldValidate: false });
+      setAddingNewClient(false);
       return res.data.id;
     }
     const cid = watch("clientId");
@@ -868,10 +884,23 @@ export function AppointmentForm({
   const handleDateSelect = (date: Date | undefined) => {
     setSelectedDate(date);
     if (date) {
-      // Reset time slot selection when date changes
-      const currentTime = watchedStartTime instanceof Date ? new Date(watchedStartTime) : new Date();
-      currentTime.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-      setValue("startTime", currentTime);
+      // Keep the existing time-of-day but move it to the newly picked day, building the instant
+      // in the SALON timezone (not the browser's) so edit-mode date changes don't shift the time.
+      const base =
+        watchedStartTime instanceof Date
+          ? new TZDate(watchedStartTime, timezone)
+          : new TZDate(new Date(), timezone);
+      const startInstant = new TZDate(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        base.getHours(),
+        base.getMinutes(),
+        0,
+        0,
+        timezone
+      );
+      setValue("startTime", new Date(startInstant.getTime()));
     }
   };
 
