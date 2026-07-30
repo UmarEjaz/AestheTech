@@ -35,6 +35,10 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirectAccessDenied(["appointments:create"]);
   }
 
+  // Taking a deposit creates a Payment, so only offer it to roles with the financial permission
+  // (the deposit action enforces this too; this just hides the toggle so they never try).
+  const canTakeDeposit = await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, permUserId);
+
   if (!salonId) {
     redirect("/dashboard");
   }
@@ -87,6 +91,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
         initialDate={initialDate}
         defaultBookingMode={defaultBookingMode}
         timezone={timezone}
+        canTakeDeposit={canTakeDeposit}
       />
     </>
   );

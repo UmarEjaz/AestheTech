@@ -13,26 +13,16 @@ ALTER TABLE "payments" ADD CONSTRAINT "payment_owner_required"
 -- exclusion constraint combine equality on staffId with range-overlap on the busy window.
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
--- Backfill/refresh the per-service busy window for existing rows (idempotent recompute): each
--- service's window = appointment.startTime + sum(durations of earlier-order services), for its own
--- duration; `active` mirrors whether the appointment is still live.
-UPDATE "appointment_services" s
-SET "segmentStart" = a."startTime"
-      + (COALESCE((SELECT SUM(s2."duration") FROM "appointment_services" s2
-                   WHERE s2."appointmentId" = s."appointmentId" AND s2."order" < s."order"), 0)
-         || ' minutes')::interval,
-    "segmentEnd"   = a."startTime"
-      + ((COALESCE((SELECT SUM(s2."duration") FROM "appointment_services" s2
-                    WHERE s2."appointmentId" = s."appointmentId" AND s2."order" < s."order"), 0)
-          + s."duration") || ' minutes')::interval,
-    "active"       = (a."status" NOT IN ('CANCELLED', 'NO_SHOW'))
-FROM "appointments" a
-WHERE s."appointmentId" = a."id";
-
+-- Note: no data backfill here. The app writes segmentStart/segmentEnd/active on every booking, and
+-- the seed sets them on its sample appointments, so all rows already carry their busy window.
+-- DEFERRABLE INITIALLY DEFERRED: the rule is checked once at COMMIT, not after every row. That lets
+-- a multi-row update (e.g. rescheduling a multi-service block for the same provider) pass through
+-- transient overlapping states while still guaranteeing the final committed state has no overlaps.
 ALTER TABLE "appointment_services" DROP CONSTRAINT IF EXISTS "no_provider_overlap";
 ALTER TABLE "appointment_services" ADD CONSTRAINT "no_provider_overlap"
   EXCLUDE USING gist (
     "staffId" WITH =,
     tsrange("segmentStart", "segmentEnd", '[)') WITH &&
   )
-  WHERE ("active" AND "segmentStart" IS NOT NULL AND "segmentEnd" IS NOT NULL);
+  WHERE ("active" AND "segmentStart" IS NOT NULL AND "segmentEnd" IS NOT NULL)
+  DEFERRABLE INITIALLY DEFERRED;

@@ -119,11 +119,18 @@ export async function getActiveServices(salonId?: string): Promise<ActionResult<
     return { success: false, error: "Unauthorized" };
   }
 
-  // Only honor a requested branch if it's in the caller's own organization.
+  // Honor a requested branch if the caller may access it: super admins can load any salon (they
+  // manage the whole platform); everyone else only within their own organization. If the requested
+  // salon isn't allowed, return an error instead of silently loading the wrong branch's catalog.
   let targetSalonId = authResult.salonId;
   if (salonId && salonId !== authResult.salonId) {
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    if (orgSalonIds.includes(salonId)) {
+    if (authResult.isSuperAdmin) {
+      targetSalonId = salonId;
+    } else {
+      const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+      if (!orgSalonIds.includes(salonId)) {
+        return { success: false, error: "You can't load services for that salon." };
+      }
       targetSalonId = salonId;
     }
   }

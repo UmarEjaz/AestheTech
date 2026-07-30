@@ -25,7 +25,7 @@ function toSalonLocalDay(instant: Date, tz: string): Date {
   const z = new TZDate(instant, tz);
   return new Date(z.getFullYear(), z.getMonth(), z.getDate());
 }
-import { Loader2, Calendar as CalendarIcon, UserPlus, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, Plus, X, Star, Pencil, ArrowLeft } from "lucide-react";
+import { Loader2, Calendar as CalendarIcon, UserPlus, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, ChevronUp, ChevronDown, Plus, X, Star, Pencil, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -184,6 +184,8 @@ interface AppointmentFormProps {
   initialDate?: Date;
   defaultBookingMode?: BookingMode;
   timezone?: string;
+  /** Whether the current user may take payments (sales:create). Hides the deposit toggle if not. */
+  canTakeDeposit?: boolean;
 }
 
 export function AppointmentForm({
@@ -194,6 +196,7 @@ export function AppointmentForm({
   initialDate,
   defaultBookingMode = "APPOINTMENT",
   timezone = "UTC",
+  canTakeDeposit = false,
 }: AppointmentFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1368,16 +1371,58 @@ export function AppointmentForm({
                       />
                     </div>
                     {!isRecurring && serviceLines.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="mt-0.5 shrink-0"
-                        onClick={() => setServiceLines((prev) => prev.filter((_, i) => i !== idx))}
-                        aria-label="Remove service"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+                      <div className="flex shrink-0 items-start gap-1">
+                        {/* Reorder: the first service sets the start time; the rest run after it,
+                            so order decides who goes first. */}
+                        <div className="flex flex-col">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={idx === 0}
+                            onClick={() =>
+                              setServiceLines((prev) => {
+                                if (idx === 0) return prev;
+                                const next = [...prev];
+                                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                return next;
+                              })
+                            }
+                            aria-label="Move service up"
+                          >
+                            <ChevronUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={idx === serviceLines.length - 1}
+                            onClick={() =>
+                              setServiceLines((prev) => {
+                                if (idx === prev.length - 1) return prev;
+                                const next = [...prev];
+                                [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                                return next;
+                              })
+                            }
+                            aria-label="Move service down"
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="mt-0.5"
+                          onClick={() => setServiceLines((prev) => prev.filter((_, i) => i !== idx))}
+                          aria-label="Remove service"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -1858,8 +1903,8 @@ export function AppointmentForm({
         </Card>
       )}
 
-      {/* Deposit — appointment mode only. Money before the throwaway Notes field. */}
-      {mode === "create" && !isRecurring && !isWalkIn && (
+      {/* Deposit — appointment mode only, and only for roles that may take payments. */}
+      {mode === "create" && !isRecurring && !isWalkIn && canTakeDeposit && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">

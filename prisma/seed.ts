@@ -709,41 +709,50 @@ async function main() {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
+  // Single-service samples: the service's busy window (segmentStart/End) spans the whole
+  // appointment, and active=true — same shape a real booking writes, so the no_provider_overlap
+  // constraint protects seed rows too (no separate SQL backfill needed).
+  const a1Start = new Date(today); a1Start.setHours(10, 0, 0, 0);
+  const a1End = new Date(today); a1End.setHours(11, 0, 0, 0);
   await prisma.appointment.create({
     data: {
       salonId: salon.id,
       clientId: clients[0].id,
-      startTime: new Date(today.setHours(10, 0, 0, 0)),
-      endTime: new Date(today.setHours(11, 0, 0, 0)),
+      startTime: a1Start,
+      endTime: a1End,
       status: "SCHEDULED",
       services: {
-        create: [{ salonId: salon.id, serviceId: services[0].id, staffId: staff1.id, price: services[0].price, duration: services[0].duration, order: 0 }], // Women's haircut
+        create: [{ salonId: salon.id, serviceId: services[0].id, staffId: staff1.id, price: services[0].price, duration: services[0].duration, order: 0, segmentStart: a1Start, segmentEnd: a1End, active: true }], // Women's haircut
       },
     },
   });
 
+  const a2Start = new Date(today); a2Start.setHours(14, 0, 0, 0);
+  const a2End = new Date(today); a2End.setHours(14, 30, 0, 0);
   await prisma.appointment.create({
     data: {
       salonId: salon.id,
       clientId: clients[1].id,
-      startTime: new Date(today.setHours(14, 0, 0, 0)),
-      endTime: new Date(today.setHours(14, 30, 0, 0)),
+      startTime: a2Start,
+      endTime: a2End,
       status: "CONFIRMED",
       services: {
-        create: [{ salonId: salon.id, serviceId: services[1].id, staffId: staff2.id, price: services[1].price, duration: services[1].duration, order: 0 }], // Men's haircut
+        create: [{ salonId: salon.id, serviceId: services[1].id, staffId: staff2.id, price: services[1].price, duration: services[1].duration, order: 0, segmentStart: a2Start, segmentEnd: a2End, active: true }], // Men's haircut
       },
     },
   });
 
+  const a3Start = new Date(tomorrow); a3Start.setHours(11, 0, 0, 0);
+  const a3End = new Date(tomorrow); a3End.setHours(12, 0, 0, 0);
   await prisma.appointment.create({
     data: {
       salonId: salon.id,
       clientId: clients[2].id,
-      startTime: new Date(tomorrow.setHours(11, 0, 0, 0)),
-      endTime: new Date(tomorrow.setHours(12, 0, 0, 0)),
+      startTime: a3Start,
+      endTime: a3End,
       status: "SCHEDULED",
       services: {
-        create: [{ salonId: salon.id, serviceId: services[8].id, staffId: staff1.id, price: services[8].price, duration: services[8].duration, order: 0 }], // Basic facial
+        create: [{ salonId: salon.id, serviceId: services[8].id, staffId: staff1.id, price: services[8].price, duration: services[8].duration, order: 0, segmentStart: a3Start, segmentEnd: a3End, active: true }], // Basic facial
       },
     },
   });

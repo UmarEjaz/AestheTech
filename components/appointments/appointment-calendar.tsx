@@ -1,14 +1,17 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import interactionPlugin from "@fullcalendar/interaction";
+import interactionPlugin, { DateClickArg } from "@fullcalendar/interaction";
 import luxonPlugin from "@fullcalendar/luxon3";
-import { EventClickArg, DateSelectArg, DatesSetArg, EventDropArg } from "@fullcalendar/core";
+import { TZDate } from "@date-fns/tz";
+import { addMinutes, addDays } from "date-fns";
+import { formatInTz } from "@/lib/utils/timezone";
+import { EventClickArg, DatesSetArg, EventDropArg } from "@fullcalendar/core";
 import { AppointmentStatus } from "@prisma/client";
 import { AppointmentListItem, getAppointmentsForCalendar, rescheduleAppointment } from "@/lib/actions/appointment";
 import { toast } from "sonner";
@@ -187,19 +190,109 @@ export function AppointmentCalendar({
   // Handle event click
   const handleEventClick = (arg: EventClickArg) => {
     const appointment = arg.event.extendedProps.appointment as AppointmentListItem;
+    // If this click came from inside the "+N more" popover, close the popover so it doesn't
+    // linger overlapping the details drawer.
+    if (typeof document !== "undefined") {
+      (document.querySelector(".fc-popover .fc-popover-close") as HTMLElement | null)?.click();
+    }
     setSelectedAppointmentId(appointment.id);
     setIsModalOpen(true);
   };
 
-  // Handle date selection (for creating new appointments)
-  const handleDateSelect = (arg: DateSelectArg) => {
-    if (canCreate) {
-      // arg.startStr is offset-aware in the salon timezone (e.g. "...T10:00:00+05:00"),
-      // so the clicked wall-clock time round-trips correctly. arg.start.toISOString()
-      // would mislabel the wall clock as UTC.
-      const startTime = arg.startStr;
-      router.push(`/dashboard/appointments/new?startTime=${encodeURIComponent(startTime)}`);
+  // DOUBLE-click an empty slot to create an appointment there (single click just highlights it).
+  // FullCalendar's `dateClick` gives us the slot's date, and the browser's native `dblclick` tells
+  // us it was a double-click — but the two fire in an unreliable order (FC's dateClick can arrive
+  // AFTER the native dblclick). So we record a timestamp for each and navigate when BOTH have
+  // happened within a short window; whichever fires second triggers it. A single click never sets
+  // the dblclick timestamp, and double-clicking an event fires eventClick (not dateClick), so
+  // neither path opens the create screen by mistake.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastSlotClickRef = useRef<{ dateStr: string; time: number } | null>(null);
+  const dblClickAtRef = useRef<number>(0);
+  const tryOpenCreateFromDoubleClick = () => {
+    if (!canCreate) return;
+    const slot = lastSlotClickRef.current;
+    const now = Date.now();
+    if (slot && now - slot.time < 600 && now - dblClickAtRef.current < 600) {
+      lastSlotClickRef.current = null;
+      dblClickAtRef.current = 0;
+      // arg.dateStr is offset-aware in the salon timezone, so the wall-clock time round-trips.
+      router.push(`/dashboard/appointments/new?startTime=${encodeURIComponent(slot.dateStr)}`);
     }
+  };
+  const handleDateClick = (arg: DateClickArg) => {
+    lastSlotClickRef.current = { dateStr: arg.dateStr, time: Date.now() };
+    const api = calendarApi();
+    if (api && canCreate) {
+      // Highlight the clicked slot in grey (like before) WITHOUT navigating — double-click navigates.
+      api.select(arg.date, addMinutes(arg.date, 30));
+      // Sync the keyboard cursor and focus the grid so arrow keys continue from the clicked slot.
+      kbCursorRef.current = new Date(arg.date.getTime());
+      containerRef.current?.focus();
+    }
+    tryOpenCreateFromDoubleClick();
+  };
+  const handleCalendarDoubleClick = () => {
+    dblClickAtRef.current = Date.now();
+    tryOpenCreateFromDoubleClick();
+  };
+
+  // Keyboard grid navigation (WAI-ARIA "grid" pattern): click a cell (or Tab) to focus the calendar,
+  // Arrow keys move a highlighted 30-min slot (Up/Down = time, Left/Right = day), Enter books there.
+  // All arithmetic stays in the salon timezone via TZDate so the highlighted/booked time is correct.
+  const kbCursorRef = useRef<Date | null>(null);
+  const [bhStartH, bhStartM] = businessHoursStart.split(":").map(Number);
+  const [bhEndH, bhEndM] = businessHoursEnd.split(":").map(Number);
+  const handleCalendarKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!canCreate) return;
+    // Only when the wrapper itself is focused — not a toolbar button or event inside it.
+    if (e.target !== e.currentTarget) return;
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(e.key)) return;
+    const api = calendarApi();
+    if (!api) return;
+    e.preventDefault();
+    const wrapper = e.currentTarget;
+
+    // Cursor is a TZDate in the salon timezone — its getHours/setHours are salon wall-clock.
+    let c: TZDate;
+    if (kbCursorRef.current) {
+      c = new TZDate(kbCursorRef.current.getTime(), timezone);
+    } else {
+      c = new TZDate(Date.now(), timezone);
+      c.setHours(bhStartH, bhStartM, 0, 0);
+    }
+
+    if (e.key === "Enter" || e.key === " ") {
+      const startTime = formatInTz(c, "yyyy-MM-dd'T'HH:mm:ssXXX", timezone);
+      router.push(`/dashboard/appointments/new?startTime=${encodeURIComponent(startTime)}`);
+      return;
+    }
+    if (e.key === "ArrowDown") c = addMinutes(c, 30);
+    else if (e.key === "ArrowUp") c = addMinutes(c, -30);
+    else if (e.key === "ArrowRight") c = addDays(c, 1);
+    else if (e.key === "ArrowLeft") c = addDays(c, -1);
+
+    // Clamp the time to business hours [start, end − 30min].
+    const startMins = bhStartH * 60 + bhStartM;
+    const lastMins = bhEndH * 60 + bhEndM - 30;
+    const mins = c.getHours() * 60 + c.getMinutes();
+    if (mins < startMins) c.setHours(bhStartH, bhStartM, 0, 0);
+    else if (mins > lastMins) c.setHours(Math.floor(lastMins / 60), lastMins % 60, 0, 0);
+
+    // Clamp the day to the currently visible range.
+    if (c.getTime() < api.view.activeStart.getTime()) {
+      c = new TZDate(api.view.activeStart.getTime(), timezone);
+      c.setHours(bhStartH, bhStartM, 0, 0);
+    } else if (c.getTime() >= api.view.activeEnd.getTime()) {
+      c = new TZDate(api.view.activeEnd.getTime() - 24 * 60 * 60 * 1000, timezone);
+      c.setHours(bhStartH, bhStartM, 0, 0);
+    }
+
+    kbCursorRef.current = new Date(c.getTime());
+    api.select(c, addMinutes(c, 30));
+    api.scrollToTime({ hours: c.getHours(), minutes: c.getMinutes() });
+    // FullCalendar's select() can move focus; keep it on the wrapper so the next arrow/Enter works.
+    wrapper.focus();
   };
 
   // Handle drag and drop reschedule
@@ -237,7 +330,15 @@ export function AppointmentCalendar({
   };
 
   return (
-    <div className="appointment-calendar">
+    <div
+      ref={containerRef}
+      className="appointment-calendar rounded-lg outline-none"
+      tabIndex={canCreate ? 0 : undefined}
+      role="application"
+      aria-label="Appointment calendar. Press arrow keys to move between time slots, Enter to book an appointment."
+      onKeyDown={handleCalendarKeyDown}
+      onDoubleClick={handleCalendarDoubleClick}
+    >
       <style jsx global>{`
         .appointment-calendar .fc {
           --fc-border-color: hsl(var(--border));
@@ -301,6 +402,13 @@ export function AppointmentCalendar({
           overflow: hidden;
         }
 
+        /* The grey selection highlight must never intercept clicks — otherwise the second click of a
+           double-click lands on the highlight overlay (a different target than the first), so the
+           browser doesn't fire a native dblclick and "double-click to create" intermittently fails. */
+        .appointment-calendar .fc-highlight {
+          pointer-events: none;
+        }
+
         .appointment-calendar .fc-event-title {
           font-weight: 500;
         }
@@ -325,6 +433,73 @@ export function AppointmentCalendar({
 
         .appointment-calendar .fc-event-recurring .fc-event-title::before {
           content: "";
+        }
+
+        /* "+N more" link — render as a distinct pill so it doesn't look like part of the
+           appointment underneath it. */
+        .appointment-calendar .fc-timegrid-more-link,
+        .appointment-calendar .fc-daygrid-more-link {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: hsl(var(--background));
+          color: hsl(var(--primary));
+          border: 1px solid hsl(var(--primary) / 0.35);
+          border-radius: 9999px;
+          padding: 0 7px;
+          min-width: 1.4rem;
+          height: 1.15rem;
+          font-size: 0.7rem;
+          font-weight: 700;
+          line-height: 1;
+          /* A white "halo" ring separates the pill from the card underneath, so even sitting flush
+             in FullCalendar's native top-right corner its full border reads as distinct instead of
+             merging into the card border / gridline. (z-index alone can't do this — the borders are
+             at the same pixels, so it's a separation problem, not a stacking one.) */
+          box-shadow: 0 0 0 2px hsl(var(--background)), 0 1px 2px rgba(0, 0, 0, 0.12);
+          /* Keep FullCalendar's own absolute positioning (overriding it would pull the link into
+             normal flow and inflate the event height). z-index keeps the pill on top. */
+          z-index: 20;
+        }
+        .appointment-calendar .fc-timegrid-more-link:hover,
+        .appointment-calendar .fc-daygrid-more-link:hover {
+          background: hsl(var(--primary));
+          color: hsl(var(--primary-foreground));
+          border-color: hsl(var(--primary));
+        }
+
+        /* "+N more" popover — on-brand card instead of FullCalendar's default box. */
+        .fc-popover {
+          border-radius: 12px !important;
+          border: 1px solid hsl(var(--border)) !important;
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18) !important;
+          overflow: hidden;
+          z-index: 45 !important;
+        }
+        .fc-popover .fc-popover-header {
+          background: hsl(var(--muted));
+          color: hsl(var(--foreground));
+          padding: 8px 12px;
+          font-weight: 600;
+          font-size: 0.8rem;
+        }
+        .fc-popover .fc-popover-close {
+          color: hsl(var(--muted-foreground));
+          opacity: 1;
+        }
+        .fc-popover .fc-popover-body {
+          background: hsl(var(--background));
+          padding: 8px;
+          max-height: 300px;
+          overflow-y: auto;
+          min-width: 200px;
+        }
+        .fc-popover .fc-event {
+          margin-bottom: 4px;
+          padding: 4px 6px;
+        }
+        .fc-popover .fc-event:last-child {
+          margin-bottom: 0;
         }
       `}</style>
 
@@ -438,8 +613,8 @@ export function AppointmentCalendar({
         }}
         eventClick={handleEventClick}
         eventDrop={handleEventDrop}
-        selectable={canCreate}
-        select={handleDateSelect}
+        selectable={false}
+        dateClick={handleDateClick}
         datesSet={handleDatesSet}
         slotMinTime={businessHoursStart}
         slotMaxTime={businessHoursEnd}
@@ -448,6 +623,11 @@ export function AppointmentCalendar({
         nowIndicator={true}
         height="auto"
         eventDisplay="block"
+        // Until per-staff lanes exist, all providers share one column, so overlapping appointments
+        // would crumble. Show ONE appointment per slot and collapse the rest into a native
+        // "+N more" link → clicking it opens a popover of all appointments at that time, and
+        // clicking any of them fires eventClick → the appointment details drawer.
+        eventMaxStack={1}
         dayMaxEvents={3}
         weekends={true}
       />

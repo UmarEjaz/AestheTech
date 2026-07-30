@@ -7,6 +7,8 @@ import { runSerializable } from "@/lib/db-retry";
 import { assertPaymentOwner } from "@/lib/payment-guards";
 import { primaryStaffId } from "@/lib/utils/appointment";
 import { checkAuth } from "@/lib/auth-helpers";
+import { hasPermission } from "@/lib/permissions";
+import { formatCurrency } from "@/lib/utils/currency";
 import {
   appointmentSchema,
   appointmentStatusSchema,
@@ -256,12 +258,9 @@ async function hasSegmentConflict(
 // True when a write was rejected by the `no_provider_overlap` exclusion constraint — i.e. the DB
 // caught a double-booking (the storage-level backstop behind the hasSegmentConflict pre-check).
 function isOverlapConstraintError(error: unknown): boolean {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    // P2004 = a database constraint failed; also match the constraint name / SQLSTATE defensively.
-    if (error.code === "P2004" || /no_provider_overlap|23P01|exclusion/i.test(error.message)) {
-      return true;
-    }
-  }
+  // Match the constraint name / SQLSTATE 23P01 (exclusion_violation) specifically. NOT the generic
+  // Prisma P2004 ("a constraint failed") — other CHECKs (e.g. payment_owner_required) share it and
+  // must not be mistaken for a scheduling conflict.
   return error instanceof Error && /no_provider_overlap|23P01/i.test(error.message);
 }
 
@@ -882,18 +881,25 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
     // Cancel the appointment instead (which keeps the record and prompts a refund). Deposits
     // already applied to an invoice are safe: they stay owned by the invoice (appointmentId
     // is cleared to null on delete), never orphaned.
-    const heldDeposit = await prisma.payment.aggregate({
-      where: { appointmentId: id, invoiceId: null },
-      _sum: { amount: true },
+    // Check the held-deposit guard and delete in one serializable transaction, so a deposit taken
+    // in the gap between them can't slip past the guard and be orphaned by the delete.
+    const deleteOutcome = await runSerializable(async (tx) => {
+      const heldDeposit = await tx.payment.aggregate({
+        where: { appointmentId: id, invoiceId: null },
+        _sum: { amount: true },
+      });
+      if (Number(heldDeposit._sum.amount ?? 0) > 0) {
+        return { ok: false as const };
+      }
+      await tx.appointment.delete({ where: { id } });
+      return { ok: true as const };
     });
-    if (Number(heldDeposit._sum.amount ?? 0) > 0) {
+    if (!deleteOutcome.ok) {
       return {
         success: false,
         error: "This appointment has a held deposit. Cancel it and refund the deposit before deleting.",
       };
     }
-
-    await prisma.appointment.delete({ where: { id } });
 
     await logAudit({
       action: "APPOINTMENT_DELETED",
@@ -1143,6 +1149,19 @@ export async function addAppointmentDeposit(
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
+  // Recording a deposit creates a Payment (real money), so also require a financial permission —
+  // editing appointments alone shouldn't grant the ability to take payments.
+  if (
+    !(await hasPermission(
+      authResult.roleId,
+      "sales:create",
+      authResult.isSuperAdmin,
+      authResult.salonId,
+      authResult.userId
+    ))
+  ) {
+    return { success: false, error: "You don't have permission to take payments." };
+  }
 
   const parsed = appointmentDepositSchema.safeParse(data);
   if (!parsed.success) {
@@ -1150,6 +1169,10 @@ export async function addAppointmentDeposit(
   }
   const amount = Math.round(parsed.data.amount * 100) / 100;
   const method = parsed.data.method;
+  // For a currency-formatted balance-due message if the deposit exceeds the outstanding amount.
+  const currencyCode =
+    (await prisma.settings.findUnique({ where: { salonId: authResult.salonId }, select: { currencyCode: true } }))
+      ?.currencyCode ?? "USD";
 
   try {
     // Re-read state, bound the deposit to the outstanding balance, and insert atomically so a
@@ -1183,7 +1206,7 @@ export async function addAppointmentDeposit(
         return { ok: false as const, error: "This appointment is already fully prepaid." };
       }
       if (amount > outstanding) {
-        return { ok: false as const, error: `Deposit can't exceed the balance due of ${outstanding.toFixed(2)}.` };
+        return { ok: false as const, error: `Deposit can't exceed the balance due of ${formatCurrency(outstanding, currencyCode)}.` };
       }
 
       assertPaymentOwner({ appointmentId });

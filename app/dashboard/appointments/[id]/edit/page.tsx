@@ -81,12 +81,21 @@ export default async function EditAppointmentPage({ params }: PageProps) {
 
   return (
     // The form renders its own header (back button + title/subtitle).
-    <AppointmentForm
-      mode="edit"
-      appointment={appointment}
-      services={services}
-      staff={staff}
-      timezone={timezone}
-    />
+    <>
+      {!servicesResult.success && (
+        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200">
+          Couldn&apos;t load the service menu, so the service picker will be empty — saving may drop
+          this appointment&apos;s services. You may not have permission to view services; ask an admin
+          before editing.
+        </div>
+      )}
+      <AppointmentForm
+        mode="edit"
+        appointment={appointment}
+        services={services}
+        staff={staff}
+        timezone={timezone}
+      />
+    </>
   );
 }
