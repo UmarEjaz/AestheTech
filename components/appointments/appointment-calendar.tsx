@@ -50,7 +50,7 @@ interface AppointmentCalendarProps {
   currencyCode: string;
 }
 
-const statusColors: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
+const STATUS_COLORS: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
   SCHEDULED: { bg: "bg-blue-100 dark:bg-blue-900/30", border: "border-blue-500", text: "text-blue-800 dark:text-blue-200" },
   CONFIRMED: { bg: "bg-violet-100 dark:bg-violet-900/30", border: "border-violet-500", text: "text-violet-800 dark:text-violet-200" },
   IN_PROGRESS: { bg: "bg-amber-100 dark:bg-amber-900/30", border: "border-amber-500", text: "text-amber-800 dark:text-amber-200" },
@@ -129,10 +129,10 @@ export function AppointmentCalendar({
         isRecurring,
       },
       classNames: [
-        statusColors[apt.status].bg,
-        statusColors[apt.status].text,
+        STATUS_COLORS[apt.status].bg,
+        STATUS_COLORS[apt.status].text,
         "border-l-4",
-        statusColors[apt.status].border,
+        STATUS_COLORS[apt.status].border,
         isRecurring ? "fc-event-recurring" : "",
       ].filter(Boolean),
     };
@@ -152,8 +152,11 @@ export function AppointmentCalendar({
         staffId: staffFilter === "all" ? undefined : staffFilter,
       });
 
-      if (seq === fetchSeqRef.current && result.success) {
+      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+      if (result.success) {
         setAppointments(result.data);
+      } else {
+        toast.error(result.error || "Couldn't refresh the calendar.");
       }
     },
     [staffFilter]
@@ -170,14 +173,18 @@ export function AppointmentCalendar({
       staffId: staffFilter === "all" ? undefined : staffFilter,
     });
 
-    if (seq === fetchSeqRef.current && result.success) {
+    if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+    if (result.success) {
       setAppointments(result.data);
+    } else {
+      toast.error(result.error || "Couldn't refresh the calendar.");
     }
   }, [currentViewDates, staffFilter]);
 
   // Change the staff filter and immediately refetch for the current view range.
   const handleStaffFilterChange = useCallback(
     async (value: string) => {
+      const previous = staffFilter;
       setStaffFilter(value);
       if (!currentViewDates) return;
       const seq = ++fetchSeqRef.current;
@@ -186,11 +193,17 @@ export function AppointmentCalendar({
         endDate: currentViewDates.end,
         staffId: value === "all" ? undefined : value,
       });
-      if (seq === fetchSeqRef.current && result.success) {
+      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+      if (result.success) {
         setAppointments(result.data);
+      } else {
+        // Revert the dropdown to the last working filter so it matches the data still on screen, and
+        // the user can re-select the staff (a real change) to retry instead of being stuck.
+        setStaffFilter(previous);
+        toast.error(result.error || "Couldn't load appointments for that staff filter.");
       }
     },
-    [currentViewDates]
+    [staffFilter, currentViewDates]
   );
 
   // Handle event click
@@ -243,11 +256,15 @@ export function AppointmentCalendar({
   };
   const handleCalendarDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     // Only a double-click on an EMPTY grid slot may arm the create gesture. A double-click on an
-    // event, a day header, the toolbar, or the legend must NOT stamp — otherwise its stamp could
-    // pair with a later single slot click and open the create screen on one click.
+    // event, the "+N more" overflow link (which lives inside the grid body but isn't an event), the
+    // popover it opens, a day header, the toolbar, or the legend must NOT stamp — otherwise its
+    // stamp could pair with a later single slot click and open the create screen on one click.
     const target = e.target as HTMLElement;
     const onEmptySlot =
-      target.closest(".fc-timegrid-body, .fc-daygrid-body") && !target.closest(".fc-event");
+      target.closest(".fc-timegrid-body, .fc-daygrid-body") &&
+      !target.closest(
+        ".fc-event, .fc-timegrid-more-link, .fc-daygrid-more-link, .fc-popover, .fc-more-popover"
+      );
     if (!onEmptySlot) {
       dblClickAtRef.current = 0;
       return;
@@ -656,7 +673,7 @@ export function AppointmentCalendar({
         {STATUS_ORDER.map((status) => (
           <div key={status} className="flex items-center gap-1.5">
             <span
-              className={`inline-block h-3.5 w-6 rounded-sm border-l-4 ${statusColors[status].bg} ${statusColors[status].border}`}
+              className={`inline-block h-3.5 w-6 rounded-sm border-l-4 ${STATUS_COLORS[status].bg} ${STATUS_COLORS[status].border}`}
             />
             <span>{STATUS_LABELS[status]}</span>
           </div>
