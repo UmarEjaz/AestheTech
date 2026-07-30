@@ -347,6 +347,14 @@ export function AppointmentForm({
   const watchedStartTime = watch("startTime");
   const selectedClientId = watch("clientId");
 
+  // True when `when` matches one of the currently available time slots. Used in three places
+  // (submit validation, the Book-button readiness, and the summary card) — keeping it in one helper
+  // stops those copies from drifting apart.
+  const slotIsChosen = (when: Date | string | number): boolean => {
+    const ms = when instanceof Date ? when.getTime() : new Date(when).getTime();
+    return availableSlots.some((s) => new Date(s.startTime).getTime() === ms);
+  };
+
   // Load the selected client's booking context (loyalty/last-visit/allergy/no-shows) on
   // demand — only for the chosen client, never the whole list (scales to huge client books).
   useEffect(() => {
@@ -760,10 +768,7 @@ export function AppointmentForm({
     // A time slot must be explicitly chosen — otherwise startTime silently defaults to
     // "now", which can land outside business hours and become invisible on the calendar.
     if (mode === "create") {
-      const chosenMs =
-        data.startTime instanceof Date ? data.startTime.getTime() : new Date(data.startTime).getTime();
-      const slotChosen = availableSlots.some((s) => new Date(s.startTime).getTime() === chosenMs);
-      if (!slotChosen) {
+      if (!slotIsChosen(data.startTime)) {
         setSlotError("Please select an available time slot");
         toast.error("Please select a time slot");
         return;
@@ -932,15 +937,7 @@ export function AppointmentForm({
   const servicesComplete =
     readinessLines.length > 0 && readinessLines.every((l) => l.serviceId && l.staffId);
   const needsSlot = mode === "create" && !isWalkIn;
-  const slotChosen =
-    !needsSlot ||
-    availableSlots.some((s) => {
-      const ms =
-        watchedStartTime instanceof Date
-          ? watchedStartTime.getTime()
-          : new Date(watchedStartTime as string | number).getTime();
-      return new Date(s.startTime).getTime() === ms;
-    });
+  const slotChosen = !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
   const bookingHint = !hasClient
     ? "Choose or add a client to continue"
     : !servicesComplete
@@ -2015,7 +2012,7 @@ export function AppointmentForm({
           watchedStartTime instanceof Date
             ? watchedStartTime.getTime()
             : new Date(watchedStartTime as string | number).getTime();
-        const slotChosen = availableSlots.some((s) => new Date(s.startTime).getTime() === chosenMs);
+        const slotChosen = slotIsChosen(chosenMs);
         const whenText = isWalkIn
           ? "Now"
           : slotChosen

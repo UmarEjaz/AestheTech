@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useCallback, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
@@ -195,6 +201,9 @@ export function AppointmentCalendar({
     if (typeof document !== "undefined") {
       (document.querySelector(".fc-popover .fc-popover-close") as HTMLElement | null)?.click();
     }
+    // Drop any pending double-click stamp so opening the drawer can't later pair with a slot click.
+    dblClickAtRef.current = 0;
+    lastSlotClickRef.current = null;
     setSelectedAppointmentId(appointment.id);
     setIsModalOpen(true);
   };
@@ -232,7 +241,17 @@ export function AppointmentCalendar({
     }
     tryOpenCreateFromDoubleClick();
   };
-  const handleCalendarDoubleClick = () => {
+  const handleCalendarDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    // Only a double-click on an EMPTY grid slot may arm the create gesture. A double-click on an
+    // event, a day header, the toolbar, or the legend must NOT stamp — otherwise its stamp could
+    // pair with a later single slot click and open the create screen on one click.
+    const target = e.target as HTMLElement;
+    const onEmptySlot =
+      target.closest(".fc-timegrid-body, .fc-daygrid-body") && !target.closest(".fc-event");
+    if (!onEmptySlot) {
+      dblClickAtRef.current = 0;
+      return;
+    }
     dblClickAtRef.current = Date.now();
     tryOpenCreateFromDoubleClick();
   };

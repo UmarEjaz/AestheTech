@@ -119,23 +119,25 @@ export async function getActiveServices(salonId?: string): Promise<ActionResult<
     return { success: false, error: "Unauthorized" };
   }
 
-  // Honor a requested branch if the caller may access it: super admins can load any salon (they
-  // manage the whole platform); everyone else only within their own organization. If the requested
-  // salon isn't allowed, return an error instead of silently loading the wrong branch's catalog.
-  let targetSalonId = authResult.salonId;
-  if (salonId && salonId !== authResult.salonId) {
-    if (authResult.isSuperAdmin) {
-      targetSalonId = salonId;
-    } else {
-      const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-      if (!orgSalonIds.includes(salonId)) {
-        return { success: false, error: "You can't load services for that salon." };
-      }
-      targetSalonId = salonId;
-    }
-  }
-
   try {
+    // Honor a requested branch if the caller may access it: super admins can load any salon (they
+    // manage the whole platform); everyone else only within their own organization. If the requested
+    // salon isn't allowed, return an error instead of silently loading the wrong branch's catalog.
+    // Kept inside the try so a DB failure in the org lookup returns the ActionResult error shape
+    // instead of rejecting the whole action (which would break the page awaiting it).
+    let targetSalonId = authResult.salonId;
+    if (salonId && salonId !== authResult.salonId) {
+      if (authResult.isSuperAdmin) {
+        targetSalonId = salonId;
+      } else {
+        const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+        if (!orgSalonIds.includes(salonId)) {
+          return { success: false, error: "You can't load services for that salon." };
+        }
+        targetSalonId = salonId;
+      }
+    }
+
     const services = await prisma.service.findMany({
       where: { salonId: targetSalonId, isActive: true },
       select: {
