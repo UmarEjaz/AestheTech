@@ -3,7 +3,7 @@ import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { formatInTz } from "@/lib/utils/timezone";
-import { getTimezone } from "@/lib/actions/settings";
+import { getSettings } from "@/lib/actions/settings";
 import {
   ArrowLeft,
   Mail,
@@ -19,14 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { StaffRecentAppointments } from "@/components/staff/staff-recent-appointments";
 import { getUserById } from "@/lib/actions/user";
 import { hasPermission, canManageRole } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
@@ -36,15 +29,6 @@ import { UserPermissionsEditor } from "@/components/staff/user-permissions-edito
 import { getUserPermissionOverrides } from "@/lib/actions/permission";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  CONFIRMED: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400",
-  IN_PROGRESS: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-  COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  CANCELLED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  NO_SHOW: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
-};
 
 export default async function StaffDetailPage({
   params,
@@ -75,10 +59,12 @@ export default async function StaffDetailPage({
   const hasEditPermission = await hasPermission(userRoleId, "staff:update", isSuperAdmin, salonId, permUserId);
   const canManagePermissions = await hasPermission(userRoleId, "permissions:manage", isSuperAdmin, salonId, permUserId);
 
-  const [result, tz] = await Promise.all([
+  const [result, settingsResult] = await Promise.all([
     getUserById(id),
-    getTimezone(),
+    getSettings(),
   ]);
+  const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
+  const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
 
   if (!result.success) {
     notFound();
@@ -253,57 +239,7 @@ export default async function StaffDetailPage({
             <CardDescription>Last 10 appointments handled by this staff member</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date & Time</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Service</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {user.appointments.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                      No appointments yet
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  user.appointments.map((appointment) => (
-                    <TableRow key={appointment.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">
-                            {formatInTz(appointment.startTime, "MMM d, yyyy", tz)}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {formatInTz(appointment.startTime, "h:mm a", tz)} -{" "}
-                            {formatInTz(appointment.endTime, "h:mm a", tz)}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {appointment.client.firstName} {appointment.client.lastName}
-                          {appointment.client.isWalkIn && (
-                            <Badge variant="outline" className="text-xs">
-                              Walk-in
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>{appointment.service.name}</TableCell>
-                      <TableCell>
-                        <Badge className={STATUS_COLORS[appointment.status] || "bg-gray-100"}>
-                          {appointment.status.toLowerCase().replace("_", " ")}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+            <StaffRecentAppointments appointments={user.appointments} timezone={tz} currencyCode={currencyCode} />
           </CardContent>
         </Card>
         {/* Permission Overrides (Owner/settings:manage only) */}

@@ -1,15 +1,12 @@
 import { auth } from "@/lib/auth";
 import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
+import { getActiveServices } from "@/lib/actions/service";
 import { prisma } from "@/lib/prisma";
-import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
 interface PageProps {
   searchParams: Promise<{ startTime?: string }>;
@@ -38,34 +35,18 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirectAccessDenied(["appointments:create"]);
   }
 
+  // Taking a deposit creates a Payment, so only offer it to roles with the financial permission
+  // (the deposit action enforces this too; this just hides the toggle so they never try).
+  const canTakeDeposit = await hasPermission(userRoleId, "sales:create", isSuperAdmin, salonId, permUserId);
+
   if (!salonId) {
     redirect("/dashboard");
   }
 
-  // Fetch clients, services, and staff for the form (org-scoped)
-  const orgSalonIds = await getOrganizationSalonIds(salonId);
-  const [clients, services, staffRows] = await Promise.all([
-    prisma.client.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-      },
-      orderBy: { firstName: "asc" },
-    }),
-    prisma.service.findMany({
-      where: { salonId, isActive: true },
-      select: {
-        id: true,
-        name: true,
-        duration: true,
-        price: true,
-        category: { select: { name: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
+  // The client picker searches the DB on demand (server-side), so we no longer load every client.
+  // Services are a bounded menu (like products), so we load them all for instant browser filtering.
+  const [servicesResult, staffRows, settingsRow] = await Promise.all([
+    getActiveServices(),
     // Resolve providers via branch membership (UserSalon) so staff assigned to this
     // branch are included regardless of their volatile `User.salonId` value.
     prisma.userSalon.findMany({
@@ -80,44 +61,38 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
       distinct: ["userId"],
       orderBy: { user: { firstName: "asc" } },
     }),
+    prisma.settings.findUnique({
+      where: { salonId },
+      select: { defaultBookingMode: true, timezone: true },
+    }),
   ]);
+  const services = servicesResult.success ? servicesResult.data : [];
   const staff = staffRows.map((row) => row.user);
+  const defaultBookingMode =
+    settingsRow?.defaultBookingMode === "WALK_IN" ? "WALK_IN" : "APPOINTMENT";
+  const timezone = settingsRow?.timezone || "UTC";
 
   // Parse initial date from URL if provided
   const initialDate = params.startTime ? new Date(params.startTime) : undefined;
 
   return (
+    // The form renders its own header (title/subtitle react to the Walk-in ⇄ Appointment toggle).
     <>
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/dashboard/appointments">
-              <ArrowLeft className="h-4 w-4" />
-              <span className="sr-only">Back to appointments</span>
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">Book Appointment</h1>
-            <p className="text-muted-foreground">
-              Schedule a new appointment
-            </p>
-          </div>
+      {!servicesResult.success && (
+        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200">
+          Couldn&apos;t load the service menu, so the service picker will be empty. You may not have
+          permission to view services — ask an admin to grant it.
         </div>
-
-        <AppointmentForm
-          mode="create"
-          clients={clients}
-          services={services.map((s) => ({
-            id: s.id,
-            name: s.name,
-            duration: s.duration,
-            price: Number(s.price),
-            category: s.category?.name ?? null,
-          }))}
-          staff={staff}
-          initialDate={initialDate}
-        />
-      </div>
+      )}
+      <AppointmentForm
+        mode="create"
+        services={services}
+        staff={staff}
+        initialDate={initialDate}
+        defaultBookingMode={defaultBookingMode}
+        timezone={timezone}
+        canTakeDeposit={canTakeDeposit}
+      />
     </>
   );
 }

@@ -12,6 +12,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
+import { getOrganizationSalonIds } from "./branch";
 
 const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
   category: {
@@ -19,7 +20,7 @@ const serviceListInclude = Prisma.validator<Prisma.ServiceInclude>()({
   },
   _count: {
     select: {
-      appointments: true,
+      appointmentServices: true,
       saleItems: true,
     },
   },
@@ -91,6 +92,78 @@ export async function getServices(params: ServiceSearchParams = {}): Promise<Act
     };
   } catch (error) {
     console.error("Error fetching services:", error);
+    return { success: false, error: "Failed to fetch services" };
+  }
+}
+
+/**
+ * Load every active service for a branch (no pagination/cap) for the booking &
+ * checkout pickers. A salon's service menu is a bounded list — like products —
+ * so loading it all lets the picker filter instantly in the browser and
+ * guarantees nothing is hidden behind a page limit.
+ *
+ * Pass `salonId` to load a specific branch's catalog (e.g. when editing an
+ * appointment that belongs to a sibling branch). It's verified to be within the
+ * caller's organization; otherwise it falls back to the caller's current branch.
+ */
+export async function getActiveServices(salonId?: string): Promise<ActionResult<{
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+  category: string | null;
+  points: number;
+}[]>> {
+  const authResult = await checkAuth("services:view");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    // Honor a requested branch if the caller may access it: super admins can load any salon (they
+    // manage the whole platform); everyone else only within their own organization. If the requested
+    // salon isn't allowed, return an error instead of silently loading the wrong branch's catalog.
+    // Kept inside the try so a DB failure in the org lookup returns the ActionResult error shape
+    // instead of rejecting the whole action (which would break the page awaiting it).
+    let targetSalonId = authResult.salonId;
+    if (salonId && salonId !== authResult.salonId) {
+      if (authResult.isSuperAdmin) {
+        targetSalonId = salonId;
+      } else {
+        const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+        if (!orgSalonIds.includes(salonId)) {
+          return { success: false, error: "You can't load services for that salon." };
+        }
+        targetSalonId = salonId;
+      }
+    }
+
+    const services = await prisma.service.findMany({
+      where: { salonId: targetSalonId, isActive: true },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        duration: true,
+        points: true,
+        category: { select: { name: true } },
+      },
+      orderBy: [{ category: { name: "asc" } }, { name: "asc" }],
+    });
+
+    return {
+      success: true,
+      data: services.map((s) => ({
+        id: s.id,
+        name: s.name,
+        price: Number(s.price),
+        duration: s.duration,
+        category: s.category?.name ?? null,
+        points: s.points,
+      })),
+    };
+  } catch (error) {
+    console.error("Error fetching active services:", error);
     return { success: false, error: "Failed to fetch services" };
   }
 }
@@ -240,7 +313,7 @@ export async function deleteService(id: string): Promise<ActionResult> {
     include: {
       _count: {
         select: {
-          appointments: true,
+          appointmentServices: true,
           saleItems: true,
         },
       },

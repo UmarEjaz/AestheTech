@@ -3,7 +3,9 @@
 import { addMonths } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { assertPaymentOwner } from "@/lib/payment-guards";
 import { checkAuth } from "@/lib/auth-helpers";
+import { hasPermission } from "@/lib/permissions";
 import {
   createSaleSchema,
   completeSaleSchema,
@@ -12,7 +14,7 @@ import {
   CompleteSaleInput,
   SaleSearchParams,
 } from "@/lib/validations/sale";
-import { Prisma, PaymentMethod, InvoiceStatus } from "@prisma/client";
+import { Prisma, PaymentMethod, InvoiceStatus, AppointmentStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import { calculateTier, getTierMultiplier, isBirthday } from "@/lib/utils/loyalty";
 import { getNow, getMonthRange, getTodayRange } from "@/lib/utils/timezone";
@@ -239,7 +241,22 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
     return { success: false, error: validationResult.error.issues[0].message };
   }
 
-  const { clientId, items, discount, discountType } = validationResult.data;
+  const { clientId, items, discount, discountType, appointmentId } = validationResult.data;
+
+  // Applying any discount (whole-bill or per-line) requires the sales:discount permission.
+  const hasAnyDiscount = discount > 0 || items.some((i) => (i.discount ?? 0) > 0);
+  if (hasAnyDiscount) {
+    const allowed = await hasPermission(
+      authResult.roleId,
+      "sales:discount",
+      authResult.isSuperAdmin,
+      authResult.salonId,
+      authResult.userId
+    );
+    if (!allowed) {
+      return { success: false, error: "You don't have permission to apply discounts." };
+    }
+  }
 
   try {
     // Get org salon IDs to validate cross-branch references within the organization
@@ -253,6 +270,26 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
 
     if (!client || !client.isActive) {
       return { success: false, error: "Client not found or inactive" };
+    }
+
+    // If checking out an appointment, verify it belongs to this salon and hasn't
+    // already been checked out (one sale per appointment).
+    if (appointmentId) {
+      const appt = await prisma.appointment.findFirst({
+        where: { id: appointmentId, salonId: authResult.salonId },
+        select: { clientId: true, sale: { select: { id: true } } },
+      });
+      if (!appt) {
+        return { success: false, error: "Appointment not found" };
+      }
+      // The appointment must belong to the same client being billed — otherwise a
+      // tampered request could attach one client's appointment (and deposit) to another.
+      if (appt.clientId !== clientId) {
+        return { success: false, error: "This appointment belongs to a different client." };
+      }
+      if (appt.sale) {
+        return { success: false, error: "This appointment has already been checked out." };
+      }
     }
 
     // Verify services and products belong to the organization
@@ -279,6 +316,9 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
 
     // Validate all services exist and are active
     for (const item of items) {
+      if (!item.serviceId && !item.productId) {
+        return { success: false, error: "Each sale item must be a service or a product." };
+      }
       if (item.serviceId) {
         const service = serviceMap.get(item.serviceId);
         if (!service) {
@@ -302,18 +342,34 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
       }
     }
 
-    // Calculate total
+    // Unit price is ALWAYS taken from the authoritative catalog (serviceMap/productMap), never from
+    // the request — otherwise a caller with sales:create could submit a low price and apply an
+    // unauthorized discount that bypasses the sales:discount permission.
+    const unitPriceFor = (item: (typeof items)[number]): number => {
+      if (item.serviceId) return Number(serviceMap.get(item.serviceId)!.price);
+      if (item.productId) return Number(productMap.get(item.productId)!.price);
+      return 0;
+    };
+
+    // Totals with per-line discounts. totalAmount = gross subtotal; itemDiscountTotal = the sum of
+    // per-line discounts (each clamped to its line's gross); the whole-bill discount then applies to
+    // the net subtotal. Sale.discount stores the combined total so finalAmount = totalAmount − discount.
     let totalAmount = 0;
+    let itemDiscountTotal = 0;
     for (const item of items) {
-      totalAmount += item.price * item.quantity;
+      const lineGross = unitPriceFor(item) * item.quantity;
+      totalAmount += lineGross;
+      itemDiscountTotal += Math.min(item.discount ?? 0, lineGross);
     }
+    const subtotalNet = totalAmount - itemDiscountTotal;
 
-    // Apply discount
-    let discountAmount = discount;
+    let overallDiscount = discount;
     if (discountType === "percentage") {
-      discountAmount = (totalAmount * discount) / 100;
+      overallDiscount = (subtotalNet * discount) / 100;
     }
+    overallDiscount = Math.min(overallDiscount, subtotalNet);
 
+    const discountAmount = itemDiscountTotal + overallDiscount;
     const finalAmount = Math.max(0, totalAmount - discountAmount);
 
     // Create sale with items
@@ -322,6 +378,7 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
         salonId: authResult.salonId,
         clientId,
         staffId: authResult.userId,
+        appointmentId: appointmentId || null,
         totalAmount,
         discount: discountAmount,
         finalAmount,
@@ -336,13 +393,16 @@ export async function createSale(data: CreateSaleInput): Promise<ActionResult<Sa
               const prod = productMap.get(item.productId);
               if (prod?.cost != null) costAtSale = Number(prod.cost);
             }
+            const unitPrice = unitPriceFor(item);
             return {
               salonId: authResult.salonId,
               serviceId: item.serviceId || null,
               staffId: item.staffId || null,
               productId: item.productId || null,
               quantity: item.quantity,
-              price: item.price,
+              price: unitPrice,
+              discount: Math.min(item.discount ?? 0, unitPrice * item.quantity),
+              note: item.note ? item.note : null,
               costAtSale,
             };
           }),
@@ -414,6 +474,19 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
       return { success: false, error: "Sale already has an invoice" };
     }
 
+    // Deposits already taken against the appointment this sale checks out. They
+    // count toward the invoice and are re-linked to it inside the transaction.
+    const appointmentDeposits = sale.appointmentId
+      ? await prisma.payment.findMany({
+          where: { appointmentId: sale.appointmentId, invoiceId: null },
+          select: { id: true, amount: true },
+        })
+      : [];
+    const depositCents = appointmentDeposits.reduce(
+      (sum, p) => sum + Math.round(Number(p.amount) * 100),
+      0
+    );
+
     // Validate points redemption
     if (redeemPoints > 0) {
       const clientPoints = sale.client.loyaltyPoints?.balance || 0;
@@ -463,12 +536,20 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     // Partial / pay-later are allowed (under-payment); only an
     // over-payment is rejected. The invoice status is derived from the amount paid.
     const toIntCents = (n: number) => Math.round(n * 100);
-    const paymentTotalCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
     const invoiceTotalCents = toIntCents(totalWithTax);
+    // A deposit can exceed the (possibly reduced) invoice total — e.g. a service was
+    // removed after the deposit was taken. Apply only up to the total toward the invoice;
+    // the excess is refunded to the client in cash below.
+    const depositAppliedCents = Math.min(depositCents, invoiceTotalCents);
+    const overpaidDepositCents = depositCents - depositAppliedCents;
+    // Amount collected at checkout PLUS the applied portion of the deposit = total paid.
+    const checkoutCents = payments.reduce((sum, p) => sum + toIntCents(p.amount), 0);
+    const paymentTotalCents = checkoutCents + depositAppliedCents;
+    // Only a checkout over-collection is rejected now (the deposit excess is refunded, not blocked).
     if (paymentTotalCents > invoiceTotalCents) {
       return {
         success: false,
-        error: `Payment total (${(paymentTotalCents / 100).toFixed(2)}) exceeds the invoice total (${(invoiceTotalCents / 100).toFixed(2)})`
+        error: `Amount paid (${(paymentTotalCents / 100).toFixed(2)}) exceeds the invoice total (${(invoiceTotalCents / 100).toFixed(2)})`
       };
     }
 
@@ -560,14 +641,45 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         },
       });
 
-      // Create payments
+      // Create payments collected at checkout
       for (const payment of payments) {
+        assertPaymentOwner({ invoiceId: invoice.id });
         await tx.payment.create({
           data: {
             invoiceId: invoice.id,
             amount: payment.amount,
             method: payment.method,
           },
+        });
+      }
+
+      // Apply appointment deposit(s): re-link them to this invoice so they count
+      // toward it (keeping appointmentId for provenance).
+      if (appointmentDeposits.length > 0) {
+        await tx.payment.updateMany({
+          where: { id: { in: appointmentDeposits.map((d) => d.id) } },
+          data: { invoiceId: invoice.id },
+        });
+      }
+
+      // If the deposit exceeded the (reduced) invoice total, refund the excess in cash.
+      // The invoice is still fully paid; net collected = total (deposit − refund).
+      if (overpaidDepositCents > 0) {
+        await tx.refund.create({
+          data: {
+            invoiceId: invoice.id,
+            amount: overpaidDepositCents / 100,
+            reason: "Deposit exceeded the invoice total (services reduced) — excess refunded to the client",
+            refundedById: authResult.userId,
+          },
+        });
+      }
+
+      // Mark the checked-out appointment COMPLETED.
+      if (sale.appointmentId) {
+        await tx.appointment.update({
+          where: { id: sale.appointmentId },
+          data: { status: AppointmentStatus.COMPLETED },
         });
       }
 

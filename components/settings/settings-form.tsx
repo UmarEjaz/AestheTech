@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { BOOKING_MODES, BOOKING_MODE_LABELS, type BookingMode } from "@/lib/constants/booking-modes";
 import { useMemo } from "react";
 import { Loader2, Building2, Clock, DollarSign, Star, Globe, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
 import { CURRENCIES } from "@/lib/currencies";
+import { getTimezoneOptions } from "@/lib/utils/timezone-options";
 
 const CURRENCY_CODES = new Set(CURRENCIES.map((c) => c.code));
 
@@ -52,6 +54,7 @@ const settingsSchema = z.object({
   businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
   appointmentInterval: z.coerce.number().min(15).max(120),
+  defaultBookingMode: z.enum(BOOKING_MODES),
   loyaltyProgramEnabled: z.boolean(),
   loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
   goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
@@ -85,6 +88,7 @@ type SettingsFormData = {
   businessHoursStart: string;
   businessHoursEnd: string;
   appointmentInterval: number;
+  defaultBookingMode: BookingMode;
   loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
@@ -127,23 +131,6 @@ function generateTimeOptions() {
 
 const timeOptions = generateTimeOptions();
 
-function getTimezoneOptions() {
-  const supported = Intl.supportedValuesOf("timeZone");
-  // Some runtimes omit "UTC" from supportedValuesOf even though it's a valid zone
-  // (and our default). Ensure it's always selectable.
-  const timezones = supported.includes("UTC") ? supported : ["UTC", ...supported];
-  return timezones.map((tz) => {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      timeZoneName: "shortOffset",
-    });
-    const parts = formatter.formatToParts(now);
-    const offset = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
-    return { value: tz, label: `(${offset}) ${tz.replace(/_/g, " ")}` };
-  });
-}
-
 export function SettingsForm({ settings, canManage }: SettingsFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -167,6 +154,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
       appointmentInterval: settings.appointmentInterval,
+      defaultBookingMode: settings.defaultBookingMode === "WALK_IN" ? "WALK_IN" : "APPOINTMENT",
       loyaltyProgramEnabled: settings.loyaltyProgramEnabled,
       loyaltyPointsPerDollar: settings.loyaltyPointsPerDollar,
       goldThreshold: settings.goldThreshold,
@@ -311,9 +299,17 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             {errors.timezone && (
               <p className="text-sm text-destructive">{errors.timezone.message}</p>
             )}
-            <p className="text-sm text-muted-foreground">
-              All dates and times in the app will be shown in this timezone
-            </p>
+            {watchedTimezone !== settings.timezone ? (
+              <p className="text-sm text-amber-600 dark:text-amber-500">
+                Heads up: changing the timezone will re-display your existing appointments at their
+                equivalent local time (the appointments themselves don&apos;t move). New bookings
+                use the new timezone.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                All dates and times in the app will be shown in this timezone
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -394,6 +390,28 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             </Select>
             <p className="text-sm text-muted-foreground">
               Time slots in the booking calendar will be displayed in this interval
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="defaultBookingMode">Default mode for new bookings</Label>
+            <Select
+              value={watch("defaultBookingMode")}
+              onValueChange={(value) =>
+                setValue("defaultBookingMode", value as BookingMode, { shouldDirty: true })
+              }
+              disabled={!canManage}
+            >
+              <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BOOKING_MODES.map((m) => (
+                  <SelectItem key={m} value={m}>{BOOKING_MODE_LABELS[m]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              Which mode the New-booking screen opens in. Walk-in-heavy shops may prefer Walk-in.
             </p>
           </div>
         </CardContent>

@@ -3,6 +3,8 @@ interface ReceiptItem {
   staff?: string;
   price: number;
   quantity: number;
+  discount?: number;
+  note?: string;
 }
 
 interface ReceiptEmailData {
@@ -54,7 +56,7 @@ function itemRows(items: ReceiptItem[], currencyCode: string): string {
     .map(
       (item, i) => `
       <tr style="border-bottom: 1px solid #e5e7eb;${i % 2 === 1 ? ' background-color: #f9fafb;' : ''}">
-        <td style="padding: 12px; font-size: 14px;">${escapeHtml(item.name)}${item.staff ? `<br/><span style="color: #6b7280; font-size: 12px;">by ${escapeHtml(item.staff)}</span>` : ''}</td>
+        <td style="padding: 12px; font-size: 14px;">${escapeHtml(item.name)}${item.staff ? `<br/><span style="color: #6b7280; font-size: 12px;">by ${escapeHtml(item.staff)}</span>` : ''}${item.discount && item.discount > 0 ? `<br/><span style="color: #16a34a; font-size: 12px;">-${formatCurrencyHtml(item.discount, currencyCode)} discount</span>` : ''}${item.note ? `<br/><span style="color: #6b7280; font-size: 12px;">Note: ${escapeHtml(item.note)}</span>` : ''}</td>
         <td style="padding: 12px; text-align: center; font-size: 14px;">${item.quantity}</td>
         <td style="padding: 12px; text-align: right; font-size: 14px;">${formatCurrencyHtml(item.price * item.quantity, currencyCode)}</td>
       </tr>`

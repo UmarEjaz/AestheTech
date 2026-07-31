@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { formatInTz } from "@/lib/utils/timezone";
 
 export type CancelScope = "this_only" | "this_and_future" | "entire_series";
 
@@ -23,6 +24,7 @@ interface CancelChoiceModalProps {
   onClose: () => void;
   onChoice: (scope: CancelScope) => void;
   appointmentDate?: Date;
+  timezone?: string;
   isLoading?: boolean;
   mode: "cancel" | "delete";
   clientName?: string;
@@ -33,6 +35,7 @@ export function CancelChoiceModal({
   onClose,
   onChoice,
   appointmentDate,
+  timezone = "UTC",
   isLoading = false,
   mode,
   clientName,
@@ -82,7 +85,7 @@ export function CancelChoiceModal({
                 This occurrence only
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                {actionLabel} only the appointment{appointmentDate ? ` on ${appointmentDate.toLocaleDateString()}` : ""}.
+                {actionLabel} only the appointment{appointmentDate ? ` on ${formatInTz(appointmentDate, "PP", timezone)}` : ""}.
                 Other appointments in the series will continue as scheduled.
               </p>
             </Label>

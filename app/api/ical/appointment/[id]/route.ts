@@ -33,8 +33,14 @@ export async function GET(
     const appointment = await prisma.appointment.findFirst({
       where: { id: appointmentId, salonId },
       include: {
-        service: { select: { name: true, duration: true } },
-        staff: { select: { firstName: true, lastName: true } },
+        services: {
+          orderBy: { order: "asc" },
+          select: {
+            duration: true,
+            service: { select: { name: true } },
+            staff: { select: { firstName: true, lastName: true } },
+          },
+        },
         client: { select: { firstName: true, lastName: true, email: true } },
       },
     });
@@ -47,8 +53,10 @@ export async function GET(
       id: appointment.id,
       startTime: appointment.startTime,
       endTime: appointment.endTime,
-      service: appointment.service,
-      staff: appointment.staff,
+      service: {
+        name: appointment.services.map((s) => s.service.name).join(", "),
+      },
+      staff: appointment.services[0].staff,
       client: appointment.client,
       notes: appointment.notes,
       status: appointment.status,

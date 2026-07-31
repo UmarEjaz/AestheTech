@@ -6,6 +6,12 @@ import { ActionResult } from "@/lib/types";
 import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
+import { BOOKING_MODES, type BookingMode } from "@/lib/constants/booking-modes";
+
+// The DB stores defaultBookingMode as a plain String; normalize it to the typed union on read.
+function asBookingMode(value: string): BookingMode {
+  return value === "WALK_IN" ? "WALK_IN" : "APPOINTMENT";
+}
 
 export interface SettingsData {
   id: string;
@@ -21,6 +27,8 @@ export interface SettingsData {
   businessHoursEnd: string;
   appointmentInterval: number;
   allowOnlineBooking: boolean;
+  // Which mode the "New booking" screen opens in by default (Walk-in here now / Appointment later).
+  defaultBookingMode: BookingMode;
   loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
@@ -66,6 +74,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           businessHoursEnd: "19:00",
           appointmentInterval: 30,
           allowOnlineBooking: true,
+          defaultBookingMode: "APPOINTMENT",
           loyaltyProgramEnabled: true,
           loyaltyPointsPerDollar: 1,
           goldThreshold: 500,
@@ -87,6 +96,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
         success: true,
         data: {
           ...defaultSettings,
+          defaultBookingMode: asBookingMode(defaultSettings.defaultBookingMode),
           taxRate: Number(defaultSettings.taxRate),
           memberMultiplier: Number(defaultSettings.memberMultiplier),
           goldMultiplier: Number(defaultSettings.goldMultiplier),
@@ -99,6 +109,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
       success: true,
       data: {
         ...settings,
+        defaultBookingMode: asBookingMode(settings.defaultBookingMode),
         taxRate: Number(settings.taxRate),
         memberMultiplier: Number(settings.memberMultiplier),
         goldMultiplier: Number(settings.goldMultiplier),
@@ -139,6 +150,14 @@ export async function updateSettings(
       }
     }
 
+    // Validate default booking mode against the single allowed-values source of truth.
+    if (
+      data.defaultBookingMode !== undefined &&
+      !BOOKING_MODES.includes(data.defaultBookingMode)
+    ) {
+      return { success: false, error: "Invalid default booking mode" };
+    }
+
     // Validate currency code if provided
     if (data.currencyCode !== undefined) {
       try {
@@ -146,6 +165,17 @@ export async function updateSettings(
       } catch {
         return { success: false, error: "Invalid currency code" };
       }
+    }
+
+    // Validate the booking interval: a whole number of minutes within the allowed 15–120 range,
+    // so a bad value can never be stored and feed into slot generation.
+    if (
+      data.appointmentInterval !== undefined &&
+      (!Number.isInteger(data.appointmentInterval) ||
+        data.appointmentInterval < 15 ||
+        data.appointmentInterval > 120)
+    ) {
+      return { success: false, error: "Appointment interval must be a whole number between 15 and 120 minutes" };
     }
 
     // Validate tier thresholds if provided
@@ -233,6 +263,7 @@ export async function updateSettings(
       success: true,
       data: {
         ...updatedSettings,
+        defaultBookingMode: asBookingMode(updatedSettings.defaultBookingMode),
         taxRate: Number(updatedSettings.taxRate),
         memberMultiplier: Number(updatedSettings.memberMultiplier),
         goldMultiplier: Number(updatedSettings.goldMultiplier),

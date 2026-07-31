@@ -31,12 +31,14 @@ interface SchedulePageClientProps {
   staffWithSchedules: StaffWithSchedules[];
   canManage: boolean;
   salonName: string;
+  timezone: string;
 }
 
 export function SchedulePageClient({
   staffWithSchedules,
   canManage,
   salonName,
+  timezone,
 }: SchedulePageClientProps) {
   const [view, setView] = useState<string>("week");
 
@@ -53,6 +55,7 @@ export function SchedulePageClient({
         <SchedulePDFExportButton
           staffWithSchedules={staffWithSchedules}
           salonName={salonName}
+          timezone={timezone}
         />
       </div>
 

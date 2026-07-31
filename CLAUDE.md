@@ -99,6 +99,17 @@ This is a comprehensive Salon Management Application designed to automate and st
 - **Loading States**: Show loading indicators for all async operations
 - **Error States**: Display clear, actionable error messages
 
+### IMPORTANT: Friction-Free UX (HARD RULE)
+
+This app MUST be super user-friendly for non-technical salon staff. Nothing confusing, nothing cumbersome — every flow smooth, obvious, and friendly. Apply this as a checklist when building OR testing any feature:
+
+- **Actions where users expect them**: if a user might do X while doing Y, offer X inline in the Y flow (e.g. take a deposit *while booking*, not only after). Never rely on the user guessing they must click into something to find an action.
+- **No forced detours**: don't make a multi-step "create first, then go elsewhere" flow when one screen can do it. Keep optional steps optional but available in-place.
+- **Instant feedback**: after any mutation the UI must immediately reflect the new state — re-derive open modals/cards from live data, never show stale snapshots.
+- **Specific, reassuring toasts**: "$10.00 deposit recorded for Jennifer Smith", not "Deposit recorded".
+- **Surface money/balance/status info early and prominently**, not buried behind another click.
+- **Clean layouts**: avoid overly long/cramped modals; group sensibly and keep content scannable.
+
 ## Common Commands
 
 ### Development

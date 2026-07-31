@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { checkAuth } from "@/lib/auth-helpers";
-import { clientSchema, clientUpdateSchema, walkInClientSchema, ClientFormData, ClientSearchParams, WalkInClientData } from "@/lib/validations/client";
-import { Prisma } from "@prisma/client";
+import { clientSchema, clientUpdateSchema, walkInClientSchema, bookingClientSchema, ClientFormData, ClientSearchParams, WalkInClientData, BookingClientData } from "@/lib/validations/client";
+import { Prisma, LoyaltyTier, AppointmentStatus } from "@prisma/client";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 import { getOrganizationSalonIds } from "./branch";
+import { isModuleEnabled } from "./modules";
 
 const clientListInclude = Prisma.validator<Prisma.ClientInclude>()({
   loyaltyPoints: true,
@@ -93,13 +94,22 @@ export async function getClients(params: ClientSearchParams = {}): Promise<Actio
 function getClientInclude() {
   return {
     loyaltyPoints: true,
+    // "Total visits" = completed appointments only (not scheduled/cancelled/no-show).
+    _count: {
+      select: {
+        appointments: { where: { status: "COMPLETED" as const } },
+      },
+    },
     appointments: {
       orderBy: { startTime: "desc" as const },
       take: 10,
       include: {
-        service: true,
-        staff: {
-          select: { firstName: true, lastName: true },
+        services: {
+          orderBy: { order: "asc" as const },
+          select: {
+            service: { select: { name: true } },
+            staff: { select: { firstName: true, lastName: true } },
+          },
         },
       },
     },
@@ -155,6 +165,25 @@ function getClientInclude() {
 export type ClientWithRelations = Prisma.ClientGetPayload<{
   include: ReturnType<typeof getClientInclude>;
 }>;
+
+// Sum of deposits/prepayments taken against this client's appointments that haven't yet
+// been applied at checkout (invoiceId null) — i.e. money held but not yet earned.
+export async function getClientHeldDeposits(clientId: string): Promise<number> {
+  const authResult = await checkAuth("clients:view");
+  if (!authResult) return 0;
+
+  // getClient allows viewing clients from any branch, so held deposits must span the whole
+  // organization too — otherwise a cross-branch client shows $0 held.
+  const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+  const result = await prisma.payment.aggregate({
+    where: {
+      invoiceId: null,
+      appointment: { clientId, salonId: { in: orgSalonIds } },
+    },
+    _sum: { amount: true },
+  });
+  return Number(result._sum.amount ?? 0);
+}
 
 export async function getClient(id: string): Promise<ActionResult<ClientWithRelations | null>> {
   const authResult = await checkAuth("clients:view");
@@ -269,6 +298,8 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
       };
     }
   }
+  // Phone-less walk-ins are always created as separate records — two walk-ins with the
+  // same name can be different people, so we never merge them by name alone.
 
   const client = await prisma.client.create({
     data: {
@@ -289,6 +320,59 @@ export async function createWalkInClient(data: WalkInClientData): Promise<Action
 
   await logAudit({
     action: "WALKIN_CLIENT_CREATED",
+    entityType: "Client",
+    entityId: client.id,
+    userId: authResult.userId,
+    userRole: authResult.role,
+    details: { firstName, phone: normalizedPhone },
+  });
+
+  revalidatePath("/dashboard/clients");
+  await invalidateDashboardCache(authResult.salonId);
+  return { success: true, data: { id: client.id, firstName: client.firstName } };
+}
+
+// Add a client inline during booking. Name required; last/phone/email optional. Unlike a
+// walk-in record this is a normal client (isWalkIn=false) — "walk-in" is a visit mode now.
+// De-dupes by phone (returns the existing client) so booking the same number twice is safe.
+export async function createBookingClient(data: BookingClientData): Promise<ActionResult<{ id: string; firstName: string }>> {
+  const authResult = await checkAuth("clients:create");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const validationResult = bookingClientSchema.safeParse(data);
+  if (!validationResult.success) {
+    return { success: false, error: validationResult.error.issues[0].message };
+  }
+
+  const { firstName, lastName, phone, email } = validationResult.data;
+  const normalizedPhone = phone && phone.trim() !== "" ? phone : null;
+  const { salonId } = authResult;
+
+  if (normalizedPhone) {
+    const existingClient = await prisma.client.findUnique({
+      where: { salonId_phone: { salonId, phone: normalizedPhone } },
+    });
+    if (existingClient) {
+      return { success: true, data: { id: existingClient.id, firstName: existingClient.firstName } };
+    }
+  }
+
+  const client = await prisma.client.create({
+    data: {
+      salonId,
+      firstName,
+      lastName: lastName && lastName.trim() !== "" ? lastName.trim() : null,
+      phone: normalizedPhone,
+      email: email && email.trim() !== "" ? email.trim() : null,
+      isWalkIn: false,
+      loyaltyPoints: { create: { salonId, balance: 0, tier: "MEMBER" } },
+    },
+  });
+
+  await logAudit({
+    action: "CLIENT_CREATED",
     entityType: "Client",
     entityId: client.id,
     userId: authResult.userId,
@@ -364,6 +448,86 @@ export async function updateClient(data: { id: string } & Partial<ClientFormData
   revalidatePath(`/dashboard/clients/${id}`);
   await invalidateDashboardCache(authResult.salonId);
   return { success: true, data: undefined };
+}
+
+// Booking context strip: the at-a-glance info shown next to the client picker while
+// booking. Fetched on demand for the SELECTED client only (not preloaded for the whole
+// list) so it scales to salons with thousands of clients.
+//
+// Every field degrades gracefully to nothing when it doesn't apply, so a salon that has
+// turned off loyalty (module OFF or program disabled) simply shows no tier/points chip,
+// a brand-new client shows "New" instead of a last-visit date, and so on.
+export interface ClientBookingContext {
+  firstName: string;
+  lastName: string | null;
+  phone: string | null;
+  email: string | null;
+  allergies: string | null;
+  // null when loyalty is unavailable for this salon (module OFF or program disabled);
+  // the caller then renders no tier/points chip at all.
+  loyalty: { tier: LoyaltyTier; points: number } | null;
+  lastVisit: string | null; // ISO date of the most recent completed visit; null = first-timer
+  noShowCount: number; // past no-shows — a cue to consider a deposit
+}
+
+export async function getClientBookingContext(
+  clientId: string
+): Promise<ActionResult<ClientBookingContext>> {
+  const authResult = await checkAuth("clients:view");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, salonId: { in: orgSalonIds } },
+    select: {
+      firstName: true,
+      lastName: true,
+      phone: true,
+      email: true,
+      allergies: true,
+      loyaltyPoints: { select: { tier: true, balance: true } },
+    },
+  });
+  if (!client) {
+    return { success: false, error: "Client not found" };
+  }
+
+  // Loyalty is shown only when it's actually active for this salon: the module must be
+  // enabled AND the owner must not have switched the program off in Settings.
+  const [loyaltyModuleOn, settings, lastVisitAppt, noShowCount] = await Promise.all([
+    isModuleEnabled(authResult.salonId, "loyalty"),
+    prisma.settings.findUnique({
+      where: { salonId: authResult.salonId },
+      select: { loyaltyProgramEnabled: true },
+    }),
+    prisma.appointment.findFirst({
+      where: { clientId, status: AppointmentStatus.COMPLETED },
+      orderBy: { startTime: "desc" },
+      select: { startTime: true },
+    }),
+    prisma.appointment.count({
+      where: { clientId, status: AppointmentStatus.NO_SHOW },
+    }),
+  ]);
+  const loyaltyEnabled = loyaltyModuleOn && (settings?.loyaltyProgramEnabled ?? true);
+
+  return {
+    success: true,
+    data: {
+      firstName: client.firstName,
+      lastName: client.lastName,
+      phone: client.phone,
+      email: client.email,
+      allergies: client.allergies,
+      loyalty: loyaltyEnabled && client.loyaltyPoints
+        ? { tier: client.loyaltyPoints.tier, points: client.loyaltyPoints.balance }
+        : null,
+      lastVisit: lastVisitAppt ? lastVisitAppt.startTime.toISOString() : null,
+      noShowCount,
+    },
+  };
 }
 
 export async function deleteClient(id: string): Promise<ActionResult> {
@@ -452,17 +616,23 @@ export async function getAllTags(): Promise<ActionResult<string[]>> {
 
   try {
     const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    const clients = await prisma.client.findMany({
-      select: { tags: true },
-      where: { salonId: { in: orgSalonIds }, isActive: true },
-    });
+    if (orgSalonIds.length === 0) {
+      return { success: true, data: [] };
+    }
 
-    const allTags = new Set<string>();
-    clients.forEach((client) => {
-      client.tags.forEach((tag) => allTags.add(tag));
-    });
+    // Compute the distinct tag set in Postgres (unnest) instead of loading every client
+    // row and de-duping in JS — so this scales regardless of client count.
+    const rows = await prisma.$queryRaw<{ tag: string }[]>`
+      SELECT DISTINCT tag
+      FROM (
+        SELECT unnest(tags) AS tag
+        FROM "clients"
+        WHERE "salonId" IN (${Prisma.join(orgSalonIds)}) AND "isActive" = true
+      ) t
+      ORDER BY tag ASC
+    `;
 
-    return { success: true, data: Array.from(allTags).sort() };
+    return { success: true, data: rows.map((r) => r.tag) };
   } catch (error) {
     console.error("Error fetching tags:", error);
     return { success: false, error: "Failed to fetch tags" };

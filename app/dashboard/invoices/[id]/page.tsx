@@ -123,6 +123,8 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
       product: item.product ? { name: item.product.name } : null,
       price: Number(item.price),
       quantity: item.quantity,
+      discount: Number(item.discount),
+      note: item.note ?? null,
     })),
     subtotal: Number(invoice.sale.totalAmount),
     discount: Number(invoice.sale.discount),
@@ -197,6 +199,14 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">
                           {item.service?.name ?? item.product?.name ?? "Item"}
+                          {Number(item.discount) > 0 && (
+                            <div className="text-xs font-normal text-green-600">
+                              −{formatCurrency(Number(item.discount), currency)} discount
+                            </div>
+                          )}
+                          {item.note && (
+                            <div className="text-xs font-normal text-muted-foreground">📝 {item.note}</div>
+                          )}
                         </TableCell>
                         <TableCell className="hidden sm:table-cell text-muted-foreground">
                           {item.staff ? `${item.staff.firstName} ${item.staff.lastName}` : "—"}

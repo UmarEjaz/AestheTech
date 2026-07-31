@@ -100,7 +100,7 @@ export function ServiceCard({ service, onDelete, canUpdate = false }: ServiceCar
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" />
-              <span>{service._count.appointments}</span>
+              <span>{service._count.appointmentServices}</span>
             </div>
             <div className="flex items-center gap-1">
               <ShoppingBag className="h-3.5 w-3.5" />

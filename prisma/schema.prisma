@@ -35,6 +35,7 @@ enum InvoiceStatus {
 enum PaymentMethod {
   CASH
   CARD
+  BANK_TRANSFER
   DIGITAL_WALLET
   LOYALTY_POINTS
   OTHER
@@ -135,6 +136,7 @@ model Salon {
   services                   Service[]
   products                   Product[]
   appointments               Appointment[]
+  appointmentServices        AppointmentService[]
   sales                      Sale[]
   saleItems                  SaleItem[]
   invoices                   Invoice[]
@@ -160,40 +162,40 @@ model Salon {
 
 // User model for staff/admin accounts
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  password     String
-  firstName    String
-  lastName     String
-  phone        String?
-  salonId          String?  // Current/active salon (denormalized from UserSalon)
-  roleDefinitionId String?  // Current role at active salon (denormalized from UserSalon)
-  isSuperAdmin     Boolean  @default(false)
-  isActive         Boolean  @default(true)
-  isServiceProvider Boolean @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String   @id @default(cuid())
+  email             String   @unique
+  password          String
+  firstName         String
+  lastName          String
+  phone             String?
+  salonId           String? // Current/active salon (denormalized from UserSalon)
+  roleDefinitionId  String? // Current role at active salon (denormalized from UserSalon)
+  isSuperAdmin      Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  isServiceProvider Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   // Relations
-  salon           Salon?                       @relation(fields: [salonId], references: [id], onDelete: SetNull)
-  roleDefinition  RoleDefinition?              @relation(fields: [roleDefinitionId], references: [id], onDelete: SetNull)
-  userSalons      UserSalon[]
-  appointments    Appointment[]                @relation("StaffAppointments")
-  schedules       Schedule[]
-  sales           Sale[]
-  saleItems       SaleItem[]
-  refunds         Refund[]
-  recurringSeries RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
-  auditLogs       AuditLog[]                   @relation("AuditUser")
-  auditLogsAsImpersonator AuditLog[]           @relation("AuditImpersonator")
-  impersonatorSessions    ImpersonationSession[] @relation("ImpersonatorSessions")
-  actingAsSessions        ImpersonationSession[] @relation("ActingAsSessions")
-  expenses           Expense[]                    @relation("UserExpenses")
-  salaryConfigs      SalaryConfig[]
-  payrollRunsCreated PayrollRun[]                 @relation("PayrollRunCreator")
-  payrollRunsPaid    PayrollRun[]                 @relation("PayrollRunPayer")
-  payrollEntries     PayrollEntry[]               @relation("PayrollEntries")
-  userPermissions    UserPermission[]
+  salon                   Salon?                       @relation(fields: [salonId], references: [id], onDelete: SetNull)
+  roleDefinition          RoleDefinition?              @relation(fields: [roleDefinitionId], references: [id], onDelete: SetNull)
+  userSalons              UserSalon[]
+  appointmentServices     AppointmentService[]         @relation("StaffAppointmentServices")
+  schedules               Schedule[]
+  sales                   Sale[]
+  saleItems               SaleItem[]
+  refunds                 Refund[]
+  recurringSeries         RecurringAppointmentSeries[] @relation("RecurringStaffAppointments")
+  auditLogs               AuditLog[]                   @relation("AuditUser")
+  auditLogsAsImpersonator AuditLog[]                   @relation("AuditImpersonator")
+  impersonatorSessions    ImpersonationSession[]       @relation("ImpersonatorSessions")
+  actingAsSessions        ImpersonationSession[]       @relation("ActingAsSessions")
+  expenses                Expense[]                    @relation("UserExpenses")
+  salaryConfigs           SalaryConfig[]
+  payrollRunsCreated      PayrollRun[]                 @relation("PayrollRunCreator")
+  payrollRunsPaid         PayrollRun[]                 @relation("PayrollRunPayer")
+  payrollEntries          PayrollEntry[]               @relation("PayrollEntries")
+  userPermissions         UserPermission[]
 
   @@index([salonId])
   @@index([roleDefinitionId])
@@ -272,11 +274,11 @@ model Service {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  salon           Salon                        @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  category        ServiceCategory?             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  appointments    Appointment[]
-  saleItems       SaleItem[]
-  recurringSeries RecurringAppointmentSeries[]
+  salon               Salon                        @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  category            ServiceCategory?             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  appointmentServices AppointmentService[]
+  saleItems           SaleItem[]
+  recurringSeries     RecurringAppointmentSeries[]
 
   @@index([salonId])
   @@index([categoryId])
@@ -363,8 +365,8 @@ model Appointment {
   id                   String            @id @default(cuid())
   salonId              String
   clientId             String
-  serviceId            String
-  staffId              String
+  // No provider field here: each service carries its own staff in AppointmentService (the single
+  // source of truth). The "primary provider" is simply the first service (order 0), derived on read.
   startTime            DateTime
   endTime              DateTime
   status               AppointmentStatus @default(SCHEDULED)
@@ -375,38 +377,73 @@ model Appointment {
   updatedAt            DateTime          @updatedAt
 
   // Relations — simple FKs (composite FKs removed to allow cross-branch client/service sharing)
-  salon   Salon                       @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  client  Client                      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  service Service                     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  staff   User                        @relation("StaffAppointments", fields: [staffId], references: [id], onDelete: Restrict)
-  series  RecurringAppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  salon    Salon                       @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  client   Client                      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  series   RecurringAppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  sale     Sale? // the sale created when this appointment is checked out
+  payments Payment[] // deposits/prepayments taken against this appointment
+  // All services on this appointment (1..N). order 0 = primary. Source of truth for services.
+  services AppointmentService[]
 
   @@index([salonId])
   @@index([clientId])
-  @@index([serviceId])
-  @@index([staffId])
   @@index([startTime])
   @@index([seriesId])
   @@index([salonId, startTime])
   @@map("appointments")
 }
 
+// Additional services on an appointment (beyond the primary service on Appointment).
+// price/duration are snapshots taken at booking time; staffId is the per-service provider.
+model AppointmentService {
+  id            String   @id @default(cuid())
+  salonId       String
+  appointmentId String
+  serviceId     String
+  staffId       String
+  price         Decimal  @db.Decimal(10, 2)
+  duration      Int
+  order         Int      @default(0)
+  // Absolute busy window for this provider's slice (= appointment.startTime + prior durations).
+  // Stored so a Postgres exclusion constraint (see prisma/constraints.sql) can physically prevent
+  // double-booking a provider. `active` is false for cancelled/no-show rows so they free the slot.
+  segmentStart  DateTime?
+  segmentEnd    DateTime?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  salon       Salon       @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  service     Service     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  staff       User        @relation("StaffAppointmentServices", fields: [staffId], references: [id], onDelete: Restrict)
+
+  @@unique([appointmentId, order])
+  @@index([salonId])
+  @@index([appointmentId])
+  @@index([serviceId])
+  @@index([staffId])
+  @@map("appointment_services")
+}
+
 // Sale model
 model Sale {
-  id          String   @id @default(cuid())
-  salonId     String
-  clientId    String
-  staffId     String
-  totalAmount Decimal  @db.Decimal(10, 2)
-  discount    Decimal  @default(0) @db.Decimal(10, 2)
-  finalAmount Decimal  @db.Decimal(10, 2)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  salonId       String
+  clientId      String
+  staffId       String
+  // The appointment this sale was checked out from (null = walk-in/retail direct sale).
+  appointmentId String?  @unique
+  totalAmount   Decimal  @db.Decimal(10, 2)
+  discount      Decimal  @default(0) @db.Decimal(10, 2)
+  finalAmount   Decimal  @db.Decimal(10, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   // Relations — simple FKs (composite FKs removed to allow cross-branch client sharing)
   salon               Salon                @relation(fields: [salonId], references: [id], onDelete: Cascade)
   client              Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
   staff               User                 @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  appointment         Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   items               SaleItem[]
   invoice             Invoice?
   loyaltyTransactions LoyaltyTransaction[]
@@ -428,16 +465,18 @@ model Sale {
 //   CHECK ("serviceId" IS NOT NULL OR "productId" IS NOT NULL);
 // Currently enforced at the app level via Zod XOR validation in lib/validations/sale.ts
 model SaleItem {
-  id        String   @id @default(cuid())
-  salonId   String
-  saleId    String
-  serviceId String?
-  staffId   String? // staff who performed the service
-  productId String?
-  quantity    Int      @default(1)
-  price       Decimal  @db.Decimal(10, 2)
-  costAtSale  Decimal? @db.Decimal(10, 2) // snapshot of cost at time of sale (for profit tracking)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  salonId    String
+  saleId     String
+  serviceId  String?
+  staffId    String? // staff who performed the service
+  productId  String?
+  quantity   Int      @default(1)
+  price      Decimal  @db.Decimal(10, 2)
+  discount   Decimal  @db.Decimal(10, 2) @default(0) // per-line discount amount (currency) off this line
+  note       String? // per-line note (e.g. colour formula, special request) — shown on sale/invoice/receipt
+  costAtSale Decimal? @db.Decimal(10, 2) // snapshot of cost at time of sale (for profit tracking)
+  createdAt  DateTime @default(now())
 
   // Relations — simple FKs (composite FKs removed to allow cross-branch service/product sharing)
   salon   Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
@@ -488,17 +527,23 @@ model Invoice {
 
 // Payment model
 model Payment {
-  id        String        @id @default(cuid())
-  invoiceId String
-  amount    Decimal       @db.Decimal(10, 2)
-  method    PaymentMethod
-  paidAt    DateTime      @default(now())
-  createdAt DateTime      @default(now())
+  id            String        @id @default(cuid())
+  // A payment belongs to an invoice (normal checkout payment) and/or an
+  // appointment (a deposit/prepayment taken before any invoice exists). At
+  // checkout a deposit's invoiceId is set so it counts toward the invoice.
+  invoiceId     String?
+  appointmentId String?
+  amount        Decimal       @db.Decimal(10, 2)
+  method        PaymentMethod
+  paidAt        DateTime      @default(now())
+  createdAt     DateTime      @default(now())
 
   // Relations
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
+  @@index([appointmentId])
   @@map("payments")
 }
 
@@ -676,17 +721,17 @@ model RecurringSeriesAuditLog {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  salonId    String? // Nullable — SUPER_ADMIN platform-level logs have no salon
-  action     String // e.g. REFUND_CREATED, SALE_COMPLETED, SETTINGS_UPDATED, USER_CREATED
-  entityType String // e.g. Invoice, Sale, Settings, User, Client, Product, Service, Appointment
-  entityId   String? // ID of the affected entity (nullable for bulk/settings actions)
-  userId     String? // Who performed the action (the acting identity; nullable — preserved when user is deleted)
-  userRole   String // Role at the time of action
-  details    Json? // Additional context (before/after values, amounts, etc.)
+  id               String   @id @default(cuid())
+  salonId          String? // Nullable — SUPER_ADMIN platform-level logs have no salon
+  action           String // e.g. REFUND_CREATED, SALE_COMPLETED, SETTINGS_UPDATED, USER_CREATED
+  entityType       String // e.g. Invoice, Sale, Settings, User, Client, Product, Service, Appointment
+  entityId         String? // ID of the affected entity (nullable for bulk/settings actions)
+  userId           String? // Who performed the action (the acting identity; nullable — preserved when user is deleted)
+  userRole         String // Role at the time of action
+  details          Json? // Additional context (before/after values, amounts, etc.)
   impersonatorId   String? // Real super admin behind the action when performed during impersonation (AS_USER mode)
-  isPlatformAction Boolean @default(false) // Support/platform action — hidden from tenant-facing audit views
-  createdAt  DateTime @default(now())
+  isPlatformAction Boolean  @default(false) // Support/platform action — hidden from tenant-facing audit views
+  createdAt        DateTime @default(now())
 
   // Relations
   salon        Salon? @relation(fields: [salonId], references: [id], onDelete: Cascade)
@@ -841,22 +886,22 @@ model PayrollRun {
 
 // PayrollEntry model — individual staff payment within a payroll run
 model PayrollEntry {
-  id              String             @id @default(cuid())
-  payrollRunId    String
-  userId          String
+  id             String             @id @default(cuid())
+  payrollRunId   String
+  userId         String
   // Audit reference to the salary config used to compute basePay. Nullable so deleting a
   // config doesn't break payroll history — basePay is already snapshotted to the row.
-  salaryConfigId  String?
-  basePay         Decimal            @db.Decimal(10, 2)
-  bonus           Decimal            @default(0) @db.Decimal(10, 2)
-  deductions      Decimal            @default(0) @db.Decimal(10, 2)
-  deductionNotes  String?
-  netPay          Decimal            @db.Decimal(10, 2)
-  status          PayrollEntryStatus @default(PENDING)
-  notes           String?
-  paidAt          DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  salaryConfigId String?
+  basePay        Decimal            @db.Decimal(10, 2)
+  bonus          Decimal            @default(0) @db.Decimal(10, 2)
+  deductions     Decimal            @default(0) @db.Decimal(10, 2)
+  deductionNotes String?
+  netPay         Decimal            @db.Decimal(10, 2)
+  status         PayrollEntryStatus @default(PENDING)
+  notes          String?
+  paidAt         DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   payrollRun   PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   user         User          @relation("PayrollEntries", fields: [userId], references: [id], onDelete: Restrict)
@@ -872,22 +917,24 @@ model PayrollEntry {
 
 // Settings model for salon configuration — 1:1 with Salon
 model Settings {
-  id                     String   @id @default(cuid())
-  salonId                String   @unique
-  salonName              String   @default("AestheTech Salon")
-  salonAddress           String? // Full address for invoices
-  salonPhone             String? // Contact phone for invoices
-  salonEmail             String? // Contact email for invoices
-  salonLogo              String? // Base64 encoded logo for invoices
-  timezone               String   @default("UTC") // IANA timezone e.g. "Asia/Karachi"
-  currencyCode           String   @default("USD") @db.VarChar(3) // ISO 4217 currency code
-  taxRate                Decimal  @default(0) @db.Decimal(5, 2) // percentage
-  businessHoursStart     String   @default("09:00") // HH:mm format
-  businessHoursEnd       String   @default("19:00") // HH:mm format
-  appointmentInterval    Int      @default(30) // minutes
-  allowOnlineBooking     Boolean  @default(true)
-  loyaltyProgramEnabled  Boolean  @default(true)
-  loyaltyPointsPerDollar Int      @default(1)
+  id                           String  @id @default(cuid())
+  salonId                      String  @unique
+  salonName                    String  @default("AestheTech Salon")
+  salonAddress                 String? // Full address for invoices
+  salonPhone                   String? // Contact phone for invoices
+  salonEmail                   String? // Contact email for invoices
+  salonLogo                    String? // Base64 encoded logo for invoices
+  timezone                     String  @default("UTC") // IANA timezone e.g. "Asia/Karachi"
+  currencyCode                 String  @default("USD") @db.VarChar(3) // ISO 4217 currency code
+  taxRate                      Decimal @default(0) @db.Decimal(5, 2) // percentage
+  businessHoursStart           String  @default("09:00") // HH:mm format
+  businessHoursEnd             String  @default("19:00") // HH:mm format
+  appointmentInterval          Int     @default(30) // minutes
+  allowOnlineBooking           Boolean @default(true)
+  // Which mode the New-booking screen opens in by default: "WALK_IN" (here now) or "APPOINTMENT" (later).
+  defaultBookingMode           String  @default("APPOINTMENT")
+  loyaltyProgramEnabled        Boolean @default(true)
+  loyaltyPointsPerDollar       Int     @default(1)
 
   // Loyalty tier thresholds
   goldThreshold     Int @default(500)
@@ -932,9 +979,9 @@ model Settings {
 model Permission {
   id          String   @id @default(cuid())
   code        String   @unique // e.g., "clients:view", "sales:create"
-  module      String            // e.g., "clients", "sales" — used for UI grouping
-  label       String            // Human-readable label, e.g., "View Clients"
-  description String?           // Optional description
+  module      String // e.g., "clients", "sales" — used for UI grouping
+  label       String // Human-readable label, e.g., "View Clients"
+  description String? // Optional description
   sortOrder   Int      @default(0) // Display ordering within a module
   createdAt   DateTime @default(now())
 
@@ -986,13 +1033,13 @@ model UserPermission {
 // Role definitions — system roles (global) + custom roles (salon-scoped)
 model RoleDefinition {
   id             String   @id @default(cuid())
-  name           String              // Display name: "Owner", "Admin", "Senior Stylist" (what users see and type)
-  slug           String              // Internal identifier: "owner", "admin", "senior-stylist" (used for system-role matching, URLs, lookups)
-  description    String?             // e.g., "Full access to all features"
+  name           String // Display name: "Owner", "Admin", "Senior Stylist" (what users see and type)
+  slug           String // Internal identifier: "owner", "admin", "senior-stylist" (used for system-role matching, URLs, lookups)
+  description    String? // e.g., "Full access to all features"
   color          String   @default("#6B7280") // Hex color for badges
-  hierarchyLevel Int                 // OWNER=100, ADMIN=75, STAFF=50, RECEPTIONIST=25
+  hierarchyLevel Int // OWNER=100, ADMIN=75, STAFF=50, RECEPTIONIST=25
   isSystem       Boolean  @default(false) // true for the 4 built-in roles
-  salonId        String?             // null for system roles, set for custom roles
+  salonId        String? // null for system roles, set for custom roles
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

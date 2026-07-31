@@ -115,6 +115,8 @@ export default async function SaleDetailPage({
           product: item.product ? { name: item.product.name } : null,
           price: Number(item.price),
           quantity: item.quantity,
+          discount: Number(item.discount),
+          note: item.note ?? null,
         })),
         subtotal: Number(sale.totalAmount),
         discount: Number(sale.discount),
@@ -218,6 +220,14 @@ export default async function SaleDetailPage({
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">
                           {item.service?.name || item.product?.name || "Unknown"}
+                          {Number(item.discount) > 0 && (
+                            <div className="mt-0.5 text-xs font-normal text-green-600">
+                              −{formatCurrency(Number(item.discount), settings.currencyCode)} discount
+                            </div>
+                          )}
+                          {item.note && (
+                            <div className="mt-0.5 text-xs font-normal text-muted-foreground">📝 {item.note}</div>
+                          )}
                         </TableCell>
                         <TableCell>
                           {item.staff ? `${item.staff.firstName} ${item.staff.lastName}` : "-"}

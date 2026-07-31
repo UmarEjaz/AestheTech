@@ -7,6 +7,7 @@ import { requireModule } from "@/lib/require-module";
 import { getAuditLogs, getAuditActions, getAuditEntityTypes } from "@/lib/actions/audit";
 import { getActiveStaff } from "@/lib/actions/user";
 import { getBranches } from "@/lib/actions/branch";
+import { getTimezone } from "@/lib/actions/settings";
 import { AuditLogClient } from "@/components/audit/audit-log-client";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
 
@@ -65,6 +66,7 @@ export default async function AuditLogPage({
     getActiveStaff(branchFilter),
     canViewAllBranches ? getBranches() : Promise.resolve(null),
   ]);
+  const timezone = await getTimezone();
 
   const hasMultipleBranches = branchesResult?.success && branchesResult.data.length > 1;
   const currentSalonName = branchesResult?.success
@@ -99,6 +101,7 @@ export default async function AuditLogPage({
         actions={actionsResult.success ? actionsResult.data : []}
         entityTypes={entityTypesResult.success ? entityTypesResult.data : []}
         staff={staffResult.success ? staffResult.data : []}
+        timezone={timezone}
         filters={{
           action: params.action,
           entityType: params.entityType,

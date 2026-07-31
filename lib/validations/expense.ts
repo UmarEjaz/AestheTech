@@ -1,9 +1,4 @@
 import { z } from "zod";
-import { categorySchema, type CategoryInput } from "./category";
-
-// Re-export the shared category schema under the existing names for backward compat
-export const expenseCategorySchema = categorySchema;
-export type ExpenseCategoryInput = CategoryInput;
 
 // Schema for creating an expense
 export const createExpenseSchema = z.object({

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { startOfDay } from "date-fns";
+import { PaymentMethod } from "@prisma/client";
 
 // Appointment status enum matching Prisma
 export const appointmentStatusEnum = z.enum([
@@ -36,10 +37,19 @@ export const recurrenceEndTypeEnum = z.enum([
 export type RecurrenceEndTypeType = z.infer<typeof recurrenceEndTypeEnum>;
 
 // Schema for creating/updating appointments
-export const appointmentSchema = z.object({
-  clientId: z.string().min(1, "Client is required"),
+// A single service line on an appointment (each with its own staff member).
+export const appointmentServiceSchema = z.object({
   serviceId: z.string().min(1, "Service is required"),
   staffId: z.string().min(1, "Staff member is required"),
+});
+
+export const appointmentSchema = z.object({
+  clientId: z.string().min(1, "Client is required"),
+  // One or more services; services[0] is the primary (its staff becomes the appointment's staff).
+  services: z
+    .array(appointmentServiceSchema)
+    .min(1, "At least one service is required")
+    .max(10, "At most 10 services"),
   startTime: z.coerce.date({ message: "Start time is required" }),
   notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
 });
@@ -53,6 +63,35 @@ export const appointmentStatusSchema = z.object({
 export const rescheduleSchema = z.object({
   startTime: z.coerce.date({ message: "Start time is required" }),
   staffId: z.string().min(1, "Staff member is required").optional(),
+});
+
+// Available-slots request. Carries the ordered service→staff assignments so slots can be
+// validated per-provider-per-segment (each provider free only for the slice they'd actually work).
+export const availableSlotsSchema = z.object({
+  assignments: z
+    .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
+    .min(1, "At least one service is required")
+    .max(10, "At most 10 services"),
+  date: z.coerce.date({ message: "Date is required" }),
+  excludeAppointmentId: z.string().min(1).optional(),
+});
+
+// Deposits are real prepayments, so exclude LOYALTY_POINTS (which would record cash value
+// without redeeming any points). Mirrors the selectable methods offered in the deposit UI.
+export const DEPOSIT_PAYMENT_METHODS = [
+  PaymentMethod.CASH,
+  PaymentMethod.CARD,
+  PaymentMethod.BANK_TRANSFER,
+  PaymentMethod.DIGITAL_WALLET,
+  PaymentMethod.OTHER,
+] as const;
+
+export const appointmentDepositSchema = z.object({
+  amount: z
+    .number({ message: "Enter a valid deposit amount" })
+    .finite("Enter a valid deposit amount")
+    .positive("Deposit must be greater than zero"),
+  method: z.enum(DEPOSIT_PAYMENT_METHODS, { message: "Unsupported deposit method" }),
 });
 
 // Schema for filtering appointments

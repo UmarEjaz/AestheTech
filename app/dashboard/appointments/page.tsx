@@ -5,7 +5,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AppointmentCalendar } from "@/components/appointments/appointment-calendar";
-import { getAppointmentsForCalendar } from "@/lib/actions/appointment";
+import { getAppointmentsForCalendar, getStaffForAppointments } from "@/lib/actions/appointment";
 import { getSettings } from "@/lib/actions/settings";
 import { getWeekRange } from "@/lib/utils/timezone";
 import { hasPermission } from "@/lib/permissions";
@@ -44,14 +44,18 @@ export default async function AppointmentsPage() {
   const settingsResult = await getSettings();
   const settings = settingsResult.success
     ? settingsResult.data
-    : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC" };
+    : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", currencyCode: "USD" };
 
   const { start: weekStart, end: weekEnd } = getWeekRange(settings.timezone);
 
-  const appointmentsResult = await getAppointmentsForCalendar({
-    startDate: weekStart,
-    endDate: weekEnd,
-  });
+  const [appointmentsResult, staffResult] = await Promise.all([
+    getAppointmentsForCalendar({
+      startDate: weekStart,
+      endDate: weekEnd,
+    }),
+    getStaffForAppointments(),
+  ]);
+  const staff = staffResult.success ? staffResult.data : [];
 
   if (!appointmentsResult.success) {
     return (
@@ -102,9 +106,11 @@ export default async function AppointmentsPage() {
             canUpdate={canUpdate}
             canCancel={canCancel}
             canDelete={canDelete}
+            staff={staff}
             businessHoursStart={settings.businessHoursStart}
             businessHoursEnd={settings.businessHoursEnd}
             timezone={settings.timezone}
+            currencyCode={settings.currencyCode}
           />
         </div>
       </div>

@@ -47,6 +47,7 @@ export default async function SchedulesPage() {
 
   const settingsResult = await getSettings();
   const salonName = settingsResult.success ? settingsResult.data.salonName : "AestheTech Salon";
+  const timezone = settingsResult.success ? settingsResult.data.timezone : "UTC";
 
   return (
     <>
@@ -54,6 +55,7 @@ export default async function SchedulesPage() {
         staffWithSchedules={staffResult.data}
         canManage={canManage}
         salonName={salonName}
+        timezone={timezone}
       />
     </>
   );

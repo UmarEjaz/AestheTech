@@ -13,6 +13,7 @@ import { ShiftType } from "@prisma/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { FileDown, Loader2 } from "lucide-react";
+import { formatInTz } from "@/lib/utils/timezone";
 
 const DAY_NAMES = [
   "Sunday",
@@ -23,13 +24,6 @@ const DAY_NAMES = [
   "Friday",
   "Saturday",
 ];
-
-const SHIFT_COLORS: Record<ShiftType, string> = {
-  OPENING: "#3b82f6",
-  CLOSING: "#8b5cf6",
-  REGULAR: "#22c55e",
-  SPLIT: "#f97316",
-};
 
 interface Schedule {
   id: string;
@@ -53,6 +47,7 @@ interface StaffWithSchedules {
 interface SchedulePDFProps {
   staffWithSchedules: StaffWithSchedules[];
   salonName?: string;
+  timezone?: string;
 }
 
 function formatTime(time: string): string {
@@ -167,12 +162,8 @@ const styles = StyleSheet.create({
   },
 });
 
-function SchedulePDFDocument({ staffWithSchedules, salonName = "AestheTech Salon" }: SchedulePDFProps) {
-  const generatedDate = new Date().toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+function SchedulePDFDocument({ staffWithSchedules, salonName = "AestheTech Salon", timezone = "UTC" }: SchedulePDFProps) {
+  const generatedDate = formatInTz(new Date(), "MMMM d, yyyy", timezone);
 
   return (
     <Document>
@@ -265,6 +256,7 @@ function SchedulePDFDocument({ staffWithSchedules, salonName = "AestheTech Salon
 export function SchedulePDFExportButton({
   staffWithSchedules,
   salonName,
+  timezone,
 }: SchedulePDFProps) {
   const [isExporting, setIsExporting] = useState(false);
 
@@ -275,6 +267,7 @@ export function SchedulePDFExportButton({
         <SchedulePDFDocument
           staffWithSchedules={staffWithSchedules}
           salonName={salonName}
+          timezone={timezone}
         />
       ).toBlob();
 

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canManageRole, hasPermission } from "@/lib/permissions";
 import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
@@ -61,9 +62,9 @@ export type UserDetail = {
       lastName: string | null;
       isWalkIn: boolean;
     };
-    service: {
-      name: string;
-    };
+    services: {
+      service: { name: string };
+    }[];
   }[];
   schedules: {
     id: string;
@@ -138,7 +139,8 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
               updatedAt: true,
               _count: {
                 select: {
-                  appointments: { where: { salonId: authResult.salonId } },
+                  // Appointment count is derived separately (distinct appointments) below — a raw
+                  // appointmentServices count double-counts staff who do 2+ services in one booking.
                   sales: { where: { salonId: authResult.salonId } },
                 },
               },
@@ -148,6 +150,21 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
       }),
       prisma.userSalon.count({ where }),
     ]);
+
+    // Distinct appointment count per staff for this page, in ONE query. Counting
+    // AppointmentService rows would over-count a staff member who performs multiple services
+    // within the same appointment, so count DISTINCT appointments instead.
+    const userIds = userSalons.map((us) => us.user.id);
+    const apptCountRows =
+      userIds.length > 0
+        ? await prisma.$queryRaw<{ staffId: string; count: bigint }[]>`
+            SELECT "staffId", COUNT(DISTINCT "appointmentId") AS count
+            FROM "appointment_services"
+            WHERE "salonId" = ${authResult.salonId} AND "staffId" IN (${Prisma.join(userIds)})
+            GROUP BY "staffId"
+          `
+        : [];
+    const apptCountByStaff = new Map(apptCountRows.map((r) => [r.staffId, Number(r.count)]));
 
     const mappedUsers: UserListItem[] = userSalons.map((us) => ({
       id: us.user.id,
@@ -161,7 +178,7 @@ export async function getUsers(params: UserSearchParams = {}): Promise<ActionRes
       isActive: us.user.isActive,
       createdAt: us.user.createdAt,
       updatedAt: us.user.updatedAt,
-      _count: us.user._count,
+      _count: { appointments: apptCountByStaff.get(us.user.id) ?? 0, sales: us.user._count.sales },
     }));
 
     return {
@@ -202,23 +219,6 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
         isServiceProvider: true,
         createdAt: true,
         updatedAt: true,
-        appointments: {
-          where: { salonId: authResult.salonId },
-          orderBy: { startTime: "desc" },
-          take: 10,
-          select: {
-            id: true,
-            startTime: true,
-            endTime: true,
-            status: true,
-            client: {
-              select: { firstName: true, lastName: true, isWalkIn: true },
-            },
-            service: {
-              select: { name: true },
-            },
-          },
-        },
         schedules: {
           where: { salonId: authResult.salonId },
           orderBy: { dayOfWeek: "asc" },
@@ -232,7 +232,6 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
         },
         _count: {
           select: {
-            appointments: { where: { salonId: authResult.salonId } },
             sales: { where: { salonId: authResult.salonId } },
           },
         },
@@ -263,6 +262,33 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       return { success: false, error: "User has no role assigned" };
     }
 
+    // Staff history spans EVERY service this user performs, not only appointments where they
+    // are the primary provider — query through the per-service relation so secondary services
+    // still count toward their recent list and total.
+    const staffAppointmentWhere = {
+      salonId: authResult.salonId,
+      services: { some: { staffId: id } },
+    };
+    const [recentAppointments, appointmentCount] = await Promise.all([
+      prisma.appointment.findMany({
+        where: staffAppointmentWhere,
+        orderBy: { startTime: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          status: true,
+          client: { select: { firstName: true, lastName: true, isWalkIn: true } },
+          services: {
+            orderBy: { order: "asc" },
+            select: { service: { select: { name: true } } },
+          },
+        },
+      }),
+      prisma.appointment.count({ where: staffAppointmentWhere }),
+    ]);
+
     const result: UserDetail = {
       id: user.id,
       firstName: user.firstName,
@@ -277,9 +303,9 @@ export async function getUserById(id: string): Promise<ActionResult<UserDetail>>
       isServiceProvider: user.isServiceProvider,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-      appointments: user.appointments,
+      appointments: recentAppointments,
       schedules: user.schedules,
-      _count: user._count,
+      _count: { appointments: appointmentCount, sales: user._count.sales },
     };
 
     return { success: true, data: result };
@@ -689,7 +715,8 @@ export async function deleteUser(id: string): Promise<ActionResult> {
     include: {
       _count: {
         select: {
-          appointments: { where: { salonId: authResult.salonId } },
+          // Involvement in appointments is now via per-service assignments (no appointment.staffId).
+          appointmentServices: { where: { salonId: authResult.salonId } },
           sales: { where: { salonId: authResult.salonId } },
           recurringSeries: { where: { salonId: authResult.salonId } },
         },
@@ -728,7 +755,7 @@ export async function deleteUser(id: string): Promise<ActionResult> {
   }
 
   // Check for existing data - recommend deactivation instead
-  if (existingUser._count.appointments > 0 || existingUser._count.sales > 0 || existingUser._count.recurringSeries > 0) {
+  if (existingUser._count.appointmentServices > 0 || existingUser._count.sales > 0 || existingUser._count.recurringSeries > 0) {
     return {
       success: false,
       error: "This user has associated appointments, sales, or recurring series. Please deactivate the account instead of deleting.",

@@ -1,16 +1,13 @@
 import { auth } from "@/lib/auth";
 import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { getAppointment } from "@/lib/actions/appointment";
 import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
+import { getActiveServices } from "@/lib/actions/service";
 import { prisma } from "@/lib/prisma";
-import { getOrganizationSalonIds } from "@/lib/actions/branch";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -55,32 +52,10 @@ export default async function EditAppointmentPage({ params }: PageProps) {
     redirect("/dashboard/appointments");
   }
 
-  // Fetch clients, services, and staff for the form
-  // - Clients/services: org-scoped against the appointment's organization
-  // - Staff: scoped to the appointment's branch (so the currently assigned staff appears)
-  const orgSalonIds = await getOrganizationSalonIds(appointment.salonId);
-  const [clients, services, staffRows] = await Promise.all([
-    prisma.client.findMany({
-      where: { salonId: { in: orgSalonIds }, isActive: true },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-      },
-      orderBy: { firstName: "asc" },
-    }),
-    prisma.service.findMany({
-      where: { salonId: appointment.salonId, isActive: true },
-      select: {
-        id: true,
-        name: true,
-        duration: true,
-        price: true,
-        category: { select: { name: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
+  // Fetch staff + services for the form. The client picker searches the DB on demand (server-side),
+  // so we no longer load every client; services are a bounded menu loaded up front for the picker.
+  const [servicesResult, staffRows, settingsRow] = await Promise.all([
+    getActiveServices(appointment.salonId),
     // Resolve providers via branch membership (UserSalon) so staff assigned to
     // this branch are included even when it isn't their home branch.
     prisma.userSalon.findMany({
@@ -95,41 +70,32 @@ export default async function EditAppointmentPage({ params }: PageProps) {
       distinct: ["userId"],
       orderBy: { user: { firstName: "asc" } },
     }),
+    prisma.settings.findUnique({
+      where: { salonId: appointment.salonId },
+      select: { timezone: true },
+    }),
   ]);
+  const services = servicesResult.success ? servicesResult.data : [];
   const staff = staffRows.map((row) => row.user);
+  const timezone = settingsRow?.timezone || "UTC";
 
   return (
+    // The form renders its own header (back button + title/subtitle).
     <>
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/dashboard/appointments">
-              <ArrowLeft className="h-4 w-4" />
-              <span className="sr-only">Back to appointments</span>
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">Edit Appointment</h1>
-            <p className="text-muted-foreground">
-              Update appointment for {appointment.client.firstName}{appointment.client.lastName ? ` ${appointment.client.lastName}` : ""}{appointment.client.isWalkIn ? " (Walk-in)" : ""}
-            </p>
-          </div>
+      {!servicesResult.success && (
+        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-200">
+          Couldn&apos;t load the service menu, so the service picker will be empty — saving may drop
+          this appointment&apos;s services. You may not have permission to view services; ask an admin
+          before editing.
         </div>
-
-        <AppointmentForm
-          mode="edit"
-          appointment={appointment}
-          clients={clients}
-          services={services.map((s) => ({
-            id: s.id,
-            name: s.name,
-            duration: s.duration,
-            price: Number(s.price),
-            category: s.category?.name ?? null,
-          }))}
-          staff={staff}
-        />
-      </div>
+      )}
+      <AppointmentForm
+        mode="edit"
+        appointment={appointment}
+        services={services}
+        staff={staff}
+        timezone={timezone}
+      />
     </>
   );
 }

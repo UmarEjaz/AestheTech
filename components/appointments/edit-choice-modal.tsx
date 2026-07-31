@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { formatInTz } from "@/lib/utils/timezone";
 
 export type EditChoice = "this_only" | "all_future" | "all_in_series";
 
@@ -23,6 +24,7 @@ interface EditChoiceModalProps {
   onClose: () => void;
   onChoice: (choice: EditChoice) => void;
   appointmentDate?: Date;
+  timezone?: string;
   isLoading?: boolean;
   showAllInSeries?: boolean; // Show option to edit all appointments in series (past + future)
 }
@@ -32,6 +34,7 @@ export function EditChoiceModal({
   onClose,
   onChoice,
   appointmentDate,
+  timezone = "UTC",
   isLoading = false,
   showAllInSeries = false,
 }: EditChoiceModalProps) {
@@ -75,7 +78,7 @@ export function EditChoiceModal({
                 This occurrence only
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Edit only the appointment{appointmentDate ? ` on ${appointmentDate.toLocaleDateString()}` : ""}.
+                Edit only the appointment{appointmentDate ? ` on ${formatInTz(appointmentDate, "PP", timezone)}` : ""}.
                 Other appointments in the series will not be affected.
               </p>
             </Label>

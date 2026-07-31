@@ -1,5 +1,7 @@
 "use server";
 
+import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -64,30 +66,56 @@ export type SalonDetail = {
 /**
  * Get all salons (SUPER_ADMIN only).
  */
-export async function getSalons(): Promise<ActionResult<SalonListItem[]>> {
+export async function getSalons(
+  params: { query?: string; page?: number; limit?: number } = {}
+): Promise<ActionResult<{ salons: SalonListItem[]; total: number; page: number; totalPages: number }>> {
   const session = await auth();
-  if (!session?.user?.isPlatformAdmin) {
+  if (!session?.user?.isSuperAdmin) {
     return { success: false, error: "Unauthorized" };
   }
 
-  try {
-    const salons = await prisma.salon.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        subscriptionStatus: true,
-        subscriptionPlan: true,
-        isActive: true,
-        createdAt: true,
-        _count: {
-          select: { users: true },
-        },
-      },
-    });
+  // Paginate + server-side search so this scales to thousands of salons instead of
+  // loading every row into the platform admin table at once.
+  const page = Number.isInteger(params.page) && params.page! > 0 ? params.page! : 1;
+  const limit = Number.isInteger(params.limit) && params.limit! > 0 ? Math.min(params.limit!, 100) : 20;
+  const skip = (page - 1) * limit;
+  const q = params.query?.trim();
+  const where: Prisma.SalonWhereInput = q
+    ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { slug: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {};
 
-    return { success: true, data: salons };
+  try {
+    const [salons, total] = await Promise.all([
+      prisma.salon.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          subscriptionStatus: true,
+          subscriptionPlan: true,
+          isActive: true,
+          createdAt: true,
+          _count: {
+            select: { users: true },
+          },
+        },
+      }),
+      prisma.salon.count({ where }),
+    ]);
+
+    return {
+      success: true,
+      data: { salons, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
   } catch {
     return { success: false, error: "Failed to fetch salons" };
   }
@@ -138,7 +166,7 @@ export type PlatformStats = {
  */
 export async function getPlatformStats(): Promise<ActionResult<PlatformStats>> {
   const session = await auth();
-  if (!session?.user?.isPlatformAdmin) {
+  if (!session?.user?.isSuperAdmin) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -268,7 +296,7 @@ export async function getSalonById(
   id: string
 ): Promise<ActionResult<SalonDetail>> {
   const session = await auth();
-  if (!session?.user?.isPlatformAdmin) {
+  if (!session?.user?.isSuperAdmin) {
     return { success: false, error: "Unauthorized" };
   }
 
@@ -320,6 +348,22 @@ export async function getSalonById(
   }
 }
 
+// Validate the salon payload before persisting (coding-guideline: validate all user inputs).
+const createSalonSchema = z.object({
+  name: z.string().trim().min(1, "Salon name is required").max(100),
+  slug: z
+    .string()
+    .trim()
+    .min(1, "Slug is required")
+    .max(60)
+    .regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
+  email: z.string().trim().email("Invalid email").optional().or(z.literal("")),
+  phone: z.string().trim().max(30).optional().or(z.literal("")),
+  address: z.string().trim().max(200).optional().or(z.literal("")),
+  subscriptionPlan: z.string().trim().max(40).optional().or(z.literal("")),
+  timezone: z.string().trim().optional().or(z.literal("")),
+});
+
 /**
  * Create a new salon (SUPER_ADMIN only).
  */
@@ -330,10 +374,28 @@ export async function createSalon(data: {
   phone?: string;
   address?: string;
   subscriptionPlan?: string;
+  timezone?: string;
 }): Promise<ActionResult<{ id: string }>> {
   const session = await auth();
-  if (!session?.user?.isPlatformAdmin) {
+  if (!session?.user?.isSuperAdmin) {
     return { success: false, error: "Unauthorized" };
+  }
+
+  const parsed = createSalonSchema.safeParse(data);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0].message };
+  }
+  data = parsed.data;
+
+  // Validate the timezone (accepts "UTC" and all IANA zones); default to UTC.
+  let timezone = "UTC";
+  if (data.timezone) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: data.timezone });
+      timezone = data.timezone;
+    } catch {
+      return { success: false, error: "Invalid timezone" };
+    }
   }
 
   try {
@@ -366,6 +428,7 @@ export async function createSalon(data: {
               salonEmail: data.email || null,
               salonPhone: data.phone || null,
               salonAddress: data.address || null,
+              timezone,
             },
           },
         },
@@ -410,7 +473,7 @@ export async function setSalonMaxStaff(
   maxStaff: number | null
 ): Promise<ActionResult<{ maxStaff: number | null }>> {
   const session = await auth();
-  if (!session?.user?.isPlatformAdmin) {
+  if (!session?.user?.isSuperAdmin) {
     return { success: false, error: "Unauthorized" };
   }
 
