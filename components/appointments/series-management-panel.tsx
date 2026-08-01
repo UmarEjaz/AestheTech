@@ -16,7 +16,6 @@ import {
   Clock,
   User,
   Scissors,
-  CalendarOff,
   Loader2,
   ChevronDown,
   ChevronUp,
@@ -342,7 +341,6 @@ export function SeriesManagementPanel({
 
               {/* Exception Dates - Compact */}
               <ExceptionDatesManager
-                seriesId={series.id}
                 exceptions={series.exceptions}
                 onAddException={handleAddException}
                 onRemoveException={handleRemoveException}
@@ -543,7 +541,6 @@ export function SeriesManagementPanel({
 
           {/* Exception Dates Manager */}
           <ExceptionDatesManager
-            seriesId={series.id}
             exceptions={series.exceptions}
             onAddException={handleAddException}
             onRemoveException={handleRemoveException}

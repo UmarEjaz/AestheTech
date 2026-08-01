@@ -316,37 +316,3 @@ export function ConflictResolutionUI({
     </Card>
   );
 }
-
-// Helper to create a preview of conflict resolution results
-export function ConflictSummary({
-  totalDates,
-  successfulDates,
-  conflictDates,
-  skippedDates,
-}: {
-  totalDates: number;
-  successfulDates: number;
-  conflictDates: number;
-  skippedDates: number;
-}) {
-  return (
-    <div className="flex items-center gap-4 text-sm">
-      <div className="flex items-center gap-1">
-        <div className="h-2 w-2 rounded-full bg-green-500" />
-        <span>{successfulDates} scheduled</span>
-      </div>
-      {conflictDates > 0 && (
-        <div className="flex items-center gap-1">
-          <div className="h-2 w-2 rounded-full bg-yellow-500" />
-          <span>{conflictDates} conflicts</span>
-        </div>
-      )}
-      {skippedDates > 0 && (
-        <div className="flex items-center gap-1">
-          <div className="h-2 w-2 rounded-full bg-red-500" />
-          <span>{skippedDates} skipped</span>
-        </div>
-      )}
-    </div>
-  );
-}

@@ -32,7 +32,6 @@ interface ExceptionDate {
 }
 
 interface ExceptionDatesManagerProps {
-  seriesId: string;
   exceptions: ExceptionDate[];
   onAddException: (date: Date, reason?: string) => Promise<{ success: boolean; error?: string }>;
   onRemoveException: (exceptionId: string) => Promise<{ success: boolean; error?: string }>;
@@ -42,7 +41,6 @@ interface ExceptionDatesManagerProps {
 }
 
 export function ExceptionDatesManager({
-  seriesId,
   exceptions,
   onAddException,
   onRemoveException,

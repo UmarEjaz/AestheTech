@@ -157,17 +157,6 @@ async function checkScheduleConflictTx(
   return { hasConflict: false };
 }
 
-// Convenience wrapper that uses the default prisma client
-async function checkScheduleConflict(
-  staffId: string,
-  dayOfWeek: number,
-  startTime: string,
-  endTime: string,
-  excludeId?: string
-) {
-  return checkScheduleConflictTx(prisma, staffId, dayOfWeek, startTime, endTime, excludeId);
-}
-
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
