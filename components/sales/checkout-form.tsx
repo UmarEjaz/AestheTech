@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Search,
   Plus,
   Minus,
   Trash2,
@@ -18,7 +17,6 @@ import {
   Receipt,
   Percent,
   Package,
-  AlertTriangle,
   ChevronsUpDown,
   Check,
   MoreHorizontal,

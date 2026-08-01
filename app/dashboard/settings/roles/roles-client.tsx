@@ -194,7 +194,7 @@ export function RolesPageClient({ roles, initialPermData, canManageRoles, canMan
   }, [modules]);
 
   const isPermDisabled = useCallback(
-    (code: string) => {
+    (_code: string) => {
       if (isReadOnly) return true;
       return false;
     },

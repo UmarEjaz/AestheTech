@@ -5,7 +5,7 @@ import { generateICalendar, generateRRule } from "@/lib/utils/ical";
 import { hasPermission } from "@/lib/permissions";
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {

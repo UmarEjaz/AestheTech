@@ -1,5 +1,3 @@
-import { format } from "date-fns";
-
 interface ICalEvent {
   uid: string;
   summary: string;
@@ -36,13 +34,6 @@ function formatICalDateTime(date: Date): string {
   const minutes = String(date.getUTCMinutes()).padStart(2, "0");
   const seconds = String(date.getUTCSeconds()).padStart(2, "0");
   return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
-}
-
-/**
- * Format a date to iCal date format
- */
-function formatICalDate(date: Date): string {
-  return format(date, "yyyyMMdd");
 }
 
 /**
