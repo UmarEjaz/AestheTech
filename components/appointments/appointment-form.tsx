@@ -182,6 +182,8 @@ interface AppointmentFormProps {
   services: Service[];
   staff: Staff[];
   initialDate?: Date;
+  /** Pre-select this provider on the first service line (e.g. when booking from a staff lane). */
+  initialStaffId?: string;
   defaultBookingMode?: BookingMode;
   timezone?: string;
   /** Whether the current user may take payments (sales:create). Hides the deposit toggle if not. */
@@ -194,6 +196,7 @@ export function AppointmentForm({
   services,
   staff,
   initialDate,
+  initialStaffId,
   defaultBookingMode = "APPOINTMENT",
   timezone = "UTC",
   canTakeDeposit = false,
@@ -325,7 +328,7 @@ export function AppointmentForm({
   const [serviceLines, setServiceLines] = useState<{ serviceId: string; staffId: string }[]>(
     appointment && appointment.services.length > 0
       ? appointment.services.map((s) => ({ serviceId: s.service.id, staffId: s.staff.id }))
-      : [{ serviceId: "", staffId: "" }]
+      : [{ serviceId: "", staffId: initialStaffId ?? "" }]
   );
   const [servicesError, setServicesError] = useState<string | null>(null);
 

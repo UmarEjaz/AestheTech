@@ -9,7 +9,7 @@ import { getActiveServices } from "@/lib/actions/service";
 import { prisma } from "@/lib/prisma";
 
 interface PageProps {
-  searchParams: Promise<{ startTime?: string }>;
+  searchParams: Promise<{ startTime?: string; staffId?: string }>;
 }
 
 export default async function NewAppointmentPage({ searchParams }: PageProps) {
@@ -74,6 +74,9 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
 
   // Parse initial date from URL if provided
   const initialDate = params.startTime ? new Date(params.startTime) : undefined;
+  // Pre-select a provider when booking from a staff lane (only if they're a valid provider here).
+  const initialStaffId =
+    params.staffId && staff.some((m) => m.id === params.staffId) ? params.staffId : undefined;
 
   return (
     // The form renders its own header (title/subtitle react to the Walk-in ⇄ Appointment toggle).
@@ -89,6 +92,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
         services={services}
         staff={staff}
         initialDate={initialDate}
+        initialStaffId={initialStaffId}
         defaultBookingMode={defaultBookingMode}
         timezone={timezone}
         canTakeDeposit={canTakeDeposit}

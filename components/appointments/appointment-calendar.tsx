@@ -2,6 +2,7 @@
 
 import {
   useState,
+  useEffect,
   useCallback,
   useRef,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -18,7 +19,6 @@ import { TZDate } from "@date-fns/tz";
 import { addMinutes, addDays } from "date-fns";
 import { formatInTz } from "@/lib/utils/timezone";
 import { EventClickArg, DatesSetArg, EventDropArg } from "@fullcalendar/core";
-import { AppointmentStatus } from "@prisma/client";
 import { AppointmentListItem, getAppointmentsForCalendar, rescheduleAppointment } from "@/lib/actions/appointment";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,12 +30,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AppointmentDetailModal } from "./appointment-detail-modal";
+import { StaffLaneGrid } from "./staff-lane-grid";
+import {
+  STATUS_COLORS,
+  STATUS_LABELS,
+  STATUS_ORDER,
+  DRAGGABLE_STATUSES,
+} from "./appointment-visuals";
 
-const CALENDAR_VIEWS = [
-  { key: "dayGridMonth", label: "month" },
-  { key: "timeGridWeek", label: "week" },
-  { key: "timeGridDay", label: "day" },
+// Time span, shared by both view types. For the normal calendar each span maps to a FullCalendar
+// view; the Staff (lane) view uses only week/day (month has no lane form).
+const SPANS = [
+  { key: "month", label: "month", fcView: "dayGridMonth" },
+  { key: "week", label: "week", fcView: "timeGridWeek" },
+  { key: "day", label: "day", fcView: "timeGridDay" },
 ] as const;
+type SpanKey = (typeof SPANS)[number]["key"];
 
 interface AppointmentCalendarProps {
   initialAppointments: AppointmentListItem[];
@@ -49,29 +59,6 @@ interface AppointmentCalendarProps {
   timezone: string;
   currencyCode: string;
 }
-
-const STATUS_COLORS: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
-  SCHEDULED: { bg: "bg-blue-100 dark:bg-blue-900/30", border: "border-blue-500", text: "text-blue-800 dark:text-blue-200" },
-  CONFIRMED: { bg: "bg-violet-100 dark:bg-violet-900/30", border: "border-violet-500", text: "text-violet-800 dark:text-violet-200" },
-  IN_PROGRESS: { bg: "bg-amber-100 dark:bg-amber-900/30", border: "border-amber-500", text: "text-amber-800 dark:text-amber-200" },
-  COMPLETED: { bg: "bg-green-100 dark:bg-green-900/30", border: "border-green-500", text: "text-green-800 dark:text-green-200" },
-  CANCELLED: { bg: "bg-red-100 dark:bg-red-900/30", border: "border-red-400", text: "text-red-600 dark:text-red-400" },
-  NO_SHOW: { bg: "bg-orange-100 dark:bg-orange-900/30", border: "border-orange-400", text: "text-orange-600 dark:text-orange-400" },
-};
-
-// Human labels for the status color legend shown under the calendar.
-const STATUS_LABELS: Record<AppointmentStatus, string> = {
-  SCHEDULED: "Scheduled",
-  CONFIRMED: "Confirmed",
-  IN_PROGRESS: "In progress",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
-  NO_SHOW: "No-show",
-};
-const STATUS_ORDER: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"];
-
-// Statuses that allow dragging (defined outside component to avoid recreation on each render)
-const DRAGGABLE_STATUSES: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED"];
 
 export function AppointmentCalendar({
   initialAppointments,
@@ -92,7 +79,8 @@ export function AppointmentCalendar({
   const [staffFilter, setStaffFilter] = useState<string>("all");
   // Driven by datesSet so our custom toolbar stays in sync with the calendar.
   const [viewTitle, setViewTitle] = useState("");
-  const [currentView, setCurrentView] = useState("timeGridWeek");
+  const [viewType, setViewType] = useState<"calendar" | "staff">("calendar");
+  const [span, setSpan] = useState<SpanKey>("week");
 
   const calendarApi = () => calendarRef.current?.getApi();
   // Date nav, staff filter, and modal refreshes all fetch concurrently. Stamp each fetch with a
@@ -105,8 +93,89 @@ export function AppointmentCalendar({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentViewDates, setCurrentViewDates] = useState<{ start: Date; end: Date } | null>(null);
 
+  // ── Per-staff lane view (custom-rendered, not a FullCalendar view) ──────────────
+  const isLaneView = viewType === "staff";
+  // Staff view supports only day/week spans (month has no lane form).
+  const laneSpan: "day" | "week" = span === "week" ? "week" : "day";
+  const [laneDate, setLaneDate] = useState<Date>(() => new Date());
+  const [laneAppointments, setLaneAppointments] = useState<AppointmentListItem[]>([]);
+  const [laneRefreshKey, setLaneRefreshKey] = useState(0);
+  const [laneLoading, setLaneLoading] = useState(false);
+  const laneSeqRef = useRef(0);
+
+  // The Sunday–Saturday salon-tz week containing laneDate (used for week span fetch + title).
+  const laneWeek = (() => {
+    const anchor = new TZDate(laneDate.getTime(), timezone);
+    const start = new TZDate(addDays(anchor, -anchor.getDay()).getTime(), timezone);
+    start.setHours(0, 0, 0, 0);
+    const end = new TZDate(addDays(start, 6).getTime(), timezone);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  })();
+
+  const laneTitle = laneSpan === "week"
+    ? `${formatInTz(laneWeek.start, "MMM d", timezone)} – ${formatInTz(laneWeek.end, "MMM d, yyyy", timezone)}`
+    : formatInTz(laneDate, "EEE, MMM d, yyyy", timezone);
+  const laneStep = laneSpan === "week" ? 7 : 1;
+
+  // Fetch the lane view's appointments (one day, or the whole week) — kept in its own state so
+  // switching between the FullCalendar views and the lane view never clobbers the other's data.
+  useEffect(() => {
+    if (!isLaneView) return;
+    let rangeStart: Date;
+    let rangeEnd: Date;
+    if (laneSpan === "week") {
+      rangeStart = new Date(laneWeek.start.getTime());
+      rangeEnd = new Date(laneWeek.end.getTime());
+    } else {
+      const dayStart = new TZDate(laneDate.getTime(), timezone);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new TZDate(laneDate.getTime(), timezone);
+      dayEnd.setHours(23, 59, 59, 999);
+      rangeStart = new Date(dayStart.getTime());
+      rangeEnd = new Date(dayEnd.getTime());
+    }
+    const seq = ++laneSeqRef.current;
+    setLaneLoading(true);
+    // Lane view always shows every provider as a column, so it ignores the staff filter (which is
+    // hidden in this view) and fetches all appointments in range.
+    getAppointmentsForCalendar({
+      startDate: rangeStart,
+      endDate: rangeEnd,
+    }).then((result) => {
+      if (seq !== laneSeqRef.current) return;
+      setLaneLoading(false);
+      if (result.success) setLaneAppointments(result.data);
+      else toast.error(result.error || "Couldn't load appointments for the lane view.");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLaneView, span, laneDate, timezone, laneRefreshKey]);
+
+  const openAppointment = (id: string) => {
+    setSelectedAppointmentId(id);
+    setIsModalOpen(true);
+  };
+  const bookInLane = (staffId: string, startISO: string) => {
+    router.push(
+      `/dashboard/appointments/new?startTime=${encodeURIComponent(startISO)}&staffId=${staffId}`
+    );
+  };
+  // Drag-drop in a lane: reschedule to the drop time and (if the lane changed) reassign the primary
+  // provider. rescheduleAppointment conflict-checks + is serializable; on any failure we refetch so
+  // the block snaps back to the truth.
+  const rescheduleInLane = async (apptId: string, staffId: string, startISO: string) => {
+    const result = await rescheduleAppointment(apptId, {
+      startTime: new Date(startISO),
+      staffId,
+    });
+    if (result.success) toast.success("Appointment rescheduled");
+    else toast.error(result.error || "Couldn't reschedule this appointment.");
+    setLaneRefreshKey((k) => k + 1);
+  };
+
+  // Search both view sources so the details drawer opens for a lane-view appointment too.
   const selectedAppointment =
-    appointments.find((apt) => apt.id === selectedAppointmentId) ?? null;
+    [...appointments, ...laneAppointments].find((apt) => apt.id === selectedAppointmentId) ?? null;
 
   // Convert appointments to FullCalendar events
   const events = appointments.map((apt) => {
@@ -143,7 +212,6 @@ export function AppointmentCalendar({
     async (arg: DatesSetArg) => {
       setCurrentViewDates({ start: arg.start, end: arg.end });
       setViewTitle(arg.view.title);
-      setCurrentView(arg.view.type);
 
       const seq = ++fetchSeqRef.current;
       const result = await getAppointmentsForCalendar({
@@ -365,6 +433,12 @@ export function AppointmentCalendar({
     setSelectedAppointmentId(null);
   };
 
+  // Refresh BOTH view sources after a modal mutation, so whichever view is active shows fresh data.
+  const handleDataChange = useCallback(async () => {
+    await refreshAppointments();
+    setLaneRefreshKey((k) => k + 1);
+  }, [refreshAppointments]);
+
   return (
     <div
       ref={containerRef}
@@ -544,7 +618,8 @@ export function AppointmentCalendar({
       <div className="mb-4 flex flex-col gap-3 sm:grid sm:grid-cols-3 sm:items-center">
         {/* Left: staff filter */}
         <div className="flex items-center gap-2 sm:justify-self-start">
-          {staff.length > 0 && (
+          {/* Staff filter is redundant in the lane view (each provider already has its own column). */}
+          {!isLaneView && staff.length > 0 && (
             <>
               <span className="hidden text-sm font-medium text-foreground sm:inline">Staff</span>
               <Select value={staffFilter} onValueChange={handleStaffFilterChange}>
@@ -566,42 +641,79 @@ export function AppointmentCalendar({
 
         {/* Center: date flanked by prev/next so the arrows read as "move the date". */}
         <div className="order-first flex items-center justify-center gap-2 sm:order-none sm:justify-self-center">
-          <Button size="icon" className="h-8 w-8" onClick={() => calendarApi()?.prev()} aria-label="Previous">
+          <Button
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => (isLaneView ? setLaneDate((d) => addDays(d, -laneStep)) : calendarApi()?.prev())}
+            aria-label="Previous"
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="min-w-[9.5rem] text-center text-lg font-semibold">{viewTitle}</span>
-          <Button size="icon" className="h-8 w-8" onClick={() => calendarApi()?.next()} aria-label="Next">
+          <span className="min-w-[9.5rem] text-center text-lg font-semibold">
+            {isLaneView ? laneTitle : viewTitle}
+          </span>
+          <Button
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => (isLaneView ? setLaneDate((d) => addDays(d, laneStep)) : calendarApi()?.next())}
+            aria-label="Next"
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
 
         {/* Right: today + view switcher */}
         <div className="flex items-center gap-3 sm:justify-self-end">
-          <Button variant="secondary" onClick={() => calendarApi()?.today()}>
+          <Button variant="secondary" onClick={() => (isLaneView ? setLaneDate(new Date()) : calendarApi()?.today())}>
             today
           </Button>
+          {/* View TYPE: normal calendar vs per-staff lanes */}
           <div className="inline-flex overflow-hidden rounded-md border">
-            {CALENDAR_VIEWS.map((v) => (
+            {(["calendar", "staff"] as const).map((t) => (
               <button
-                key={v.key}
+                key={t}
                 type="button"
                 onClick={() => {
-                  calendarApi()?.changeView(v.key);
-                  setCurrentView(v.key);
+                  if (t === "calendar") {
+                    // Restore the FullCalendar view matching the current span.
+                    const fc = SPANS.find((s) => s.key === span)?.fcView ?? "timeGridWeek";
+                    calendarApi()?.changeView(fc);
+                  } else if (span === "month") {
+                    // Lanes have no month form — fall back to day.
+                    setSpan("day");
+                  }
+                  setViewType(t);
                 }}
                 className={`px-3 py-1.5 text-sm capitalize transition-colors ${
-                  currentView === v.key
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background hover:bg-muted"
+                  viewType === t ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"
                 }`}
               >
-                {v.label}
+                {t}
+              </button>
+            ))}
+          </div>
+          {/* SPAN: shared by both. Month is hidden in Staff view (lanes are day/week only). */}
+          <div className="inline-flex overflow-hidden rounded-md border">
+            {SPANS.filter((s) => !(isLaneView && s.key === "month")).map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => {
+                  setSpan(s.key);
+                  if (!isLaneView) calendarApi()?.changeView(s.fcView);
+                }}
+                className={`px-3 py-1.5 text-sm capitalize transition-colors ${
+                  span === s.key ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"
+                }`}
+              >
+                {s.label}
               </button>
             ))}
           </div>
         </div>
       </div>
 
+      <div className={isLaneView ? "hidden" : undefined}>
       <FullCalendar
         ref={calendarRef}
         timeZone={timezone}
@@ -667,6 +779,25 @@ export function AppointmentCalendar({
         dayMaxEvents={3}
         weekends={true}
       />
+      </div>
+
+      {isLaneView && (
+        <StaffLaneGrid
+          appointments={laneAppointments}
+          staff={staff}
+          date={laneDate}
+          span={laneSpan}
+          businessHoursStart={businessHoursStart}
+          businessHoursEnd={businessHoursEnd}
+          timezone={timezone}
+          canCreate={canCreate}
+          canDrag={canUpdate}
+          loading={laneLoading}
+          onSelectAppointment={openAppointment}
+          onBookSlot={bookInLane}
+          onReschedule={rescheduleInLane}
+        />
+      )}
 
       {/* Status color legend */}
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t pt-3 text-xs text-muted-foreground">
@@ -685,7 +816,7 @@ export function AppointmentCalendar({
           appointment={selectedAppointment}
           isOpen={isModalOpen}
           onClose={handleModalClose}
-          onDataChange={refreshAppointments}
+          onDataChange={handleDataChange}
           canUpdate={canUpdate}
           canCancel={canCancel}
           canDelete={canDelete}
