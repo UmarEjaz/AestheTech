@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -72,10 +73,17 @@ export function StaffLaneGrid({
   const [drag, setDrag] = useState<{
     apptId: string;
     durationMin: number;
+    origin: { dayKey: string; staffId: string; slotIndex: number };
     target: { dayKey: string; staffId: string; slotIndex: number } | null;
   } | null>(null);
   // Keyboard cursor: which (column, slot) is highlighted for arrow-key navigation + Enter-to-book.
   const [cursor, setCursor] = useState<{ col: number; slot: number } | null>(null);
+  // Re-render once a minute so the "now" line and today highlight keep tracking real time.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const startMin = toMinutes(businessHoursStart);
   const endMin = toMinutes(businessHoursEnd);
@@ -130,6 +138,18 @@ export function StaffLaneGrid({
   const nowTop = ((nowMin - startMin) / SLOT_MIN) * ROW_H;
   const firstTodayColIndex = columns.findIndex((c) => c.dayKey === todayKey);
 
+  // Text spoken by screen readers as the keyboard cursor moves (silent/invisible to sighted users).
+  // Tells them which provider + time is selected, so Enter never books an unknown slot.
+  const cursorLabel = (() => {
+    if (!cursor) return "";
+    const c = columns[cursor.col];
+    if (!c) return "";
+    const abs = startMin + cursor.slot * SLOT_MIN;
+    const [y, m, d] = c.dayKey.split("-").map(Number);
+    const cd = new TZDate(y, m - 1, d, Math.floor(abs / 60), abs % 60, timezone);
+    return `${c.staff.firstName} ${c.staff.lastName}, ${formatInTz(cd, "EEE MMM d, h:mm a", timezone)}`;
+  })();
+
   const hourLabels = useMemo(() => {
     const [y, m, d] = dayKeys[0].split("-").map(Number);
     const labels: { top: number; text: string }[] = [];
@@ -174,7 +194,13 @@ export function StaffLaneGrid({
         }))
       : [];
     const durationMin = seg.appointment.services.reduce((s, x) => s + x.duration, 0) || SLOT_MIN;
-    setDrag({ apptId: seg.appointment.id, durationMin, target: null });
+    // Remember where this block started so a drop back on the same spot is a no-op (see endDrag).
+    const origin = {
+      dayKey: formatInTz(seg.start, "yyyy-MM-dd", timezone),
+      staffId: seg.staffId,
+      slotIndex: Math.round((minutesOfDay(seg.start) - startMin) / SLOT_MIN),
+    };
+    setDrag({ apptId: seg.appointment.id, durationMin, origin, target: null });
   };
   const moveDrag = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag) return;
@@ -193,8 +219,18 @@ export function StaffLaneGrid({
     const d = drag;
     setDrag(null);
     if (!d || !d.target || !onReschedule) return;
-    onReschedule(d.apptId, d.target.staffId, slotStart(d.target.dayKey, d.target.slotIndex));
+    const t = d.target;
+    // Dropped back on the same lane + slot → nothing changed, so skip the server round-trip
+    // (which would otherwise run a transaction, write an audit entry, and bust the cache).
+    if (t.dayKey === d.origin.dayKey && t.staffId === d.origin.staffId && t.slotIndex === d.origin.slotIndex) {
+      return;
+    }
+    onReschedule(d.apptId, t.staffId, slotStart(t.dayKey, t.slotIndex));
   };
+  // Pointer cancelled (touch interruption, context menu, gesture takeover) — pointerup never fires,
+  // so just clear the drag visuals. Do NOT reschedule: the drag never completed, and the appointment
+  // was never actually moved (only the faded block + drop preview were shown).
+  const cancelDrag = () => setDrag(null);
 
   // Arrow-key navigation over the slot grid, Enter to book — parity with the FullCalendar views.
   // (Keys from a focused appointment block bubble here too; ignore those so Enter still opens it.)
@@ -232,9 +268,14 @@ export function StaffLaneGrid({
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       )}
+      {/* Screen-reader-only live region: announces the selected provider + time as the cursor moves.
+          (No role="grid" — this custom grid has no row/cell structure, so that role would mislead
+          assistive tech; the live region conveys the active cell instead.) */}
+      <div className="sr-only" aria-live="polite" role="status">
+        {cursorLabel}
+      </div>
       <div
         ref={gridRef}
-        role="grid"
         aria-label="Staff schedule. Use arrow keys to move between time slots and Enter to book."
         tabIndex={0}
         onKeyDown={handleKeyDown}
@@ -394,6 +435,7 @@ export function StaffLaneGrid({
                       onPointerDown={draggable ? (e) => beginDrag(e, seg) : undefined}
                       onPointerMove={draggable ? moveDrag : undefined}
                       onPointerUp={draggable ? endDrag : undefined}
+                      onPointerCancel={draggable ? cancelDrag : undefined}
                       aria-label={`${clientName}, ${formatInTz(seg.start, "h:mm a", timezone)}, ${seg.serviceName}, ${seg.appointment.status.toLowerCase().replace("_", " ")}`}
                       className={`absolute left-0.5 right-0.5 overflow-hidden rounded border-l-4 px-1 py-0.5 text-left text-[0.7rem] leading-tight shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${colors.bg} ${colors.border} ${colors.text} ${draggable ? "cursor-grab active:cursor-grabbing" : ""} ${dimmed ? "z-[4] opacity-60" : "z-[5]"}`}
                       style={{ top, height, opacity: isDragging ? 0.4 : undefined }}

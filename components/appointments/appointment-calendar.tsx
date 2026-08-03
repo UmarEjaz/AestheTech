@@ -117,6 +117,14 @@ export function AppointmentCalendar({
     ? `${formatInTz(laneWeek.start, "MMM d", timezone)} – ${formatInTz(laneWeek.end, "MMM d, yyyy", timezone)}`
     : formatInTz(laneDate, "EEE, MMM d, yyyy", timezone);
   const laneStep = laneSpan === "week" ? 7 : 1;
+  // Step laneDate by whole SALON-timezone days. Browser-local addDays could repeat or skip a day
+  // across a salon daylight-saving transition, since the grid derives its day keys in the salon tz.
+  const stepLaneDate = (days: number) =>
+    setLaneDate((d) => {
+      const t = new TZDate(d.getTime(), timezone);
+      t.setDate(t.getDate() + days);
+      return new Date(t.getTime());
+    });
 
   // Fetch the lane view's appointments (one day, or the whole week) — kept in its own state so
   // switching between the FullCalendar views and the lane view never clobbers the other's data.
@@ -142,12 +150,20 @@ export function AppointmentCalendar({
     getAppointmentsForCalendar({
       startDate: rangeStart,
       endDate: rangeEnd,
-    }).then((result) => {
-      if (seq !== laneSeqRef.current) return;
-      setLaneLoading(false);
-      if (result.success) setLaneAppointments(result.data);
-      else toast.error(result.error || "Couldn't load appointments for the lane view.");
-    });
+    })
+      .then((result) => {
+        if (seq !== laneSeqRef.current) return;
+        setLaneLoading(false);
+        if (result.success) setLaneAppointments(result.data);
+        else toast.error(result.error || "Couldn't load appointments for the lane view.");
+      })
+      .catch(() => {
+        // Transport / server-action rejection (not a handled ActionResult) — never leave the
+        // spinner stuck, and tell the user something went wrong.
+        if (seq !== laneSeqRef.current) return;
+        setLaneLoading(false);
+        toast.error("Couldn't load appointments for the lane view.");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLaneView, span, laneDate, timezone, laneRefreshKey]);
 
@@ -164,13 +180,19 @@ export function AppointmentCalendar({
   // provider. rescheduleAppointment conflict-checks + is serializable; on any failure we refetch so
   // the block snaps back to the truth.
   const rescheduleInLane = async (apptId: string, staffId: string, startISO: string) => {
-    const result = await rescheduleAppointment(apptId, {
-      startTime: new Date(startISO),
-      staffId,
-    });
-    if (result.success) toast.success("Appointment rescheduled");
-    else toast.error(result.error || "Couldn't reschedule this appointment.");
-    setLaneRefreshKey((k) => k + 1);
+    try {
+      const result = await rescheduleAppointment(apptId, {
+        startTime: new Date(startISO),
+        staffId,
+      });
+      if (result.success) toast.success("Appointment rescheduled");
+      else toast.error(result.error || "Couldn't reschedule this appointment.");
+    } catch {
+      // Transport / server-action rejection — show an error; the finally refetch snaps the block back.
+      toast.error("Couldn't reschedule this appointment.");
+    } finally {
+      setLaneRefreshKey((k) => k + 1);
+    }
   };
 
   // Search both view sources so the details drawer opens for a lane-view appointment too.
@@ -644,7 +666,7 @@ export function AppointmentCalendar({
           <Button
             size="icon"
             className="h-8 w-8"
-            onClick={() => (isLaneView ? setLaneDate((d) => addDays(d, -laneStep)) : calendarApi()?.prev())}
+            onClick={() => (isLaneView ? stepLaneDate(-laneStep) : calendarApi()?.prev())}
             aria-label="Previous"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -655,7 +677,7 @@ export function AppointmentCalendar({
           <Button
             size="icon"
             className="h-8 w-8"
-            onClick={() => (isLaneView ? setLaneDate((d) => addDays(d, laneStep)) : calendarApi()?.next())}
+            onClick={() => (isLaneView ? stepLaneDate(laneStep) : calendarApi()?.next())}
             aria-label="Next"
           >
             <ChevronRight className="h-4 w-4" />
@@ -668,19 +690,26 @@ export function AppointmentCalendar({
             today
           </Button>
           {/* View TYPE: normal calendar vs per-staff lanes */}
-          <div className="inline-flex overflow-hidden rounded-md border">
+          <div className="inline-flex overflow-hidden rounded-md border" role="group" aria-label="View type">
             {(["calendar", "staff"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
+                aria-pressed={viewType === t}
                 onClick={() => {
                   if (t === "calendar") {
-                    // Restore the FullCalendar view matching the current span.
+                    // Restore the FullCalendar view for the current span, and carry the Staff date
+                    // over so the calendar stays on the date the user was looking at.
                     const fc = SPANS.find((s) => s.key === span)?.fcView ?? "timeGridWeek";
-                    calendarApi()?.changeView(fc);
-                  } else if (span === "month") {
+                    const api = calendarApi();
+                    api?.changeView(fc);
+                    api?.gotoDate(laneDate);
+                  } else {
+                    // Entering Staff: start from the date the calendar is currently showing.
+                    const current = calendarApi()?.getDate();
+                    if (current) setLaneDate(current);
                     // Lanes have no month form — fall back to day.
-                    setSpan("day");
+                    if (span === "month") setSpan("day");
                   }
                   setViewType(t);
                 }}
@@ -693,11 +722,12 @@ export function AppointmentCalendar({
             ))}
           </div>
           {/* SPAN: shared by both. Month is hidden in Staff view (lanes are day/week only). */}
-          <div className="inline-flex overflow-hidden rounded-md border">
+          <div className="inline-flex overflow-hidden rounded-md border" role="group" aria-label="Time span">
             {SPANS.filter((s) => !(isLaneView && s.key === "month")).map((s) => (
               <button
                 key={s.key}
                 type="button"
+                aria-pressed={span === s.key}
                 onClick={() => {
                   setSpan(s.key);
                   if (!isLaneView) calendarApi()?.changeView(s.fcView);
