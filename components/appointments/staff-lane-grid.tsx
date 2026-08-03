@@ -1,12 +1,14 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Loader2 } from "lucide-react";
 import { TZDate } from "@date-fns/tz";
@@ -51,6 +53,39 @@ function toMinutes(hhmm: string): number {
   return h * 60 + m;
 }
 
+// Group a lane's segments into overlap clusters (sets of overlapping segments), sorted by start.
+// Appointments can only overlap in a lane via cancelled/no-show rows (the DB blocks double-booking
+// an active provider), but we handle it generally.
+function clusterSegments(segs: AppointmentSegment[]): AppointmentSegment[][] {
+  const sorted = [...segs].sort(
+    (a, b) => a.start.getTime() - b.start.getTime() || a.end.getTime() - b.end.getTime()
+  );
+  const clusters: AppointmentSegment[][] = [];
+  let cur: AppointmentSegment[] = [];
+  let end = -Infinity;
+  for (const s of sorted) {
+    if (cur.length > 0 && s.start.getTime() >= end) {
+      clusters.push(cur);
+      cur = [];
+      end = -Infinity;
+    }
+    cur.push(s);
+    end = Math.max(end, s.end.getTime());
+  }
+  if (cur.length) clusters.push(cur);
+  return clusters;
+}
+
+const isInactive = (s: AppointmentSegment) =>
+  s.appointment.status === "CANCELLED" || s.appointment.status === "NO_SHOW";
+
+// The segment shown full-width for a cluster: prefer an active appointment, then the earliest start.
+function pickVisible(cluster: AppointmentSegment[]): AppointmentSegment {
+  return [...cluster].sort(
+    (a, b) => Number(isInactive(a)) - Number(isInactive(b)) || a.start.getTime() - b.start.getTime()
+  )[0];
+}
+
 export function StaffLaneGrid({
   appointments,
   staff,
@@ -78,12 +113,44 @@ export function StaffLaneGrid({
   } | null>(null);
   // Keyboard cursor: which (column, slot) is highlighted for arrow-key navigation + Enter-to-book.
   const [cursor, setCursor] = useState<{ col: number; slot: number } | null>(null);
+  // "+N more" overlap popover, positioned relative to the (non-clipping) outer wrapper.
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [overlapPopover, setOverlapPopover] = useState<
+    { x: number; y: number; segs: AppointmentSegment[] } | null
+  >(null);
+  const openOverlapPopover = (e: ReactMouseEvent<HTMLElement>, cluster: AppointmentSegment[]) => {
+    e.stopPropagation();
+    const wrap = wrapperRef.current;
+    if (!wrap) return;
+    const pr = e.currentTarget.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    setOverlapPopover({ x: pr.left - wr.left, y: pr.bottom - wr.top + 4, segs: cluster });
+  };
+  useEffect(() => {
+    if (!overlapPopover) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOverlapPopover(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlapPopover]);
   // Re-render once a minute so the "now" line and today highlight keep tracking real time.
   const [, forceTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => forceTick((n) => n + 1), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // Keep the keyboard cursor's column visible: in week view a lane can be scrolled off-screen, so
+  // nudge only the grid's horizontal scroll (never the page) to bring the active column into view.
+  useEffect(() => {
+    if (!cursor || !gridRef.current) return;
+    const lane = gridRef.current.querySelectorAll<HTMLElement>("[data-lane]")[cursor.col];
+    if (!lane) return;
+    const grid = gridRef.current;
+    const g = grid.getBoundingClientRect();
+    const l = lane.getBoundingClientRect();
+    if (l.left < g.left) grid.scrollLeft -= g.left - l.left + 8;
+    else if (l.right > g.right) grid.scrollLeft += l.right - g.right + 8;
+  }, [cursor]);
 
   const startMin = toMinutes(businessHoursStart);
   const endMin = toMinutes(businessHoursEnd);
@@ -204,11 +271,20 @@ export function StaffLaneGrid({
   };
   const moveDrag = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag) return;
-    const hit = dragRectsRef.current.find(
-      (r) => e.clientX >= r.rect.left && e.clientX <= r.rect.right
-    );
-    if (!hit) return;
     didDragRef.current = true;
+    // Require the pointer to be inside a lane on BOTH axes. Otherwise clear the target, so releasing
+    // off the lanes can't reschedule to a stale destination.
+    const hit = dragRectsRef.current.find(
+      (r) =>
+        e.clientX >= r.rect.left &&
+        e.clientX <= r.rect.right &&
+        e.clientY >= r.rect.top &&
+        e.clientY <= r.rect.bottom
+    );
+    if (!hit) {
+      setDrag((d) => (d ? { ...d, target: null } : d));
+      return;
+    }
     const slotIndex = Math.max(
       0,
       Math.min(numSlots - 1, Math.floor((e.clientY - hit.rect.top) / ROW_H))
@@ -262,7 +338,7 @@ export function StaffLaneGrid({
 
   // Horizontal-only scroll (many columns). overflow-y hidden so the page owns vertical scroll.
   return (
-    <div className="relative">
+    <div ref={wrapperRef} className="relative">
       {loading && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-lg bg-background/40">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -402,8 +478,11 @@ export function StaffLaneGrid({
                   </div>
                 )}
 
-                {/* Appointment segment blocks */}
-                {segs.map((seg) => {
+                {/* One full-width block per overlap cluster (the active/earliest appointment); a
+                    "+N" pill opens the rest (cancelled/no-show, etc.) in a popover. */}
+                {clusterSegments(segs).map((cluster) => {
+                  const seg = pickVisible(cluster);
+                  const overlapCount = cluster.length - 1;
                   const segStartMin = minutesOfDay(seg.start);
                   const durationMin = (seg.end.getTime() - seg.start.getTime()) / 60000;
                   const segEndMin = segStartMin + durationMin;
@@ -421,8 +500,8 @@ export function StaffLaneGrid({
                   const dimmed =
                     seg.appointment.status === "CANCELLED" || seg.appointment.status === "NO_SHOW";
                   return (
+                    <Fragment key={`${seg.appointment.id}-${seg.serviceIndex}`}>
                     <button
-                      key={`${seg.appointment.id}-${seg.serviceIndex}`}
                       type="button"
                       onClick={() => {
                         // A drag ends with a pointerup that also fires click — swallow that one.
@@ -451,6 +530,19 @@ export function StaffLaneGrid({
                         {span === "day" ? ` · ${seg.serviceName}` : ""}
                       </span>
                     </button>
+                    {overlapCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => openOverlapPopover(e, cluster)}
+                        aria-label={`${overlapCount} more appointment${overlapCount > 1 ? "s" : ""} at this time`}
+                        title={`${overlapCount} more at this time`}
+                        className="absolute right-1 z-[7] rounded-full border border-primary/40 bg-background px-1.5 text-[0.65rem] font-bold leading-4 text-primary shadow-sm hover:bg-primary/10"
+                        style={{ top: top + 2 }}
+                      >
+                        +{overlapCount}
+                      </button>
+                    )}
+                    </Fragment>
                   );
                 })}
               </div>
@@ -459,6 +551,44 @@ export function StaffLaneGrid({
         </div>
       </div>
       </div>
+
+      {/* "+N more" overlap popover — rendered in the outer wrapper so the grid's overflow can't clip
+          it. Lists every appointment in the cluster; clicking one opens the details drawer. */}
+      {overlapPopover && (
+        <>
+          <button
+            type="button"
+            aria-label="Close"
+            className="fixed inset-0 z-40 cursor-default"
+            onClick={() => setOverlapPopover(null)}
+          />
+          <div
+            className="absolute z-50 max-h-72 min-w-[13rem] max-w-[16rem] overflow-y-auto rounded-lg border bg-background p-1 shadow-lg"
+            style={{ left: overlapPopover.x, top: overlapPopover.y }}
+          >
+            {overlapPopover.segs.map((s) => {
+              const colors = STATUS_COLORS[s.appointment.status];
+              const cn = `${s.appointment.client.firstName}${s.appointment.client.lastName ? ` ${s.appointment.client.lastName}` : ""}`;
+              return (
+                <button
+                  key={`${s.appointment.id}-${s.serviceIndex}`}
+                  type="button"
+                  onClick={() => {
+                    onSelectAppointment(s.appointment.id);
+                    setOverlapPopover(null);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
+                >
+                  <span className={`h-3 w-1.5 shrink-0 rounded-sm border-l-4 ${colors.bg} ${colors.border}`} />
+                  <span className="min-w-0 flex-1 truncate">
+                    {cn} · {formatInTz(s.start, "h:mm a", timezone)} · {s.serviceName}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
