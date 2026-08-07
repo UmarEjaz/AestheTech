@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -68,6 +68,7 @@ import {
   createAppointment,
   updateAppointment,
   getAvailableSlots,
+  validateCustomTime,
   addAppointmentDeposit,
   AppointmentListItem,
 } from "@/lib/actions/appointment";
@@ -212,6 +213,21 @@ export function AppointmentForm({
     )
   );
   const [availableSlots, setAvailableSlots] = useState<{ startTime: Date; endTime: Date }[]>([]);
+  // A custom "HH:MM" start time typed by staff — lets them book at any minute (e.g. 9:20), not just
+  // the listed interval slots. Empty = using a listed slot. The server still conflict-checks it.
+  const [customTime, setCustomTime] = useState<string>("");
+  // Toggle in the section header: off = pick a listed slot, on = type a custom minute (slots hidden).
+  const [customTimeMode, setCustomTimeMode] = useState<boolean>(false);
+  // Server-checked status of the typed custom time (business hours, past, provider conflict).
+  // "ok" is required before the booking can go through.
+  const [customTimeCheck, setCustomTimeCheck] = useState<{
+    status: "idle" | "checking" | "ok" | "invalid";
+    message?: string;
+    suggestionHHMM?: string;
+    suggestionLabel?: string;
+  }>({ status: "idle" });
+  const customTimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const customTimeSeq = useRef(0); // ignore out-of-order validation responses
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
   // Visit mode: "walkin" books at the current time (client is here now); "appointment"
@@ -489,6 +505,7 @@ export function AppointmentForm({
   // Auto-select the matching time slot when slots load
   useEffect(() => {
     if (availableSlots.length === 0) return;
+    if (customTime || customTimeMode) return; // a typed/custom-mode time wins — don't overwrite it when slots reload
 
     // Determine the target time to match
     const targetTime = mode === "edit" && appointment
@@ -524,7 +541,7 @@ export function AppointmentForm({
       // In edit mode, warn the user that their original time slot is no longer available
       toast.warning("Original time slot is no longer available. Please select a new time.");
     }
-  }, [availableSlots, initialDate, mode, appointment, setValue]);
+  }, [availableSlots, initialDate, mode, appointment, setValue, customTime, customTimeMode]);
 
   // Reset conflict preview when recurring settings change
   useEffect(() => {
@@ -771,7 +788,18 @@ export function AppointmentForm({
     // A time slot must be explicitly chosen — otherwise startTime silently defaults to
     // "now", which can land outside business hours and become invisible on the calendar.
     if (mode === "create") {
-      if (!slotIsChosen(data.startTime)) {
+      if (customTimeMode) {
+        // A typed custom time must pass the server check (business hours, not past, no conflict).
+        if (customTimeCheck.status !== "ok") {
+          const msg =
+            customTimeCheck.status === "checking"
+              ? "Still checking that time — one moment."
+              : customTimeCheck.message ?? "Please enter a bookable custom time";
+          setSlotError(msg);
+          toast.error(msg);
+          return;
+        }
+      } else if (!slotIsChosen(data.startTime)) {
         setSlotError("Please select an available time slot");
         toast.error("Please select a time slot");
         return;
@@ -916,9 +944,115 @@ export function AppointmentForm({
   };
 
   const handleTimeSlotSelect = (slot: { startTime: Date; endTime: Date }) => {
+    setCustomTime(""); // picking a listed slot clears any custom time
+    setCustomTimeCheck({ status: "idle" });
     setValue("startTime", slot.startTime);
     setSlotError(null);
   };
+  // Ask the server whether a typed custom start time is bookable (business hours, past, conflict),
+  // then show a friendly inline message. Debounced by the caller; guarded against stale responses.
+  const runCustomTimeCheck = async (startInstant: Date) => {
+    if (assignments.length === 0) return; // need service+staff before we can check
+    const seq = ++customTimeSeq.current;
+    setCustomTimeCheck({ status: "checking" });
+    const result = await validateCustomTime({
+      assignments,
+      startTime: startInstant,
+      excludeAppointmentId: mode === "edit" ? appointment?.id : undefined,
+    });
+    if (seq !== customTimeSeq.current) return; // a newer check started — drop this one
+    if (!result.success) {
+      setCustomTimeCheck({ status: "invalid", message: result.error });
+      return;
+    }
+    const data = result.data;
+    if (data.ok) {
+      setCustomTimeCheck({ status: "ok" });
+      return;
+    }
+    const message =
+      data.reason === "past"
+        ? "That time has already passed — pick a later time."
+        : data.reason === "outside-hours"
+          ? `Outside business hours (${data.openLabel}–${data.closeLabel}).`
+          : "That time overlaps another booking for this staff — pick a free time.";
+    setCustomTimeCheck({
+      status: "invalid",
+      message,
+      suggestionHHMM: data.suggestionHHMM,
+      suggestionLabel: data.suggestionLabel,
+    });
+  };
+
+  // Apply a typed custom start time (HH:MM) on the selected salon-tz day.
+  const applyCustomTime = (hhmm: string) => {
+    setCustomTime(hhmm);
+    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    if (!hhmm || !selectedDate) {
+      customTimeSeq.current++; // cancel any in-flight check
+      setCustomTimeCheck({ status: "idle" });
+      return;
+    }
+    const [hh, mm] = hhmm.split(":").map(Number);
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
+    const dt = new TZDate(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      hh,
+      mm,
+      0,
+      timezone
+    );
+    const instant = new Date(dt.getTime());
+    setValue("startTime", instant, { shouldValidate: false });
+    setSlotError(null);
+    setCustomTimeCheck({ status: "checking" });
+    customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), 400);
+  };
+
+  // Flip the "Custom time" header toggle. Turning it on clears any auto-picked slot so nothing
+  // books until a minute is typed; turning it off clears the typed time so slot auto-select resumes.
+  const handleCustomTimeMode = (on: boolean) => {
+    setCustomTimeMode(on);
+    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    customTimeSeq.current++; // cancel any in-flight check
+    setCustomTimeCheck({ status: "idle" });
+    if (on) {
+      setValue("startTime", undefined as unknown as Date, { shouldValidate: false });
+    } else {
+      setCustomTime("");
+    }
+    setSlotError(null);
+  };
+
+  // Re-check a typed custom time whenever the service/staff or date changes, so a "this time is
+  // available" message can't go stale after the provider is switched. Typing itself is handled by
+  // applyCustomTime; this only covers the OTHER inputs changing.
+  useEffect(() => {
+    if (!customTimeMode || !customTime || !selectedDate) return;
+    const [hh, mm] = customTime.split(":").map(Number);
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
+    const dt = new TZDate(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      hh,
+      mm,
+      0,
+      timezone
+    );
+    const instant = new Date(dt.getTime());
+    setValue("startTime", instant, { shouldValidate: false });
+    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    setCustomTimeCheck({ status: "checking" });
+    customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), 300);
+    return () => {
+      if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    };
+    // Intentionally excludes customTime (typing is handled in applyCustomTime).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignmentsKey, selectedDate, customTimeMode]);
 
   // Header copy reflects the visit mode so the whole page reframes with the toggle:
   // "New Appointment" (for later) ⇄ "New Walk-in" (here now). Edit mode is always a slot.
@@ -940,14 +1074,25 @@ export function AppointmentForm({
   const servicesComplete =
     readinessLines.length > 0 && readinessLines.every((l) => l.serviceId && l.staffId);
   const needsSlot = mode === "create" && !isWalkIn;
-  const slotChosen = !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
+  // A custom time only counts as chosen once the server confirms it's bookable ("ok"); a listed
+  // slot counts immediately. Outside custom mode, customTime is always cleared, so the slot rules.
+  const customTimeReady = customTime.length > 0 && customTimeCheck.status === "ok";
+  const slotChosen =
+    !needsSlot ||
+    (customTimeMode ? customTimeReady : slotIsChosen(watchedStartTime as Date | string | number));
   const bookingHint = !hasClient
     ? "Choose or add a client to continue"
     : !servicesComplete
       ? "Pick a service and staff for every line"
-      : !slotChosen
-        ? "Select a time slot to continue"
-        : null;
+      : customTimeMode && customTimeCheck.status === "checking"
+        ? "Checking that time…"
+        : customTimeMode && customTimeCheck.status === "invalid"
+          ? customTimeCheck.message ?? "Pick a bookable time"
+          : !slotChosen
+            ? customTimeMode
+              ? "Enter a bookable custom time to continue"
+              : "Select a time slot to continue"
+            : null;
   const canBook = bookingHint === null;
 
   return (
@@ -1503,8 +1648,75 @@ export function AppointmentForm({
 
           {primaryStaffId && primaryServiceId && selectedDate && (
             <div className="space-y-2">
-              <Label>Available Time Slots</Label>
-              {isLoadingSlots ? (
+              {/* Header: slot list by default; the toggle flips to a custom-minute input (e.g. 9:20). */}
+              <div className="flex items-center justify-between gap-3">
+                <Label>{customTimeMode ? "Custom start time" : "Available Time Slots"}</Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="custom-time-toggle" className="text-sm font-normal">
+                    Custom time
+                  </Label>
+                  <Switch
+                    id="custom-time-toggle"
+                    checked={customTimeMode}
+                    onCheckedChange={handleCustomTimeMode}
+                  />
+                </div>
+              </div>
+
+              {customTimeMode ? (
+                /* Custom start time — book at any minute (e.g. 9:20), not just the listed slots. */
+                <div className="mt-1 space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-4 duration-200 animate-in fade-in-0">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Clock className="h-5 w-5" />
+                      </span>
+                      <Input
+                        type="time"
+                        value={customTime}
+                        onChange={(e) => applyCustomTime(e.target.value)}
+                        className="h-11 w-[8.75rem] text-base font-semibold tabular-nums"
+                        aria-label="Custom start time"
+                        autoFocus
+                      />
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground sm:border-l sm:border-primary/15 sm:pl-4">
+                      Book at <span className="font-medium text-foreground">any minute</span> — e.g.
+                      9:20. Perfect for back-to-back appointments.
+                    </p>
+                  </div>
+                  {/* Live availability check: business hours, past times, and provider conflicts. */}
+                  {customTimeCheck.status === "checking" && (
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Checking availability…
+                    </p>
+                  )}
+                  {customTimeCheck.status === "invalid" && (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        {customTimeCheck.message}
+                      </p>
+                      {customTimeCheck.suggestionHHMM && (
+                        <button
+                          type="button"
+                          onClick={() => applyCustomTime(customTimeCheck.suggestionHHMM!)}
+                          className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
+                        >
+                          Use {customTimeCheck.suggestionLabel}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {customTimeCheck.status === "ok" && (
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                      This time is available.
+                    </p>
+                  )}
+                </div>
+              ) : isLoadingSlots ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
@@ -1534,8 +1746,9 @@ export function AppointmentForm({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground py-4 text-center">
-                  No available time slots for this date. Please select a different date or staff
-                  member.
+                  No available time slots for this date. Turn on{" "}
+                  <span className="font-medium text-foreground">Custom time</span> above, or select a
+                  different date or staff member.
                 </p>
               )}
               {(errors.startTime || slotError) && (
@@ -2015,7 +2228,7 @@ export function AppointmentForm({
           watchedStartTime instanceof Date
             ? watchedStartTime.getTime()
             : new Date(watchedStartTime as string | number).getTime();
-        const slotChosen = slotIsChosen(chosenMs);
+        const slotChosen = slotIsChosen(chosenMs) || customTime.length > 0;
         const whenText = isWalkIn
           ? "Now"
           : slotChosen

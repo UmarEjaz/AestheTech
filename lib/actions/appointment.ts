@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { TZDate } from "@date-fns/tz";
+import { format } from "date-fns";
 import { prisma } from "@/lib/prisma";
 import { runSerializable } from "@/lib/db-retry";
 import { assertPaymentOwner } from "@/lib/payment-guards";
@@ -14,6 +15,7 @@ import {
   appointmentStatusSchema,
   rescheduleSchema,
   availableSlotsSchema,
+  validateCustomTimeSchema,
   appointmentDepositSchema,
   AppointmentFormData,
   AppointmentStatusFormData,
@@ -1051,6 +1053,167 @@ export async function getAvailableSlots(params: {
   }
 }
 
+// Validate a single typed custom start time using the SAME business-hours + conflict logic as
+// getAvailableSlots. Returns a friendly reason so the booking form can warn inline instead of
+// letting an invalid time reach the server and fail on submit.
+export async function validateCustomTime(params: {
+  assignments: { serviceId: string; staffId: string }[];
+  startTime: Date;
+  excludeAppointmentId?: string;
+}): Promise<
+  ActionResult<{
+    ok: boolean;
+    reason?: "past" | "outside-hours" | "conflict";
+    openLabel?: string;
+    closeLabel?: string;
+    // Next bookable slot at/after the requested time (so the form can offer a one-tap fix).
+    suggestionLabel?: string;
+    suggestionHHMM?: string;
+  }>
+> {
+  const authResult = await checkAuth("appointments:view");
+  if (!authResult) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const validated = validateCustomTimeSchema.safeParse(params);
+  if (!validated.success) {
+    return { success: false, error: validated.error.issues[0].message };
+  }
+  const { assignments, startTime, excludeAppointmentId } = validated.data;
+  const allStaffIds = Array.from(new Set(assignments.map((a) => a.staffId)));
+
+  try {
+    // Resolve durations and ordered (staffId, duration) lines for segment math (org-scoped).
+    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
+    const serviceRows = await prisma.service.findMany({
+      where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
+      select: { id: true, duration: true },
+    });
+    const durationById = new Map(serviceRows.map((s) => [s.id, s.duration]));
+    const lines: { staffId: string; duration: number }[] = [];
+    let totalDuration = 0;
+    for (const a of assignments) {
+      const d = durationById.get(a.serviceId);
+      if (d === undefined) {
+        return { success: false, error: "Service not found" };
+      }
+      lines.push({ staffId: a.staffId, duration: d });
+      totalDuration += d;
+    }
+
+    const settingsResult = await getSettings();
+    const settings = settingsResult.success
+      ? settingsResult.data
+      : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", appointmentInterval: 30 };
+    const tz = settings.timezone || "UTC";
+
+    const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
+      const parts = timeStr?.split(":");
+      if (!parts || parts.length !== 2) return [defaultHour, defaultMin];
+      const hour = parseInt(parts[0], 10);
+      const min = parseInt(parts[1], 10);
+      if (isNaN(hour) || isNaN(min) || hour < 0 || hour > 23 || min < 0 || min > 59) {
+        return [defaultHour, defaultMin];
+      }
+      return [hour, min];
+    };
+    const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
+    const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
+
+    const slotInterval = Math.min(120, Math.max(15, Math.round(settings.appointmentInterval) || 30));
+    const startMs = startTime.getTime();
+    const endMs = startMs + totalDuration * 60_000;
+    const now = Date.now();
+
+    // Business-hours window for the requested day (in salon tz).
+    const dayInTz = new TZDate(startTime, tz);
+    const y = dayInTz.getFullYear();
+    const mo = dayInTz.getMonth();
+    const dd = dayInTz.getDate();
+    const dayStart = new TZDate(y, mo, dd, startHour, startMin, 0, 0, tz);
+    const dayEnd = new TZDate(y, mo, dd, endHour, endMin, 0, 0, tz);
+    const dayStartMs = dayStart.getTime();
+    const dayEndMs = dayEnd.getTime();
+
+    // Every provider's booked segment that day — used for both the conflict check and, when the
+    // requested time doesn't work, finding the next free slot to suggest.
+    const existingAppointments = await prisma.appointment.findMany({
+      where: {
+        salonId: authResult.salonId,
+        services: { some: { staffId: { in: allStaffIds } } },
+        startTime: { lt: new Date(dayEndMs) },
+        endTime: { gt: new Date(dayStartMs) },
+        status: { notIn: ["CANCELLED", "NO_SHOW"] },
+        ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
+      },
+      select: {
+        startTime: true,
+        services: { orderBy: { order: "asc" }, select: { staffId: true, duration: true } },
+      },
+    });
+    const existingSegments = existingAppointments.flatMap((apt) =>
+      computeSegments(apt.startTime.getTime(), apt.services)
+    );
+    const hasClash = (atMs: number): boolean => {
+      const cand = computeSegments(atMs, lines);
+      return cand.some((a) =>
+        existingSegments.some(
+          (b) => a.staffId === b.staffId && a.startMs < b.endMs && a.endMs > b.startMs
+        )
+      );
+    };
+    // First bookable, in-hours, non-past, conflict-free slot at/after `fromMs`.
+    const findNextFree = (fromMs: number): number | null => {
+      const floor = Math.max(fromMs, dayStartMs, now);
+      for (let t = dayStartMs; t < dayEndMs; t += slotInterval * 60_000) {
+        if (t < floor) continue;
+        if (t + totalDuration * 60_000 > dayEndMs) break;
+        if (!hasClash(t)) return t;
+      }
+      return null;
+    };
+    const suggest = (ms: number | null) => {
+      if (ms === null) return {};
+      const d = new TZDate(ms, tz);
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      return {
+        suggestionHHMM: `${String(d.getHours()).padStart(2, "0")}:${mm}`,
+        suggestionLabel: format(d, mm === "00" ? "h a" : "h:mm a"),
+      };
+    };
+
+    // 1) Past times can't be booked (only possible for today).
+    if (startMs < now) {
+      return { success: true, data: { ok: false, reason: "past", ...suggest(findNextFree(now)) } };
+    }
+
+    // 2) Must sit fully inside the salon's business hours for that day.
+    if (startMs < dayStartMs || endMs > dayEndMs) {
+      return {
+        success: true,
+        data: {
+          ok: false,
+          reason: "outside-hours",
+          openLabel: format(dayStart, "h:mm a"),
+          closeLabel: format(dayEnd, "h:mm a"),
+          ...suggest(findNextFree(dayStartMs)),
+        },
+      };
+    }
+
+    // 3) No provider may already be booked during the slice they'd work.
+    if (hasClash(startMs)) {
+      return { success: true, data: { ok: false, reason: "conflict", ...suggest(findNextFree(startMs)) } };
+    }
+
+    return { success: true, data: { ok: true } };
+  } catch (error) {
+    console.error("Error validating custom time:", error);
+    return { success: false, error: "Failed to validate time" };
+  }
+}
+
 // Get staff members who can perform appointments
 export async function getStaffForAppointments(): Promise<ActionResult<{
   id: string;
@@ -1093,21 +1256,24 @@ export async function getAppointmentsForCalendar(params: {
   startDate: Date;
   endDate: Date;
   staffId?: string;
+  staffIds?: string[];
 }): Promise<ActionResult<AppointmentListItem[]>> {
   const authResult = await checkAuth("appointments:view");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
   }
 
-  const { startDate, endDate, staffId } = params;
+  const { startDate, endDate, staffId, staffIds } = params;
+  // Accept a single id (legacy) or a list; empty/omitted list means "all staff".
+  const ids = staffIds && staffIds.length > 0 ? staffIds : staffId ? [staffId] : [];
 
   try {
     const appointments = await prisma.appointment.findMany({
       where: {
         salonId: authResult.salonId,
         startTime: { gte: startDate, lte: endDate },
-        // Filter by any appointment where this staff member performs a service (primary or secondary).
-    ...(staffId && { services: { some: { staffId } } }),
+        // Any appointment where one of these staff performs a service (primary or secondary).
+        ...(ids.length > 0 && { services: { some: { staffId: { in: ids } } } }),
       },
       include: appointmentListInclude,
       orderBy: { startTime: "asc" },

@@ -21,6 +21,9 @@ export function Toaster() {
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          // Move the dismiss button from Sonner's default top-left to the top-right corner.
+          closeButton:
+            "group-[.toast]:!left-auto group-[.toast]:!right-0 group-[.toast]:![transform:translate(35%,-35%)]",
         },
       }}
     />

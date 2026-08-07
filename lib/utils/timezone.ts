@@ -17,6 +17,25 @@ export function formatInTz(date: Date | string, pattern: string, tz: string): st
 }
 
 /**
+ * Compact "start–end" label in the salon timezone, dropping ":00" on whole hours and sharing the
+ * meridiem when both ends fall in the same half of the day. Examples:
+ *   "10–10:30 AM", "9:20–9:40 AM", "11:30 AM–12:30 PM".
+ */
+export function formatTimeRangeInTz(
+  start: Date | string,
+  end: Date | string,
+  tz: string
+): string {
+  const startMer = formatInTz(start, "a", tz);
+  const endMer = formatInTz(end, "a", tz);
+  const startNoMer = formatInTz(start, formatInTz(start, "mm", tz) === "00" ? "h" : "h:mm", tz);
+  const startFull = formatInTz(start, formatInTz(start, "mm", tz) === "00" ? "h a" : "h:mm a", tz);
+  const endFull = formatInTz(end, formatInTz(end, "mm", tz) === "00" ? "h a" : "h:mm a", tz);
+  // Same meridiem → show it once at the end ("10–10:30 AM"); otherwise show both.
+  return startMer === endMer ? `${startNoMer}–${endFull}` : `${startFull}–${endFull}`;
+}
+
+/**
  * Formats a date-only (@db.Date) field for display.
  * Unlike formatInTz, this does NOT apply timezone conversion — because
  * date-only fields represent a calendar date, not a point in time.

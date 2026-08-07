@@ -76,6 +76,16 @@ export const availableSlotsSchema = z.object({
   excludeAppointmentId: z.string().min(1).optional(),
 });
 
+// Validate a single typed custom start time (business hours, past, provider conflict).
+export const validateCustomTimeSchema = z.object({
+  assignments: z
+    .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
+    .min(1, "At least one service is required")
+    .max(10, "At most 10 services"),
+  startTime: z.coerce.date({ message: "Start time is required" }),
+  excludeAppointmentId: z.string().min(1).optional(),
+});
+
 // Deposits are real prepayments, so exclude LOYALTY_POINTS (which would record cash value
 // without redeeming any points). Mirrors the selectable methods offered in the deposit UI.
 export const DEPOSIT_PAYMENT_METHODS = [

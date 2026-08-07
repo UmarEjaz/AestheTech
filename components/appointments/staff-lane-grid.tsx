@@ -13,7 +13,7 @@ import {
 import { Loader2 } from "lucide-react";
 import { TZDate } from "@date-fns/tz";
 import { addDays } from "date-fns";
-import { formatInTz } from "@/lib/utils/timezone";
+import { formatInTz, formatTimeRangeInTz } from "@/lib/utils/timezone";
 import type { AppointmentListItem } from "@/lib/actions/appointment";
 import {
   STATUS_COLORS,
@@ -21,9 +21,13 @@ import {
   appointmentSegments,
   type AppointmentSegment,
 } from "./appointment-visuals";
+import { CalendarEmptyState } from "./calendar-empty-state";
 
 const SLOT_MIN = 30; // one row = 30 minutes (matches the FullCalendar views)
-const ROW_H = 48; // px per 30-min row
+// Dragging snaps to this finer step so an appointment can be rescheduled to an off-grid minute
+// (e.g. 9:20 for back-to-back bookings), even though rows are still drawn every 30 min.
+const SNAP_MIN = 5;
+const ROW_H = 52; // px per 30-min row (matches the FullCalendar 3.25rem slot so blocks are the same size)
 const MIN_BLOCK_H = 22; // never render a block shorter than this
 const GUTTER_PX = 64; // time-gutter width (w-16)
 
@@ -46,6 +50,9 @@ interface StaffLaneGridProps {
   onBookSlot?: (staffId: string, startISO: string) => void;
   /** Drag drop: move the appointment to `startISO` and (if the lane changed) reassign to `staffId`. */
   onReschedule?: (apptId: string, staffId: string, startISO: string) => void;
+  /** Empty-state card actions. */
+  onEmptyBook?: () => void;
+  onEmptyToday?: () => void;
 }
 
 function toMinutes(hhmm: string): number {
@@ -100,6 +107,8 @@ export function StaffLaneGrid({
   onSelectAppointment,
   onBookSlot,
   onReschedule,
+  onEmptyBook,
+  onEmptyToday,
 }: StaffLaneGridProps) {
   const gridRef = useRef<HTMLDivElement>(null);
   // Lane rects captured at drag start (positions are stable during a drag — no auto-scroll).
@@ -108,8 +117,9 @@ export function StaffLaneGrid({
   const [drag, setDrag] = useState<{
     apptId: string;
     durationMin: number;
-    origin: { dayKey: string; staffId: string; slotIndex: number };
-    target: { dayKey: string; staffId: string; slotIndex: number } | null;
+    // `min` = minutes past business open, snapped to SNAP_MIN (finer than a 30-min row).
+    origin: { dayKey: string; staffId: string; min: number };
+    target: { dayKey: string; staffId: string; min: number } | null;
   } | null>(null);
   // Keyboard cursor: which (column, slot) is highlighted for arrow-key navigation + Enter-to-book.
   const [cursor, setCursor] = useState<{ col: number; slot: number } | null>(null);
@@ -228,13 +238,15 @@ export function StaffLaneGrid({
     return labels;
   }, [startMin, endMin, dayKeys, timezone]);
 
-  // Offset-aware ISO (salon tz) for a (day, slot) cell — used for booking and drag-drop.
-  const slotStart = (dayKey: string, slotIndex: number) => {
-    const abs = startMin + slotIndex * SLOT_MIN;
+  // Offset-aware ISO (salon tz) for a given minutes-past-open on a day.
+  const slotStartAtMin = (dayKey: string, minFromOpen: number) => {
+    const abs = startMin + minFromOpen;
     const [y, m, d] = dayKey.split("-").map(Number);
     const slot = new TZDate(y, m - 1, d, Math.floor(abs / 60), abs % 60, timezone);
     return formatInTz(slot, "yyyy-MM-dd'T'HH:mm:ssXXX", timezone);
   };
+  // Offset-aware ISO (salon tz) for a (day, slot) cell — used for booking a whole 30-min slot.
+  const slotStart = (dayKey: string, slotIndex: number) => slotStartAtMin(dayKey, slotIndex * SLOT_MIN);
   const bookSlot = (dayKey: string, staffId: string, slotIndex: number) => {
     if (!canCreate || !onBookSlot) return;
     onBookSlot(staffId, slotStart(dayKey, slotIndex));
@@ -265,7 +277,7 @@ export function StaffLaneGrid({
     const origin = {
       dayKey: formatInTz(seg.start, "yyyy-MM-dd", timezone),
       staffId: seg.staffId,
-      slotIndex: Math.round((minutesOfDay(seg.start) - startMin) / SLOT_MIN),
+      min: minutesOfDay(seg.start) - startMin,
     };
     setDrag({ apptId: seg.appointment.id, durationMin, origin, target: null });
   };
@@ -285,11 +297,12 @@ export function StaffLaneGrid({
       setDrag((d) => (d ? { ...d, target: null } : d));
       return;
     }
-    const slotIndex = Math.max(
-      0,
-      Math.min(numSlots - 1, Math.floor((e.clientY - hit.rect.top) / ROW_H))
-    );
-    setDrag((d) => (d ? { ...d, target: { dayKey: hit.dayKey, staffId: hit.staffId, slotIndex } } : d));
+    // Pixel offset → minutes past open, snapped to SNAP_MIN. Clamp so the block stays inside the
+    // business-hours window (last valid start = close − duration).
+    const rawMin = ((e.clientY - hit.rect.top) / ROW_H) * SLOT_MIN;
+    const maxMin = Math.max(0, endMin - startMin - drag.durationMin);
+    const min = Math.max(0, Math.min(maxMin, Math.round(rawMin / SNAP_MIN) * SNAP_MIN));
+    setDrag((d) => (d ? { ...d, target: { dayKey: hit.dayKey, staffId: hit.staffId, min } } : d));
   };
   const endDrag = () => {
     const d = drag;
@@ -298,10 +311,10 @@ export function StaffLaneGrid({
     const t = d.target;
     // Dropped back on the same lane + slot → nothing changed, so skip the server round-trip
     // (which would otherwise run a transaction, write an audit entry, and bust the cache).
-    if (t.dayKey === d.origin.dayKey && t.staffId === d.origin.staffId && t.slotIndex === d.origin.slotIndex) {
+    if (t.dayKey === d.origin.dayKey && t.staffId === d.origin.staffId && t.min === d.origin.min) {
       return;
     }
-    onReschedule(d.apptId, t.staffId, slotStart(t.dayKey, t.slotIndex));
+    onReschedule(d.apptId, t.staffId, slotStartAtMin(t.dayKey, t.min));
   };
   // Pointer cancelled (touch interruption, context menu, gesture takeover) — pointerup never fires,
   // so just clear the drag visuals. Do NOT reschedule: the drag never completed, and the appointment
@@ -339,6 +352,9 @@ export function StaffLaneGrid({
   // Horizontal-only scroll (many columns). overflow-y hidden so the page owns vertical scroll.
   return (
     <div ref={wrapperRef} className="relative">
+      {!loading && appointments.length === 0 && (
+        <CalendarEmptyState span={span} onBook={onEmptyBook} onToday={onEmptyToday} />
+      )}
       {loading && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-lg bg-background/40">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -356,6 +372,9 @@ export function StaffLaneGrid({
         tabIndex={0}
         onKeyDown={handleKeyDown}
         onFocus={() => setCursor((c) => c ?? { col: 0, slot: 0 })}
+        // Pre-focus without scrolling: a plain click otherwise focuses this tall grid and the browser
+        // scrolls it into view, shifting the page mid-double-click. (See appointment-calendar.tsx.)
+        onMouseDown={(e) => e.currentTarget.focus({ preventScroll: true })}
         className="overflow-x-auto overflow-y-hidden rounded-lg border outline-none"
       >
       <div className="w-max min-w-full">
@@ -376,7 +395,7 @@ export function StaffLaneGrid({
                     }`}
                     style={{ flex: `${staff.length} 1 0`, minWidth: staff.length * lanePx }}
                   >
-                    {formatInTz(label, "EEE, MMM d", timezone)}
+                    {formatInTz(label, "d EEE", timezone)}
                   </div>
                 );
               })}
@@ -409,7 +428,7 @@ export function StaffLaneGrid({
             {hourLabels.map((l) => (
               <div
                 key={l.top}
-                className={`absolute right-1 text-[0.7rem] text-muted-foreground ${
+                className={`absolute right-1 text-xs text-muted-foreground ${
                   l.top === 0 ? "top-0.5" : "-translate-y-1/2"
                 }`}
                 style={{ top: l.top === 0 ? undefined : l.top }}
@@ -439,7 +458,7 @@ export function StaffLaneGrid({
                   <div
                     className="pointer-events-none absolute left-0.5 right-0.5 z-20 rounded border-2 border-dashed border-primary bg-primary/10"
                     style={{
-                      top: drag.target.slotIndex * ROW_H,
+                      top: (drag.target.min / SLOT_MIN) * ROW_H,
                       height: Math.max((drag.durationMin / SLOT_MIN) * ROW_H, MIN_BLOCK_H),
                     }}
                   />
@@ -526,8 +545,8 @@ export function StaffLaneGrid({
                         {clientName}
                       </span>
                       <span className="block truncate opacity-90">
-                        {formatInTz(seg.start, "h:mm a", timezone)}
-                        {span === "day" ? ` · ${seg.serviceName}` : ""}
+                        {formatTimeRangeInTz(seg.start, seg.end, timezone)}
+                        {` · ${seg.serviceName}`}
                       </span>
                     </button>
                     {overlapCount > 0 && (
