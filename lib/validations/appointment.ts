@@ -65,25 +65,34 @@ export const rescheduleSchema = z.object({
   staffId: z.string().min(1, "Staff member is required").optional(),
 });
 
+// Ordered service→staff assignments, shared by the slots + custom-time validators so the 1–10
+// bound and messages stay in sync.
+const assignmentsSchema = z
+  .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
+  .min(1, "At least one service is required")
+  .max(10, "At most 10 services");
+
 // Available-slots request. Carries the ordered service→staff assignments so slots can be
 // validated per-provider-per-segment (each provider free only for the slice they'd actually work).
 export const availableSlotsSchema = z.object({
-  assignments: z
-    .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
-    .min(1, "At least one service is required")
-    .max(10, "At most 10 services"),
+  assignments: assignmentsSchema,
   date: z.coerce.date({ message: "Date is required" }),
   excludeAppointmentId: z.string().min(1).optional(),
 });
 
 // Validate a single typed custom start time (business hours, past, provider conflict).
 export const validateCustomTimeSchema = z.object({
-  assignments: z
-    .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
-    .min(1, "At least one service is required")
-    .max(10, "At most 10 services"),
+  assignments: assignmentsSchema,
   startTime: z.coerce.date({ message: "Start time is required" }),
   excludeAppointmentId: z.string().min(1).optional(),
+});
+
+// Calendar range query (server action reads external input, so validate it too).
+export const calendarQuerySchema = z.object({
+  startDate: z.coerce.date({ message: "Start date is required" }),
+  endDate: z.coerce.date({ message: "End date is required" }),
+  staffId: z.string().min(1).optional(),
+  staffIds: z.array(z.string().min(1)).max(200).optional(),
 });
 
 // Deposits are real prepayments, so exclude LOYALTY_POINTS (which would record cash value

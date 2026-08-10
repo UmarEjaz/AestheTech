@@ -28,9 +28,11 @@ export function formatTimeRangeInTz(
 ): string {
   const startMer = formatInTz(start, "a", tz);
   const endMer = formatInTz(end, "a", tz);
-  const startNoMer = formatInTz(start, formatInTz(start, "mm", tz) === "00" ? "h" : "h:mm", tz);
-  const startFull = formatInTz(start, formatInTz(start, "mm", tz) === "00" ? "h a" : "h:mm a", tz);
-  const endFull = formatInTz(end, formatInTz(end, "mm", tz) === "00" ? "h a" : "h:mm a", tz);
+  const startWholeHour = formatInTz(start, "mm", tz) === "00";
+  const endWholeHour = formatInTz(end, "mm", tz) === "00";
+  const startNoMer = formatInTz(start, startWholeHour ? "h" : "h:mm", tz);
+  const startFull = formatInTz(start, startWholeHour ? "h a" : "h:mm a", tz);
+  const endFull = formatInTz(end, endWholeHour ? "h a" : "h:mm a", tz);
   // Same meridiem → show it once at the end ("10–10:30 AM"); otherwise show both.
   return startMer === endMer ? `${startNoMer}–${endFull}` : `${startFull}–${endFull}`;
 }

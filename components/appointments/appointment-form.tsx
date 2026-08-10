@@ -787,23 +787,22 @@ export function AppointmentForm({
     }
     // A time slot must be explicitly chosen — otherwise startTime silently defaults to
     // "now", which can land outside business hours and become invisible on the calendar.
-    if (mode === "create") {
-      if (customTimeMode) {
-        // A typed custom time must pass the server check (business hours, not past, no conflict).
-        if (customTimeCheck.status !== "ok") {
-          const msg =
-            customTimeCheck.status === "checking"
-              ? "Still checking that time — one moment."
-              : customTimeCheck.message ?? "Please enter a bookable custom time";
-          setSlotError(msg);
-          toast.error(msg);
-          return;
-        }
-      } else if (!slotIsChosen(data.startTime)) {
-        setSlotError("Please select an available time slot");
-        toast.error("Please select a time slot");
+    if (customTimeMode) {
+      // A typed custom time must pass the server check (business hours, not past, no conflict) —
+      // in BOTH create and edit mode, since the custom-time UI is available in both.
+      if (customTimeCheck.status !== "ok") {
+        const msg =
+          customTimeCheck.status === "checking"
+            ? "Still checking that time — one moment."
+            : customTimeCheck.message ?? "Please enter a bookable custom time";
+        setSlotError(msg);
+        toast.error(msg);
         return;
       }
+    } else if (mode === "create" && !slotIsChosen(data.startTime)) {
+      setSlotError("Please select an available time slot");
+      toast.error("Please select a time slot");
+      return;
     }
     setSlotError(null);
 
@@ -1007,6 +1006,9 @@ export function AppointmentForm({
     const instant = new Date(dt.getTime());
     setValue("startTime", instant, { shouldValidate: false });
     setSlotError(null);
+    // Invalidate any in-flight check NOW (before the debounce), so an older response that lands
+    // during the wait can't stamp this newly-typed time as "available".
+    customTimeSeq.current++;
     setCustomTimeCheck({ status: "checking" });
     customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), 400);
   };
@@ -1045,6 +1047,9 @@ export function AppointmentForm({
     const instant = new Date(dt.getTime());
     setValue("startTime", instant, { shouldValidate: false });
     if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    // Invalidate any in-flight check NOW (before the debounce), so a response for the OLD staff/date
+    // can't land during the wait and wrongly mark this time available for the new selection.
+    customTimeSeq.current++;
     setCustomTimeCheck({ status: "checking" });
     customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), 300);
     return () => {

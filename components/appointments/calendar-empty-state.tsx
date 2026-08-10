@@ -17,7 +17,7 @@ export function CalendarEmptyState({
   onBook?: () => void;
   onToday?: () => void;
 }) {
-  const label = span === "month" ? "month" : span === "day" ? "day" : "week";
+  const label = span; // already "day" | "week" | "month"
   // Month is a fixed-height grid that fully fits on screen, so center the card for balance. Day/Week
   // are tall and scrollable, so anchor near the top to guarantee it's visible without scrolling.
   const isMonth = span === "month";

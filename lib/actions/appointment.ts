@@ -16,6 +16,7 @@ import {
   rescheduleSchema,
   availableSlotsSchema,
   validateCustomTimeSchema,
+  calendarQuerySchema,
   appointmentDepositSchema,
   AppointmentFormData,
   AppointmentStatusFormData,
@@ -925,6 +926,100 @@ export async function deleteAppointment(id: string): Promise<ActionResult<void>>
 // Get available time slots for an appointment on a given date. Takes the ordered service→staff
 // assignments so slots are validated per-provider-per-segment (a slot is offered only when every
 // provider is free during the exact slice they'd work), matching createAppointment.
+// Shared booking setup for getAvailableSlots + validateCustomTime, so both use identical rules
+// (durations, salon-tz business-hours window, booking interval, and existing bookings as segments).
+// `anchor` is any instant whose salon-tz calendar day defines the window.
+async function buildBookingContext(
+  salonId: string,
+  assignments: { serviceId: string; staffId: string }[],
+  anchor: Date,
+  excludeAppointmentId?: string
+): Promise<
+  | {
+      ok: true;
+      lines: { staffId: string; duration: number }[];
+      totalDuration: number;
+      tz: string;
+      slotInterval: number;
+      dayStart: TZDate;
+      dayEnd: TZDate;
+      existingSegments: ReturnType<typeof computeSegments>;
+    }
+  | { ok: false; error: string }
+> {
+  const allStaffIds = Array.from(new Set(assignments.map((a) => a.staffId)));
+
+  // Resolve durations and build ordered (staffId, duration) lines for segment math (org-scoped).
+  const orgSalonIds = await getOrganizationSalonIds(salonId);
+  const serviceRows = await prisma.service.findMany({
+    where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
+    select: { id: true, duration: true },
+  });
+  const durationById = new Map(serviceRows.map((s) => [s.id, s.duration]));
+  const lines: { staffId: string; duration: number }[] = [];
+  let totalDuration = 0;
+  for (const a of assignments) {
+    const d = durationById.get(a.serviceId);
+    if (d === undefined) {
+      return { ok: false, error: "Service not found" };
+    }
+    lines.push({ staffId: a.staffId, duration: d });
+    totalDuration += d;
+  }
+
+  // Business hours + booking interval from settings.
+  const settingsResult = await getSettings();
+  const settings = settingsResult.success
+    ? settingsResult.data
+    : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", appointmentInterval: 30 };
+  const tz = settings.timezone || "UTC";
+  // Honor the salon's configured booking interval (default 30 min). Round to whole minutes and
+  // clamp to the allowed 15–120 range so a bad stored value can't break the slot list.
+  const slotInterval = Math.min(120, Math.max(15, Math.round(settings.appointmentInterval) || 30));
+
+  const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
+    const parts = timeStr?.split(":");
+    if (!parts || parts.length !== 2) return [defaultHour, defaultMin];
+    const hour = parseInt(parts[0], 10);
+    const min = parseInt(parts[1], 10);
+    if (isNaN(hour) || isNaN(min) || hour < 0 || hour > 23 || min < 0 || min > 59) {
+      return [defaultHour, defaultMin];
+    }
+    return [hour, min];
+  };
+  const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
+  const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
+
+  // Build the day's business-hours window in the SALON timezone from the anchor's calendar day.
+  const dayInTz = new TZDate(anchor, tz);
+  const y = dayInTz.getFullYear();
+  const mo = dayInTz.getMonth();
+  const dd = dayInTz.getDate();
+  const dayStart = new TZDate(y, mo, dd, startHour, startMin, 0, 0, tz);
+  const dayEnd = new TZDate(y, mo, dd, endHour, endMin, 0, 0, tz);
+
+  // Existing appointments that day involving any of our providers, precomputed as provider segments.
+  const existingAppointments = await prisma.appointment.findMany({
+    where: {
+      salonId,
+      services: { some: { staffId: { in: allStaffIds } } },
+      startTime: { lt: new Date(dayEnd.getTime()) },
+      endTime: { gt: new Date(dayStart.getTime()) },
+      status: { notIn: ["CANCELLED", "NO_SHOW"] },
+      ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
+    },
+    select: {
+      startTime: true,
+      services: { orderBy: { order: "asc" }, select: { staffId: true, duration: true } },
+    },
+  });
+  const existingSegments = existingAppointments.flatMap((apt) =>
+    computeSegments(apt.startTime.getTime(), apt.services)
+  );
+
+  return { ok: true, lines, totalDuration, tz, slotInterval, dayStart, dayEnd, existingSegments };
+}
+
 export async function getAvailableSlots(params: {
   assignments: { serviceId: string; staffId: string }[];
   date: Date;
@@ -940,88 +1035,18 @@ export async function getAvailableSlots(params: {
     return { success: false, error: validated.error.issues[0].message };
   }
   const { assignments, date, excludeAppointmentId } = validated.data;
-  const allStaffIds = Array.from(new Set(assignments.map((a) => a.staffId)));
 
   try {
-    // Resolve durations and build ordered (staffId, duration) lines for segment math (org-scoped).
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    const serviceRows = await prisma.service.findMany({
-      where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
-      select: { id: true, duration: true },
-    });
-    const durationById = new Map(serviceRows.map((s) => [s.id, s.duration]));
-    const lines: { staffId: string; duration: number }[] = [];
-    let totalDuration = 0;
-    for (const a of assignments) {
-      const d = durationById.get(a.serviceId);
-      if (d === undefined) {
-        return { success: false, error: "Service not found" };
-      }
-      lines.push({ staffId: a.staffId, duration: d });
-      totalDuration += d;
+    const ctx = await buildBookingContext(authResult.salonId, assignments, date, excludeAppointmentId);
+    if (!ctx.ok) {
+      return { success: false, error: ctx.error };
     }
-
-    // Get business hours from settings
-    const settingsResult = await getSettings();
-    const settings = settingsResult.success
-      ? settingsResult.data
-      : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", appointmentInterval: 30 };
-    const tz = settings.timezone || "UTC";
-    // Honor the salon's configured booking interval (default 30 min). Round to whole minutes and
-    // clamp to the allowed 15–120 range so a bad stored value can't break the slot list.
-    const slotInterval = Math.min(120, Math.max(15, Math.round(settings.appointmentInterval) || 30));
-
-    // Parse business hours (format: "HH:MM") with validation and fallback
-    const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
-      const parts = timeStr?.split(":");
-      if (!parts || parts.length !== 2) return [defaultHour, defaultMin];
-      const hour = parseInt(parts[0], 10);
-      const min = parseInt(parts[1], 10);
-      if (isNaN(hour) || isNaN(min) || hour < 0 || hour > 23 || min < 0 || min > 59) {
-        return [defaultHour, defaultMin];
-      }
-      return [hour, min];
-    };
-
-    const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
-    const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
-
-    // Build the day's business-hours window in the SALON timezone. `date` is an instant;
-    // we take its salon-tz calendar day, then construct the open/close wall-clock times
-    // in that zone so slots are correct regardless of where the server or staff are.
-    const dayInTz = new TZDate(date, tz);
-    const y = dayInTz.getFullYear();
-    const mo = dayInTz.getMonth();
-    const dd = dayInTz.getDate();
-    const dayStart = new TZDate(y, mo, dd, startHour, startMin, 0, 0, tz);
-    const dayEnd = new TZDate(y, mo, dd, endHour, endMin, 0, 0, tz);
-    const dayStartMs = dayStart.getTime();
+    const { lines, totalDuration, tz, slotInterval, dayStart, dayEnd, existingSegments } = ctx;
     const dayEndMs = dayEnd.getTime();
-
-    // Existing appointments that day involving any of our providers, with their service segments.
-    // Overlap the day window on the overall span, then compare per-service segments in memory.
-    const existingAppointments = await prisma.appointment.findMany({
-      where: {
-        salonId: authResult.salonId,
-        services: { some: { staffId: { in: allStaffIds } } },
-        startTime: { lt: new Date(dayEndMs) },
-        endTime: { gt: new Date(dayStartMs) },
-        status: { notIn: ["CANCELLED", "NO_SHOW"] },
-        ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
-      },
-      select: {
-        startTime: true,
-        services: { orderBy: { order: "asc" }, select: { staffId: true, duration: true } },
-      },
-    });
-    // Precompute each existing appointment's provider segments once.
-    const existingSegments = existingAppointments.flatMap((apt) =>
-      computeSegments(apt.startTime.getTime(), apt.services)
-    );
 
     // Calculate available slots
     const slots: { startTime: Date; endTime: Date }[] = [];
-    let currentTime = new TZDate(dayStartMs, tz);
+    let currentTime = new TZDate(dayStart.getTime(), tz);
 
     // Generate slots at the configured interval
     while (currentTime.getTime() < dayEndMs) {
@@ -1081,80 +1106,19 @@ export async function validateCustomTime(params: {
     return { success: false, error: validated.error.issues[0].message };
   }
   const { assignments, startTime, excludeAppointmentId } = validated.data;
-  const allStaffIds = Array.from(new Set(assignments.map((a) => a.staffId)));
 
   try {
-    // Resolve durations and ordered (staffId, duration) lines for segment math (org-scoped).
-    const orgSalonIds = await getOrganizationSalonIds(authResult.salonId);
-    const serviceRows = await prisma.service.findMany({
-      where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
-      select: { id: true, duration: true },
-    });
-    const durationById = new Map(serviceRows.map((s) => [s.id, s.duration]));
-    const lines: { staffId: string; duration: number }[] = [];
-    let totalDuration = 0;
-    for (const a of assignments) {
-      const d = durationById.get(a.serviceId);
-      if (d === undefined) {
-        return { success: false, error: "Service not found" };
-      }
-      lines.push({ staffId: a.staffId, duration: d });
-      totalDuration += d;
+    const ctx = await buildBookingContext(authResult.salonId, assignments, startTime, excludeAppointmentId);
+    if (!ctx.ok) {
+      return { success: false, error: ctx.error };
     }
-
-    const settingsResult = await getSettings();
-    const settings = settingsResult.success
-      ? settingsResult.data
-      : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", appointmentInterval: 30 };
-    const tz = settings.timezone || "UTC";
-
-    const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
-      const parts = timeStr?.split(":");
-      if (!parts || parts.length !== 2) return [defaultHour, defaultMin];
-      const hour = parseInt(parts[0], 10);
-      const min = parseInt(parts[1], 10);
-      if (isNaN(hour) || isNaN(min) || hour < 0 || hour > 23 || min < 0 || min > 59) {
-        return [defaultHour, defaultMin];
-      }
-      return [hour, min];
-    };
-    const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
-    const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
-
-    const slotInterval = Math.min(120, Math.max(15, Math.round(settings.appointmentInterval) || 30));
+    const { lines, totalDuration, tz, slotInterval, dayStart, dayEnd, existingSegments } = ctx;
     const startMs = startTime.getTime();
     const endMs = startMs + totalDuration * 60_000;
     const now = Date.now();
-
-    // Business-hours window for the requested day (in salon tz).
-    const dayInTz = new TZDate(startTime, tz);
-    const y = dayInTz.getFullYear();
-    const mo = dayInTz.getMonth();
-    const dd = dayInTz.getDate();
-    const dayStart = new TZDate(y, mo, dd, startHour, startMin, 0, 0, tz);
-    const dayEnd = new TZDate(y, mo, dd, endHour, endMin, 0, 0, tz);
     const dayStartMs = dayStart.getTime();
     const dayEndMs = dayEnd.getTime();
 
-    // Every provider's booked segment that day — used for both the conflict check and, when the
-    // requested time doesn't work, finding the next free slot to suggest.
-    const existingAppointments = await prisma.appointment.findMany({
-      where: {
-        salonId: authResult.salonId,
-        services: { some: { staffId: { in: allStaffIds } } },
-        startTime: { lt: new Date(dayEndMs) },
-        endTime: { gt: new Date(dayStartMs) },
-        status: { notIn: ["CANCELLED", "NO_SHOW"] },
-        ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
-      },
-      select: {
-        startTime: true,
-        services: { orderBy: { order: "asc" }, select: { staffId: true, duration: true } },
-      },
-    });
-    const existingSegments = existingAppointments.flatMap((apt) =>
-      computeSegments(apt.startTime.getTime(), apt.services)
-    );
     const hasClash = (atMs: number): boolean => {
       const cand = computeSegments(atMs, lines);
       return cand.some((a) =>
@@ -1163,10 +1127,14 @@ export async function validateCustomTime(params: {
         )
       );
     };
-    // First bookable, in-hours, non-past, conflict-free slot at/after `fromMs`.
+    // First bookable, in-hours, non-past, conflict-free slot at/after `fromMs`. Step a TZDate by the
+    // booking interval (like getAvailableSlots) so a DST day keeps wall-clock slot alignment.
     const findNextFree = (fromMs: number): number | null => {
       const floor = Math.max(fromMs, dayStartMs, now);
-      for (let t = dayStartMs; t < dayEndMs; t += slotInterval * 60_000) {
+      const cursor = new TZDate(dayStartMs, tz);
+      while (cursor.getTime() < dayEndMs) {
+        const t = cursor.getTime();
+        cursor.setMinutes(cursor.getMinutes() + slotInterval);
         if (t < floor) continue;
         if (t + totalDuration * 60_000 > dayEndMs) break;
         if (!hasClash(t)) return t;
@@ -1263,7 +1231,11 @@ export async function getAppointmentsForCalendar(params: {
     return { success: false, error: "Unauthorized" };
   }
 
-  const { startDate, endDate, staffId, staffIds } = params;
+  const validated = calendarQuerySchema.safeParse(params);
+  if (!validated.success) {
+    return { success: false, error: validated.error.issues[0].message };
+  }
+  const { startDate, endDate, staffId, staffIds } = validated.data;
   // Accept a single id (legacy) or a list; empty/omitted list means "all staff".
   const ids = staffIds && staffIds.length > 0 ? staffIds : staffId ? [staffId] : [];
 

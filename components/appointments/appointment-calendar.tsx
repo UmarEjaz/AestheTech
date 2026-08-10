@@ -186,14 +186,16 @@ export function AppointmentCalendar({
         }
         return;
       }
-      const saved = JSON.parse(raw) as { viewType?: "calendar" | "staff"; span?: SpanKey };
-      if (saved.span && SPANS.some((s) => s.key === saved.span)) {
-        setSpan(saved.span);
-        if (saved.viewType !== "staff") {
-          calendarApi()?.changeView(SPANS.find((s) => s.key === saved.span)!.fcView);
-        }
-      }
-      if (saved.viewType === "staff") setViewType("staff");
+      // localStorage is external/user-writable, so validate before trusting it.
+      const saved = JSON.parse(raw) as { viewType?: unknown; span?: unknown };
+      const viewType: "calendar" | "staff" = saved.viewType === "staff" ? "staff" : "calendar";
+      let span: SpanKey = SPANS.some((s) => s.key === saved.span) ? (saved.span as SpanKey) : "week";
+      // Month is hidden in Staff view, so a restored "staff + month" would leave no span selected —
+      // clamp it to "day" (matches the view-toggle click handler).
+      if (viewType === "staff" && span === "month") span = "day";
+      setSpan(span);
+      if (viewType === "staff") setViewType("staff");
+      else calendarApi()?.changeView(SPANS.find((s) => s.key === span)!.fcView);
     } catch {
       /* ignore malformed / unavailable storage */
     }
@@ -243,6 +245,25 @@ export function AppointmentCalendar({
       ? now >= currentViewDates.start.getTime() && now < currentViewDates.end.getTime()
       : false;
   })();
+  // Undo a reschedule back to its previous slot. If it fails, re-offer a one-click "Retry" so a
+  // transient error doesn't strand the appointment at the dragged-to spot with no easy way back.
+  const attemptUndo = async (apptId: string, prevStart: Date, prevStaffId: string) => {
+    const retryAction = {
+      label: "Retry",
+      onClick: () => attemptUndo(apptId, prevStart, prevStaffId),
+    };
+    try {
+      const r = await rescheduleAppointment(apptId, { startTime: prevStart, staffId: prevStaffId });
+      if (!r.success) {
+        toast.error(r.error || "Couldn't undo the reschedule.", { action: retryAction });
+      }
+    } catch {
+      toast.error("Couldn't undo the reschedule.", { action: retryAction });
+    } finally {
+      setLaneRefreshKey((k) => k + 1);
+    }
+  };
+
   // Drag-drop in a lane: reschedule to the drop time and (if the lane changed) reassign the primary
   // provider. rescheduleAppointment conflict-checks + is serializable; on any failure we refetch so
   // the block snaps back to the truth.
@@ -271,14 +292,7 @@ export function AppointmentCalendar({
             prevStart && prevStaffId
               ? {
                   label: "Undo",
-                  onClick: async () => {
-                    const r = await rescheduleAppointment(apptId, {
-                      startTime: prevStart,
-                      staffId: prevStaffId,
-                    });
-                    if (!r.success) toast.error(r.error || "Couldn't undo the reschedule.");
-                    setLaneRefreshKey((k) => k + 1);
-                  },
+                  onClick: () => attemptUndo(apptId, prevStart, prevStaffId),
                 }
               : undefined,
         });
@@ -338,18 +352,24 @@ export function AppointmentCalendar({
 
       const seq = ++fetchSeqRef.current;
       setCalendarLoading(true);
-      const result = await getAppointmentsForCalendar({
-        startDate: arg.start,
-        endDate: arg.end,
-        staffIds: selectedStaffIds,
-      });
-
-      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-      setCalendarLoading(false);
-      if (result.success) {
-        setAppointments(result.data);
-      } else {
-        toast.error(result.error || "Couldn't refresh the calendar.");
+      try {
+        const result = await getAppointmentsForCalendar({
+          startDate: arg.start,
+          endDate: arg.end,
+          staffIds: selectedStaffIds,
+        });
+        if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+        setCalendarLoading(false);
+        if (result.success) {
+          setAppointments(result.data);
+        } else {
+          toast.error(result.error || "Couldn't refresh the calendar.");
+        }
+      } catch {
+        // Transport / server-action rejection — clear the spinner (under the same guard) and warn.
+        if (seq !== fetchSeqRef.current) return;
+        setCalendarLoading(false);
+        toast.error("Couldn't refresh the calendar.");
       }
     },
     [selectedStaffIds]
@@ -361,18 +381,23 @@ export function AppointmentCalendar({
 
     const seq = ++fetchSeqRef.current;
     setCalendarLoading(true);
-    const result = await getAppointmentsForCalendar({
-      startDate: currentViewDates.start,
-      endDate: currentViewDates.end,
-      staffIds: selectedStaffIds,
-    });
-
-    if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-    setCalendarLoading(false);
-    if (result.success) {
-      setAppointments(result.data);
-    } else {
-      toast.error(result.error || "Couldn't refresh the calendar.");
+    try {
+      const result = await getAppointmentsForCalendar({
+        startDate: currentViewDates.start,
+        endDate: currentViewDates.end,
+        staffIds: selectedStaffIds,
+      });
+      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+      setCalendarLoading(false);
+      if (result.success) {
+        setAppointments(result.data);
+      } else {
+        toast.error(result.error || "Couldn't refresh the calendar.");
+      }
+    } catch {
+      if (seq !== fetchSeqRef.current) return;
+      setCalendarLoading(false);
+      toast.error("Couldn't refresh the calendar.");
     }
   }, [currentViewDates, selectedStaffIds]);
 
@@ -384,19 +409,26 @@ export function AppointmentCalendar({
       if (!currentViewDates) return;
       const seq = ++fetchSeqRef.current;
       setCalendarLoading(true);
-      const result = await getAppointmentsForCalendar({
-        startDate: currentViewDates.start,
-        endDate: currentViewDates.end,
-        staffIds: nextIds,
-      });
-      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-      setCalendarLoading(false);
-      if (result.success) {
-        setAppointments(result.data);
-      } else {
-        // Revert to the last working selection so the dropdown matches the data still on screen.
+      try {
+        const result = await getAppointmentsForCalendar({
+          startDate: currentViewDates.start,
+          endDate: currentViewDates.end,
+          staffIds: nextIds,
+        });
+        if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+        setCalendarLoading(false);
+        if (result.success) {
+          setAppointments(result.data);
+        } else {
+          // Revert to the last working selection so the dropdown matches the data still on screen.
+          setSelectedStaffIds(previous);
+          toast.error(result.error || "Couldn't load appointments for that staff filter.");
+        }
+      } catch {
+        if (seq !== fetchSeqRef.current) return;
+        setCalendarLoading(false);
         setSelectedStaffIds(previous);
-        toast.error(result.error || "Couldn't load appointments for that staff filter.");
+        toast.error("Couldn't load appointments for that staff filter.");
       }
     },
     [selectedStaffIds, currentViewDates]

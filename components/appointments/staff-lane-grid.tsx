@@ -27,6 +27,9 @@ const SLOT_MIN = 30; // one row = 30 minutes (matches the FullCalendar views)
 // Dragging snaps to this finer step so an appointment can be rescheduled to an off-grid minute
 // (e.g. 9:20 for back-to-back bookings), even though rows are still drawn every 30 min.
 const SNAP_MIN = 5;
+// Pointer must travel this far before a press counts as a drag (not a click) — so tiny finger/mouse
+// jitter during a tap still opens the details drawer instead of being swallowed as a drag.
+const DRAG_THRESHOLD_PX = 4;
 const ROW_H = 52; // px per 30-min row (matches the FullCalendar 3.25rem slot so blocks are the same size)
 const MIN_BLOCK_H = 22; // never render a block shorter than this
 const GUTTER_PX = 64; // time-gutter width (w-16)
@@ -114,6 +117,7 @@ export function StaffLaneGrid({
   // Lane rects captured at drag start (positions are stable during a drag — no auto-scroll).
   const dragRectsRef = useRef<{ dayKey: string; staffId: string; rect: DOMRect }[]>([]);
   const didDragRef = useRef(false); // distinguishes a drag from a plain click
+  const pressPosRef = useRef<{ x: number; y: number } | null>(null); // where the press started
   const [drag, setDrag] = useState<{
     apptId: string;
     durationMin: number;
@@ -265,6 +269,7 @@ export function StaffLaneGrid({
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     didDragRef.current = false;
+    pressPosRef.current = { x: e.clientX, y: e.clientY };
     dragRectsRef.current = gridRef.current
       ? Array.from(gridRef.current.querySelectorAll<HTMLElement>("[data-lane]")).map((lane) => ({
           dayKey: lane.dataset.dayKey!,
@@ -277,13 +282,20 @@ export function StaffLaneGrid({
     const origin = {
       dayKey: formatInTz(seg.start, "yyyy-MM-dd", timezone),
       staffId: seg.staffId,
-      min: minutesOfDay(seg.start) - startMin,
+      // Snap + clamp exactly like moveDrag so a drop back on the same spot compares equal (no-op),
+      // even for an off-grid start (e.g. 9:22) or one before business open.
+      min: Math.max(0, Math.round((minutesOfDay(seg.start) - startMin) / SNAP_MIN) * SNAP_MIN),
     };
     setDrag({ apptId: seg.appointment.id, durationMin, origin, target: null });
   };
   const moveDrag = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag) return;
-    didDragRef.current = true;
+    // Ignore sub-threshold jitter so a shaky tap still registers as a click (opens the drawer).
+    if (!didDragRef.current) {
+      const p = pressPosRef.current;
+      if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD_PX) return;
+      didDragRef.current = true;
+    }
     // Require the pointer to be inside a lane on BOTH axes. Otherwise clear the target, so releasing
     // off the lanes can't reschedule to a stale destination.
     const hit = dragRectsRef.current.find(
