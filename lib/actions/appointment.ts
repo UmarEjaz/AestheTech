@@ -949,12 +949,17 @@ async function buildBookingContext(
 > {
   const allStaffIds = Array.from(new Set(assignments.map((a) => a.staffId)));
 
-  // Resolve durations and build ordered (staffId, duration) lines for segment math (org-scoped).
-  const orgSalonIds = await getOrganizationSalonIds(salonId);
-  const serviceRows = await prisma.service.findMany({
-    where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
-    select: { id: true, duration: true },
-  });
+  // Resolve durations (org-scoped) and read settings CONCURRENTLY — settings don't depend on the
+  // org/service lookup, and this runs on every debounced keystroke, so avoid serial round trips.
+  const [serviceRows, settingsResult] = await Promise.all([
+    getOrganizationSalonIds(salonId).then((orgSalonIds) =>
+      prisma.service.findMany({
+        where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
+        select: { id: true, duration: true },
+      })
+    ),
+    getSettings(),
+  ]);
   const durationById = new Map(serviceRows.map((s) => [s.id, s.duration]));
   const lines: { staffId: string; duration: number }[] = [];
   let totalDuration = 0;
@@ -968,7 +973,6 @@ async function buildBookingContext(
   }
 
   // Business hours + booking interval from settings.
-  const settingsResult = await getSettings();
   const settings = settingsResult.success
     ? settingsResult.data
     : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", appointmentInterval: 30 };

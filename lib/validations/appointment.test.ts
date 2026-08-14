@@ -110,4 +110,18 @@ describe("calendarQuerySchema", () => {
     });
     expect(result.success).toBe(false);
   });
+  it("rejects an end date before the start date", () => {
+    const result = calendarQuerySchema.safeParse({
+      startDate: "2026-08-10T00:00:00Z",
+      endDate: "2026-08-01T00:00:00Z",
+    });
+    expect(result.success).toBe(false);
+  });
+  it("rejects a range wider than ~2 months", () => {
+    const result = calendarQuerySchema.safeParse({
+      startDate: "2026-01-01T00:00:00Z",
+      endDate: "2026-06-01T00:00:00Z",
+    });
+    expect(result.success).toBe(false);
+  });
 });

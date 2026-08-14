@@ -88,12 +88,23 @@ export const validateCustomTimeSchema = z.object({
 });
 
 // Calendar range query (server action reads external input, so validate it too).
-export const calendarQuerySchema = z.object({
-  startDate: z.coerce.date({ message: "Start date is required" }),
-  endDate: z.coerce.date({ message: "End date is required" }),
-  staffId: z.string().min(1).optional(),
-  staffIds: z.array(z.string().min(1)).max(200).optional(),
-});
+export const calendarQuerySchema = z
+  .object({
+    startDate: z.coerce.date({ message: "Start date is required" }),
+    endDate: z.coerce.date({ message: "End date is required" }),
+    staffId: z.string().min(1).optional(),
+    staffIds: z.array(z.string().min(1)).max(200).optional(),
+  })
+  .refine((v) => v.endDate >= v.startDate, {
+    message: "End date must not be before the start date",
+    path: ["endDate"],
+  })
+  // A calendar view never spans more than ~2 months (month grid + overflow weeks), so reject a
+  // wider window that could pull an unbounded result set.
+  .refine((v) => v.endDate.getTime() - v.startDate.getTime() <= 70 * 24 * 60 * 60 * 1000, {
+    message: "Date range is too large",
+    path: ["endDate"],
+  });
 
 // Deposits are real prepayments, so exclude LOYALTY_POINTS (which would record cash value
 // without redeeming any points). Mirrors the selectable methods offered in the deposit UI.

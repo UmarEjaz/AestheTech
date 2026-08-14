@@ -68,18 +68,20 @@ describe("validateCustomTime", () => {
 
   it("rejects a time before opening and suggests the first open slot", async () => {
     const res = await validateCustomTime({ assignments: oneService, startTime: at(8) });
-    expect(res.success).toBe(true);
-    if (res.success && !res.data.ok) {
-      expect(res.data.reason).toBe("outside-hours");
-      expect(res.data.suggestionLabel).toBe("9 AM");
-    }
+    if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(false);
+    if (res.data.ok) return;
+    expect(res.data.reason).toBe("outside-hours");
+    expect(res.data.suggestionLabel).toBe("9 AM");
   });
 
   it("rejects a time whose end runs past closing", async () => {
     // 6:45 PM start + 30 min = 7:15 PM, past the 7 PM close.
     const res = await validateCustomTime({ assignments: oneService, startTime: at(18, 45) });
-    expect(res.success).toBe(true);
-    if (res.success && !res.data.ok) expect(res.data.reason).toBe("outside-hours");
+    if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(false);
+    if (res.data.ok) return;
+    expect(res.data.reason).toBe("outside-hours");
   });
 
   it("rejects a time that overlaps an existing booking and suggests the next free slot", async () => {
@@ -91,12 +93,12 @@ describe("validateCustomTime", () => {
       },
     ]);
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
-    expect(res.success).toBe(true);
-    if (res.success && !res.data.ok) {
-      expect(res.data.reason).toBe("conflict");
-      // 10:00 is taken, so the next 30-min slot is 10:30.
-      expect(res.data.suggestionLabel).toBe("10:30 AM");
-    }
+    if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(false);
+    if (res.data.ok) return;
+    expect(res.data.reason).toBe("conflict");
+    // 10:00 is taken, so the next 30-min slot is 10:30.
+    expect(res.data.suggestionLabel).toBe("10:30 AM");
   });
 
   it("does not clash with a booking for a DIFFERENT staff member", async () => {
@@ -106,8 +108,8 @@ describe("validateCustomTime", () => {
     // findMany is filtered by staff in real life; here it returns an unrelated staff row, and the
     // segment overlap check must ignore it.
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
-    expect(res.success).toBe(true);
-    if (res.success) expect(res.data.ok).toBe(true);
+    if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(true);
   });
 
   it("rejects an unknown service", async () => {

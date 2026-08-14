@@ -1082,9 +1082,11 @@ export function AppointmentForm({
   // A custom time only counts as chosen once the server confirms it's bookable ("ok"); a listed
   // slot counts immediately. Outside custom mode, customTime is always cleared, so the slot rules.
   const customTimeReady = customTime.length > 0 && customTimeCheck.status === "ok";
-  const slotChosen =
-    !needsSlot ||
-    (customTimeMode ? customTimeReady : slotIsChosen(watchedStartTime as Date | string | number));
+  // Order matches onSubmit: custom mode ALWAYS requires a server-confirmed time (create AND edit),
+  // so evaluate it before the `!needsSlot` shortcut — otherwise edit mode would never require it.
+  const slotChosen = customTimeMode
+    ? customTimeReady
+    : !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
   const bookingHint = !hasClient
     ? "Choose or add a client to continue"
     : !servicesComplete

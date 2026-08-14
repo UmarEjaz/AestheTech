@@ -9,6 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useRouter } from "next/navigation";
+import { z } from "zod";
 import { ChevronLeft, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -45,6 +46,13 @@ const SPANS = [
 ] as const;
 type SpanKey = (typeof SPANS)[number]["key"];
 
+// Validate the view preference restored from localStorage (external/user-writable data). Unknown
+// values fall back to the calendar/week defaults.
+const viewPrefSchema = z.object({
+  viewType: z.enum(["calendar", "staff"]).catch("calendar"),
+  span: z.enum(SPANS.map((s) => s.key) as [SpanKey, ...SpanKey[]]).catch("week"),
+});
+
 interface AppointmentCalendarProps {
   initialAppointments: AppointmentListItem[];
   canCreate?: boolean;
@@ -73,7 +81,6 @@ export function AppointmentCalendar({
   const router = useRouter();
   const calendarRef = useRef<FullCalendar>(null);
   const [appointments, setAppointments] = useState<AppointmentListItem[]>(initialAppointments);
-  // "all" = no staff filter; otherwise a staff user id.
   // Which providers to show. Empty = all staff. (Multi-select: view several providers at once.)
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   // Controlled so the dropdown stays open while toggling several staff (closes on outside click).
@@ -186,10 +193,11 @@ export function AppointmentCalendar({
         }
         return;
       }
-      // localStorage is external/user-writable, so validate before trusting it.
-      const saved = JSON.parse(raw) as { viewType?: unknown; span?: unknown };
-      const viewType: "calendar" | "staff" = saved.viewType === "staff" ? "staff" : "calendar";
-      let span: SpanKey = SPANS.some((s) => s.key === saved.span) ? (saved.span as SpanKey) : "week";
+      // localStorage is external/user-writable, so validate through a Zod schema (unknown values
+      // fall back to calendar/week).
+      const parsed = viewPrefSchema.safeParse(JSON.parse(raw));
+      const viewType = parsed.success ? parsed.data.viewType : "calendar";
+      let span: SpanKey = parsed.success ? parsed.data.span : "week";
       // Month is hidden in Staff view, so a restored "staff + month" would leave no span selected —
       // clamp it to "day" (matches the view-toggle click handler).
       if (viewType === "staff" && span === "month") span = "day";

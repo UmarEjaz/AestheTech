@@ -279,12 +279,17 @@ export function StaffLaneGrid({
       : [];
     const durationMin = seg.appointment.services.reduce((s, x) => s + x.duration, 0) || SLOT_MIN;
     // Remember where this block started so a drop back on the same spot is a no-op (see endDrag).
+    const originMaxMin = Math.max(0, endMin - startMin - durationMin);
     const origin = {
       dayKey: formatInTz(seg.start, "yyyy-MM-dd", timezone),
       staffId: seg.staffId,
-      // Snap + clamp exactly like moveDrag so a drop back on the same spot compares equal (no-op),
-      // even for an off-grid start (e.g. 9:22) or one before business open.
-      min: Math.max(0, Math.round((minutesOfDay(seg.start) - startMin) / SNAP_MIN) * SNAP_MIN),
+      // Snap + clamp exactly like moveDrag (same lower AND upper bound) so a drop back on the same
+      // spot compares equal (no-op), even for an off-grid start (9:22), a before-open start, or a
+      // start past the latest valid slot.
+      min: Math.max(
+        0,
+        Math.min(originMaxMin, Math.round((minutesOfDay(seg.start) - startMin) / SNAP_MIN) * SNAP_MIN)
+      ),
     };
     setDrag({ apptId: seg.appointment.id, durationMin, origin, target: null });
   };
@@ -331,7 +336,12 @@ export function StaffLaneGrid({
   // Pointer cancelled (touch interruption, context menu, gesture takeover) — pointerup never fires,
   // so just clear the drag visuals. Do NOT reschedule: the drag never completed, and the appointment
   // was never actually moved (only the faded block + drop preview were shown).
-  const cancelDrag = () => setDrag(null);
+  const cancelDrag = () => {
+    // A cancelled pointer stream fires no click, so clear the click guard here too — otherwise the
+    // next click on this block is swallowed and its details drawer won't open.
+    didDragRef.current = false;
+    setDrag(null);
+  };
 
   // Arrow-key navigation over the slot grid, Enter to book — parity with the FullCalendar views.
   // (Keys from a focused appointment block bubble here too; ignore those so Enter still opens it.)
