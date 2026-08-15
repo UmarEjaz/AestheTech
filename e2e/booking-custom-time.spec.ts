@@ -1,23 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
+import { login, futureWeekdayNoonUtc } from "./helpers";
 
 // Live end-to-end test for the booking form's custom-time flow. Needs the dev server on :3001 and a
 // seeded database (owner login + sample client/services/staff come from `npm run db:seed`).
-
-async function login(page: Page) {
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await expect(page.getByLabel("Email")).toBeVisible();
-  // Let the client login form hydrate before filling — otherwise React re-mounts with empty state
-  // after our fill and submits blank credentials (bounces back to /login).
-  await page.waitForTimeout(2000);
-  await page.getByLabel("Email").fill("owner@aesthetech.com");
-  await page.getByLabel("Password").fill("password123");
-  await expect(page.getByLabel("Email")).toHaveValue("owner@aesthetech.com");
-  // Race the navigation with the submit (dev-server route compiles can be slow on the first hit).
-  await Promise.all([
-    page.waitForURL(/dashboard/, { timeout: 90_000 }),
-    page.getByRole("button", { name: /sign in/i }).click(),
-  ]);
-}
 
 // Pick a client, a service, and a staff member so the "When" section (with the custom-time toggle)
 // appears.
@@ -39,7 +24,12 @@ async function fillBookingBasics(page: Page) {
 test.describe("Booking — custom start time", () => {
   test("rejects an out-of-hours time, suggests the next free slot, and accepts it", async ({ page }) => {
     await login(page);
-    await page.goto("/dashboard/appointments/new", { waitUntil: "domcontentloaded" });
+    // Book on a future weekday (via ?startTime) so the "next free slot" suggestion is deterministic
+    // — booking "today" flakes on evenings/weekends when nothing fits before the salon closes.
+    const bookDay = futureWeekdayNoonUtc().toISOString();
+    await page.goto(`/dashboard/appointments/new?startTime=${encodeURIComponent(bookDay)}`, {
+      waitUntil: "domcontentloaded",
+    });
     // Let the heavy booking form hydrate before interacting (otherwise the picker's open-handler
     // isn't attached yet and clicking the trigger only focuses it).
     await expect(page.getByText("Search or add a client")).toBeVisible();
