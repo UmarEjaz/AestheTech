@@ -64,3 +64,8 @@ Thumbs.db
 CLAUDE.local.md
 notes.md
 TODO.local.md
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/

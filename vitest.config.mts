@@ -15,7 +15,8 @@ export default defineConfig({
     // docblock at the top of the file.
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
-    exclude: ["node_modules", ".next"],
+    // e2e/ holds Playwright specs (run via `npm run test:e2e`), not Vitest.
+    exclude: ["node_modules", ".next", "e2e"],
     setupFiles: ["./vitest.setup.ts"],
     coverage: {
       // Measure coverage (npm run test:coverage) but DON'T enforce a global threshold yet — app-wide
