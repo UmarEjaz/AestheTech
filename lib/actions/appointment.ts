@@ -1095,9 +1095,13 @@ export async function validateCustomTime(params: {
     reason?: "past" | "outside-hours" | "conflict";
     openLabel?: string;
     closeLabel?: string;
-    // Next bookable slot at/after the requested time (so the form can offer a one-tap fix).
+    // Next bookable slot at/after the requested time (so the form can offer a one-tap fix). The
+    // search rolls forward to later days when the requested day has no free slot left, so the
+    // suggestion may fall on a different calendar day — suggestionDateISO carries that day (salon-tz
+    // "yyyy-MM-dd") so the form can move to it, and suggestionLabel names the day when it differs.
     suggestionLabel?: string;
     suggestionHHMM?: string;
+    suggestionDateISO?: string;
   }>
 > {
   const authResult = await checkAuth("appointments:view");
@@ -1118,46 +1122,116 @@ export async function validateCustomTime(params: {
     }
     const { lines, totalDuration, tz, slotInterval, dayStart, dayEnd, existingSegments } = ctx;
     const startMs = startTime.getTime();
-    const endMs = startMs + totalDuration * 60_000;
+    const totalMs = totalDuration * 60_000;
+    const endMs = startMs + totalMs;
     const now = Date.now();
     const dayStartMs = dayStart.getTime();
     const dayEndMs = dayEnd.getTime();
+    // How far ahead the "next free slot" search will roll when the requested day is full/closed.
+    const SUGGESTION_HORIZON_DAYS = 14;
+    const allStaffIds = Array.from(new Set(lines.map((l) => l.staffId)));
+    // The salon-local open/close wall-clock, reused to rebuild the window on later days.
+    const openHour = dayStart.getHours();
+    const openMin = dayStart.getMinutes();
+    const closeHour = dayEnd.getHours();
+    const closeMin = dayEnd.getMinutes();
 
-    const hasClash = (atMs: number): boolean => {
+    const clashesWith = (atMs: number, segs: typeof existingSegments): boolean => {
       const cand = computeSegments(atMs, lines);
       return cand.some((a) =>
-        existingSegments.some(
-          (b) => a.staffId === b.staffId && a.startMs < b.endMs && a.endMs > b.startMs
-        )
+        segs.some((b) => a.staffId === b.staffId && a.startMs < b.endMs && a.endMs > b.startMs)
       );
     };
-    // First bookable, in-hours, non-past, conflict-free slot at/after `fromMs`. Step a TZDate by the
-    // booking interval (like getAvailableSlots) so a DST day keeps wall-clock slot alignment.
-    const findNextFree = (fromMs: number): number | null => {
-      const floor = Math.max(fromMs, dayStartMs, now);
-      const cursor = new TZDate(dayStartMs, tz);
-      while (cursor.getTime() < dayEndMs) {
+    const hasClash = (atMs: number): boolean => clashesWith(atMs, existingSegments);
+
+    // Scan ONE day's [open, close) window for the first non-past, conflict-free slot. Step a TZDate
+    // from the day's open by the booking interval (like getAvailableSlots) so slots stay grid-aligned
+    // and a DST day keeps wall-clock alignment. `floorMs` skips slots before the requested time.
+    const scanDay = (
+      openMs: number,
+      closeMs: number,
+      floorMs: number,
+      segs: typeof existingSegments
+    ): number | null => {
+      const floor = Math.max(floorMs, now);
+      const cursor = new TZDate(openMs, tz);
+      while (cursor.getTime() < closeMs) {
         const t = cursor.getTime();
         cursor.setMinutes(cursor.getMinutes() + slotInterval);
         if (t < floor) continue;
-        if (t + totalDuration * 60_000 > dayEndMs) break;
-        if (!hasClash(t)) return t;
+        if (t + totalMs > closeMs) break;
+        if (!clashesWith(t, segs)) return t;
       }
       return null;
     };
+
+    // Existing bookings for the days AFTER the requested one, fetched once and only if needed.
+    let futureSegments: typeof existingSegments | null = null;
+    const dayWindow = (offset: number): { openMs: number; closeMs: number } => {
+      const d = new TZDate(dayStartMs, tz);
+      d.setDate(d.getDate() + offset);
+      const y = d.getFullYear();
+      const mo = d.getMonth();
+      const dd = d.getDate();
+      return {
+        openMs: new TZDate(y, mo, dd, openHour, openMin, 0, 0, tz).getTime(),
+        closeMs: new TZDate(y, mo, dd, closeHour, closeMin, 0, 0, tz).getTime(),
+      };
+    };
+    const loadFutureSegments = async (): Promise<typeof existingSegments> => {
+      if (futureSegments) return futureSegments;
+      const rangeStart = dayWindow(1).openMs;
+      const rangeEnd = dayWindow(SUGGESTION_HORIZON_DAYS).closeMs;
+      const appts = await prisma.appointment.findMany({
+        where: {
+          salonId: authResult.salonId,
+          services: { some: { staffId: { in: allStaffIds } } },
+          startTime: { lt: new Date(rangeEnd) },
+          endTime: { gt: new Date(rangeStart) },
+          status: { notIn: ["CANCELLED", "NO_SHOW"] },
+          ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
+        },
+        select: {
+          startTime: true,
+          services: { orderBy: { order: "asc" }, select: { staffId: true, duration: true } },
+        },
+      });
+      futureSegments = appts.flatMap((apt) => computeSegments(apt.startTime.getTime(), apt.services));
+      return futureSegments;
+    };
+
+    // First bookable slot at/after `fromMs` on the requested day, else rolling forward to later days.
+    const findNextFree = async (fromMs: number): Promise<number | null> => {
+      const sameDay = scanDay(dayStartMs, dayEndMs, fromMs, existingSegments);
+      if (sameDay !== null) return sameDay;
+      const future = await loadFutureSegments();
+      for (let offset = 1; offset <= SUGGESTION_HORIZON_DAYS; offset++) {
+        const { openMs, closeMs } = dayWindow(offset);
+        const hit = scanDay(openMs, closeMs, openMs, future);
+        if (hit !== null) return hit;
+      }
+      return null;
+    };
+
+    const requestedDayISO = format(dayStart, "yyyy-MM-dd");
     const suggest = (ms: number | null) => {
       if (ms === null) return {};
       const d = new TZDate(ms, tz);
       const mm = String(d.getMinutes()).padStart(2, "0");
+      const iso = format(d, "yyyy-MM-dd");
+      const timeLabel = format(d, mm === "00" ? "h a" : "h:mm a");
       return {
         suggestionHHMM: `${String(d.getHours()).padStart(2, "0")}:${mm}`,
-        suggestionLabel: format(d, mm === "00" ? "h a" : "h:mm a"),
+        // Name the day only when the suggestion isn't on the requested day (avoids a misleading
+        // bare "Use 9 AM" that would otherwise apply to the wrong date).
+        suggestionLabel: iso === requestedDayISO ? timeLabel : `${format(d, "EEE MMM d")}, ${timeLabel}`,
+        suggestionDateISO: iso,
       };
     };
 
     // 1) Past times can't be booked (only possible for today).
     if (startMs < now) {
-      return { success: true, data: { ok: false, reason: "past", ...suggest(findNextFree(now)) } };
+      return { success: true, data: { ok: false, reason: "past", ...suggest(await findNextFree(now)) } };
     }
 
     // 2) Must sit fully inside the salon's business hours for that day.
@@ -1169,14 +1243,14 @@ export async function validateCustomTime(params: {
           reason: "outside-hours",
           openLabel: format(dayStart, "h:mm a"),
           closeLabel: format(dayEnd, "h:mm a"),
-          ...suggest(findNextFree(dayStartMs)),
+          ...suggest(await findNextFree(dayStartMs)),
         },
       };
     }
 
     // 3) No provider may already be booked during the slice they'd work.
     if (hasClash(startMs)) {
-      return { success: true, data: { ok: false, reason: "conflict", ...suggest(findNextFree(startMs)) } };
+      return { success: true, data: { ok: false, reason: "conflict", ...suggest(await findNextFree(startMs)) } };
     }
 
     return { success: true, data: { ok: true } };

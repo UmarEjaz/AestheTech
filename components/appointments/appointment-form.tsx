@@ -25,6 +25,13 @@ function toSalonLocalDay(instant: Date, tz: string): Date {
   const z = new TZDate(instant, tz);
   return new Date(z.getFullYear(), z.getMonth(), z.getDate());
 }
+
+// Turn a "yyyy-MM-dd" salon-day string into a floating local Date (same shape as toSalonLocalDay),
+// so the date-picker + slot fetch treat it as that salon calendar day regardless of browser tz.
+function localDayFromISO(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
 import { Loader2, Calendar as CalendarIcon, UserPlus, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, ChevronUp, ChevronDown, Plus, X, Star, Pencil, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
@@ -468,6 +475,7 @@ export function AppointmentForm({
     appointmentId: appointment?.id,
     setStartTime: (instant) =>
       setValue("startTime", instant as unknown as Date, { shouldValidate: false }),
+    setSelectedDate,
     clearSlotError: () => setSlotError(null),
   });
 
@@ -1601,7 +1609,14 @@ export function AppointmentForm({
                       {customTimeCheck.suggestionHHMM && (
                         <button
                           type="button"
-                          onClick={() => applyCustomTime(customTimeCheck.suggestionHHMM!)}
+                          onClick={() =>
+                            applyCustomTime(
+                              customTimeCheck.suggestionHHMM!,
+                              customTimeCheck.suggestionDateISO
+                                ? localDayFromISO(customTimeCheck.suggestionDateISO)
+                                : undefined
+                            )
+                          }
                           className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
                         >
                           Use {customTimeCheck.suggestionLabel}

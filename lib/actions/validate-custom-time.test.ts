@@ -101,6 +101,35 @@ describe("validateCustomTime", () => {
     expect(res.data.suggestionLabel).toBe("10:30 AM");
   });
 
+  it("rolls the suggestion to the next open day when the requested day is full", async () => {
+    const start = at(10);
+    // The whole requested day (09:00–19:00 = 10h) is blocked for our staff, so no same-day slot fits.
+    mockAppointmentFindMany
+      .mockResolvedValueOnce([{ startTime: at(9), services: [{ staffId: "stf_1", duration: 600 }] }]) // same-day query
+      .mockResolvedValueOnce([]); // future-day query: later days are free
+    const res = await validateCustomTime({ assignments: oneService, startTime: start });
+    if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(false);
+    if (res.data.ok) return;
+    expect(res.data.reason).toBe("conflict");
+    // Next free slot is the following day's opening time.
+    expect(res.data.suggestionHHMM).toBe("09:00");
+    const nextDay = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    const expectedISO = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(nextDay);
+    expect(res.data.suggestionDateISO).toBe(expectedISO);
+    // Since it's a different day, the label names the day (not a bare "9 AM").
+    expect(res.data.suggestionLabel).not.toBe("9 AM");
+  });
+
+  it("keeps the suggestion on the requested day (no date name) when that day has room", async () => {
+    const res = await validateCustomTime({ assignments: oneService, startTime: at(8) });
+    if (!res.success) throw new Error(res.error);
+    if (res.data.ok) return;
+    const sameDayISO = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(at(8));
+    expect(res.data.suggestionDateISO).toBe(sameDayISO);
+    expect(res.data.suggestionLabel).toBe("9 AM");
+  });
+
   it("does not clash with a booking for a DIFFERENT staff member", async () => {
     mockAppointmentFindMany.mockResolvedValue([
       { startTime: at(10), services: [{ staffId: "someone_else", duration: 30 }] },

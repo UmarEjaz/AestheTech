@@ -9,6 +9,9 @@ export type CustomTimeCheck = {
   message?: string;
   suggestionHHMM?: string;
   suggestionLabel?: string;
+  // Salon-local day ("yyyy-MM-dd") of the suggested slot — may differ from the selected day when the
+  // next free slot rolls to a later date.
+  suggestionDateISO?: string;
 };
 
 type Assignment = { serviceId: string; staffId: string };
@@ -24,6 +27,8 @@ interface UseCustomTimeCheckParams {
   appointmentId?: string;
   /** Push the resolved start instant (or clear it) into the form's field. */
   setStartTime: (instant: Date | undefined) => void;
+  /** Move the form to a different day (used when a suggestion rolls to a later date). */
+  setSelectedDate: (day: Date) => void;
   /** Clear any "pick a slot" error when the custom time changes. */
   clearSlotError: () => void;
 }
@@ -47,6 +52,7 @@ export function useCustomTimeCheck({
   mode,
   appointmentId,
   setStartTime,
+  setSelectedDate,
   clearSlotError,
 }: UseCustomTimeCheckParams) {
   // A custom "HH:MM" start time typed by staff — lets them book at any minute (e.g. 9:20), not just
@@ -61,15 +67,17 @@ export function useCustomTimeCheck({
   // Stable string key of the assignments for the effect dependency.
   const assignmentsKey = assignments.map((s) => `${s.serviceId}:${s.staffId}`).join(",");
 
-  // Build a salon-tz instant for HH:MM on the selected day. Returns null if unparseable / no date.
-  const buildInstant = (hhmm: string): Date | null => {
-    if (!hhmm || !selectedDate) return null;
+  // Build a salon-tz instant for HH:MM on a given day (defaults to the selected day). Returns null if
+  // unparseable / no day.
+  const buildInstant = (hhmm: string, day?: Date): Date | null => {
+    const onDay = day ?? selectedDate;
+    if (!hhmm || !onDay) return null;
     const [hh, mm] = hhmm.split(":").map(Number);
     if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
     const dt = new TZDate(
-      selectedDate.getFullYear(),
-      selectedDate.getMonth(),
-      selectedDate.getDate(),
+      onDay.getFullYear(),
+      onDay.getMonth(),
+      onDay.getDate(),
       hh,
       mm,
       0,
@@ -110,19 +118,23 @@ export function useCustomTimeCheck({
       message,
       suggestionHHMM: data.suggestionHHMM,
       suggestionLabel: data.suggestionLabel,
+      suggestionDateISO: data.suggestionDateISO,
     });
   };
 
-  // Apply a typed custom start time (HH:MM) on the selected salon-tz day.
-  const applyCustomTime = (hhmm: string) => {
+  // Apply a typed custom start time (HH:MM). An optional `day` moves the form to a later date first
+  // (used when accepting a suggestion whose next-free slot rolled to another day).
+  const applyCustomTime = (hhmm: string, day?: Date) => {
     setCustomTime(hhmm);
+    if (day) setSelectedDate(day);
     if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
-    if (!hhmm || !selectedDate) {
+    const onDay = day ?? selectedDate;
+    if (!hhmm || !onDay) {
       customTimeSeq.current++; // cancel any in-flight check
       setCustomTimeCheck({ status: "idle" });
       return;
     }
-    const instant = buildInstant(hhmm);
+    const instant = buildInstant(hhmm, day);
     if (!instant) return;
     setStartTime(instant);
     clearSlotError();

@@ -41,6 +41,7 @@ function makeParams(
     mode: "create",
     appointmentId: undefined,
     setStartTime: vi.fn(),
+    setSelectedDate: vi.fn(),
     clearSlotError: vi.fn(),
     ...overrides,
   };
@@ -168,6 +169,34 @@ describe("useCustomTimeCheck", () => {
 
     expect(mockValidate).toHaveBeenCalledTimes(1);
     expect(mockValidate.mock.calls[0][0].excludeAppointmentId).toBe("appt-99");
+  });
+
+  it("applying a suggestion on a later day moves the date and validates that day", async () => {
+    mockValidate.mockResolvedValue({ success: true, data: { ok: true } });
+    const params = makeParams(); // timezone America/New_York
+    const { result } = renderHook(() => useCustomTimeCheck(params));
+
+    const laterDay = new Date(2026, 8, 1); // Sep 1 2026 (floating local Y/M/D)
+    act(() => result.current.applyCustomTime("12:20", laterDay));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    await flush();
+
+    // The form was moved to the suggested day...
+    expect(params.setSelectedDate).toHaveBeenCalledWith(laterDay);
+    // ...and the time validated is 12:20 on THAT day (in the salon timezone), not the original day.
+    expect(mockValidate).toHaveBeenCalledTimes(1);
+    const sent = mockValidate.mock.calls[0][0].startTime as Date;
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(sent);
+    const time = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(sent);
+    expect(day).toBe("2026-09-01");
+    expect(time).toBe("12:20");
   });
 
   it("does not send an exclude id when creating a new appointment", async () => {
