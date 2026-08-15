@@ -1,0 +1,191 @@
+import { useState, useEffect, useRef } from "react";
+import { TZDate } from "@date-fns/tz";
+import { validateCustomTime } from "@/lib/actions/appointment";
+
+// Server-checked status of the typed custom time (business hours, past, provider conflict).
+// "ok" is required before the booking can go through.
+export type CustomTimeCheck = {
+  status: "idle" | "checking" | "ok" | "invalid";
+  message?: string;
+  suggestionHHMM?: string;
+  suggestionLabel?: string;
+};
+
+type Assignment = { serviceId: string; staffId: string };
+
+interface UseCustomTimeCheckParams {
+  /** Service→staff pairs to conflict-check (empty = nothing to check yet). */
+  assignments: Assignment[];
+  /** The salon-local day the time is typed for. */
+  selectedDate: Date | undefined;
+  timezone: string;
+  mode: "create" | "edit";
+  /** In edit mode, exclude this appointment from its own conflict check. */
+  appointmentId?: string;
+  /** Push the resolved start instant (or clear it) into the form's field. */
+  setStartTime: (instant: Date | undefined) => void;
+  /** Clear any "pick a slot" error when the custom time changes. */
+  clearSlotError: () => void;
+}
+
+// Debounce so we don't hit the server on every keystroke. Typing waits a touch longer than the
+// (silent) re-check that fires when the provider/date changes underneath a typed time.
+const TYPING_DEBOUNCE_MS = 400;
+const RECHECK_DEBOUNCE_MS = 300;
+
+/**
+ * Owns the "Custom time" toggle's state and its server validation. The tricky part is guarding
+ * against out-of-order answers: while one check is in flight the user can re-type, or the provider
+ * can change — an older answer landing late must never stamp the newer time as "available". Every
+ * entry point bumps `customTimeSeq` first, and each in-flight check drops itself if the ticket
+ * moved on. Extracted from the booking form so this race logic can be unit-tested in isolation.
+ */
+export function useCustomTimeCheck({
+  assignments,
+  selectedDate,
+  timezone,
+  mode,
+  appointmentId,
+  setStartTime,
+  clearSlotError,
+}: UseCustomTimeCheckParams) {
+  // A custom "HH:MM" start time typed by staff — lets them book at any minute (e.g. 9:20), not just
+  // the listed interval slots. Empty = using a listed slot. The server still conflict-checks it.
+  const [customTime, setCustomTime] = useState<string>("");
+  // Toggle in the section header: off = pick a listed slot, on = type a custom minute (slots hidden).
+  const [customTimeMode, setCustomTimeMode] = useState<boolean>(false);
+  const [customTimeCheck, setCustomTimeCheck] = useState<CustomTimeCheck>({ status: "idle" });
+  const customTimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const customTimeSeq = useRef(0); // ignore out-of-order validation responses
+
+  // Stable string key of the assignments for the effect dependency.
+  const assignmentsKey = assignments.map((s) => `${s.serviceId}:${s.staffId}`).join(",");
+
+  // Build a salon-tz instant for HH:MM on the selected day. Returns null if unparseable / no date.
+  const buildInstant = (hhmm: string): Date | null => {
+    if (!hhmm || !selectedDate) return null;
+    const [hh, mm] = hhmm.split(":").map(Number);
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+    const dt = new TZDate(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      hh,
+      mm,
+      0,
+      timezone
+    );
+    return new Date(dt.getTime());
+  };
+
+  // Ask the server whether a typed custom start time is bookable (business hours, past, conflict),
+  // then show a friendly inline message. Debounced by the caller; guarded against stale responses.
+  const runCustomTimeCheck = async (startInstant: Date) => {
+    if (assignments.length === 0) return; // need service+staff before we can check
+    const seq = ++customTimeSeq.current;
+    setCustomTimeCheck({ status: "checking" });
+    const result = await validateCustomTime({
+      assignments,
+      startTime: startInstant,
+      excludeAppointmentId: mode === "edit" ? appointmentId : undefined,
+    });
+    if (seq !== customTimeSeq.current) return; // a newer check started — drop this one
+    if (!result.success) {
+      setCustomTimeCheck({ status: "invalid", message: result.error });
+      return;
+    }
+    const data = result.data;
+    if (data.ok) {
+      setCustomTimeCheck({ status: "ok" });
+      return;
+    }
+    const message =
+      data.reason === "past"
+        ? "That time has already passed — pick a later time."
+        : data.reason === "outside-hours"
+          ? `Outside business hours (${data.openLabel}–${data.closeLabel}).`
+          : "That time overlaps another booking for this staff — pick a free time.";
+    setCustomTimeCheck({
+      status: "invalid",
+      message,
+      suggestionHHMM: data.suggestionHHMM,
+      suggestionLabel: data.suggestionLabel,
+    });
+  };
+
+  // Apply a typed custom start time (HH:MM) on the selected salon-tz day.
+  const applyCustomTime = (hhmm: string) => {
+    setCustomTime(hhmm);
+    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    if (!hhmm || !selectedDate) {
+      customTimeSeq.current++; // cancel any in-flight check
+      setCustomTimeCheck({ status: "idle" });
+      return;
+    }
+    const instant = buildInstant(hhmm);
+    if (!instant) return;
+    setStartTime(instant);
+    clearSlotError();
+    // Invalidate any in-flight check NOW (before the debounce), so an older response that lands
+    // during the wait can't stamp this newly-typed time as "available".
+    customTimeSeq.current++;
+    setCustomTimeCheck({ status: "checking" });
+    customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), TYPING_DEBOUNCE_MS);
+  };
+
+  // Flip the "Custom time" header toggle. Turning it on clears any auto-picked slot so nothing
+  // books until a minute is typed; turning it off clears the typed time so slot auto-select resumes.
+  const setMode = (on: boolean) => {
+    setCustomTimeMode(on);
+    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    customTimeSeq.current++; // cancel any in-flight check
+    setCustomTimeCheck({ status: "idle" });
+    if (on) {
+      setStartTime(undefined);
+    } else {
+      setCustomTime("");
+    }
+    clearSlotError();
+  };
+
+  // Picking a listed slot clears any custom time (the slot wins).
+  const clearForSlot = () => {
+    setCustomTime("");
+    setCustomTimeCheck({ status: "idle" });
+  };
+
+  // Re-check a typed custom time whenever the service/staff or date changes, so a "this time is
+  // available" message can't go stale after the provider is switched. Typing itself is handled by
+  // applyCustomTime; this only covers the OTHER inputs changing.
+  useEffect(() => {
+    if (!customTimeMode || !customTime || !selectedDate) return;
+    const instant = buildInstant(customTime);
+    if (!instant) return;
+    setStartTime(instant);
+    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    // Invalidate any in-flight check NOW (before the debounce), so a response for the OLD staff/date
+    // can't land during the wait and wrongly mark this time available for the new selection.
+    customTimeSeq.current++;
+    setCustomTimeCheck({ status: "checking" });
+    customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), RECHECK_DEBOUNCE_MS);
+    return () => {
+      if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    };
+    // Intentionally excludes customTime (typing is handled in applyCustomTime).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignmentsKey, selectedDate, customTimeMode]);
+
+  // In custom mode the typed time only counts once the server confirms it; outside custom mode
+  // customTime is always cleared, so a listed slot rules instead.
+  const customTimeReady = customTime.length > 0 && customTimeCheck.status === "ok";
+
+  return {
+    customTime,
+    customTimeMode,
+    customTimeCheck,
+    customTimeReady,
+    applyCustomTime,
+    setCustomTimeMode: setMode,
+    clearForSlot,
+  };
+}

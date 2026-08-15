@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -68,10 +68,10 @@ import {
   createAppointment,
   updateAppointment,
   getAvailableSlots,
-  validateCustomTime,
   addAppointmentDeposit,
   AppointmentListItem,
 } from "@/lib/actions/appointment";
+import { useCustomTimeCheck } from "./use-custom-time-check";
 import { createRecurringSeries, previewRecurringConflicts, getRecurringPreviewDates, ConflictPreview } from "@/lib/actions/recurring-series";
 import { ConflictResolutionUI, AlternativeSlot, SelectedAlternative } from "./conflict-resolution-ui";
 import { createBookingClient, getClientBookingContext, updateClient, getClients, ClientBookingContext } from "@/lib/actions/client";
@@ -213,21 +213,8 @@ export function AppointmentForm({
     )
   );
   const [availableSlots, setAvailableSlots] = useState<{ startTime: Date; endTime: Date }[]>([]);
-  // A custom "HH:MM" start time typed by staff — lets them book at any minute (e.g. 9:20), not just
-  // the listed interval slots. Empty = using a listed slot. The server still conflict-checks it.
-  const [customTime, setCustomTime] = useState<string>("");
-  // Toggle in the section header: off = pick a listed slot, on = type a custom minute (slots hidden).
-  const [customTimeMode, setCustomTimeMode] = useState<boolean>(false);
-  // Server-checked status of the typed custom time (business hours, past, provider conflict).
-  // "ok" is required before the booking can go through.
-  const [customTimeCheck, setCustomTimeCheck] = useState<{
-    status: "idle" | "checking" | "ok" | "invalid";
-    message?: string;
-    suggestionHHMM?: string;
-    suggestionLabel?: string;
-  }>({ status: "idle" });
-  const customTimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const customTimeSeq = useRef(0); // ignore out-of-order validation responses
+  // Custom-time toggle state + its server validation live in useCustomTimeCheck (called below,
+  // after `assignments` is derived). It owns customTime/customTimeMode/customTimeCheck.
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
   // Visit mode: "walkin" books at the current time (client is here now); "appointment"
@@ -462,6 +449,27 @@ export function AppointmentForm({
   );
   // Stable string key of the assignments for the effect dependency.
   const assignmentsKey = assignments.map((s) => `${s.serviceId}:${s.staffId}`).join(",");
+
+  // "Custom time" toggle: type any minute (e.g. 9:20) instead of a listed slot, server-validated
+  // and guarded against stale/out-of-order answers. See use-custom-time-check.ts.
+  const {
+    customTime,
+    customTimeMode,
+    customTimeCheck,
+    customTimeReady,
+    applyCustomTime,
+    setCustomTimeMode: handleCustomTimeMode,
+    clearForSlot: clearCustomTimeForSlot,
+  } = useCustomTimeCheck({
+    assignments,
+    selectedDate,
+    timezone,
+    mode,
+    appointmentId: appointment?.id,
+    setStartTime: (instant) =>
+      setValue("startTime", instant as unknown as Date, { shouldValidate: false }),
+    clearSlotError: () => setSlotError(null),
+  });
 
   // Fetch available slots when the service/staff assignments or date change
   useEffect(() => {
@@ -943,122 +951,10 @@ export function AppointmentForm({
   };
 
   const handleTimeSlotSelect = (slot: { startTime: Date; endTime: Date }) => {
-    setCustomTime(""); // picking a listed slot clears any custom time
-    setCustomTimeCheck({ status: "idle" });
+    clearCustomTimeForSlot(); // picking a listed slot clears any custom time
     setValue("startTime", slot.startTime);
     setSlotError(null);
   };
-  // Ask the server whether a typed custom start time is bookable (business hours, past, conflict),
-  // then show a friendly inline message. Debounced by the caller; guarded against stale responses.
-  const runCustomTimeCheck = async (startInstant: Date) => {
-    if (assignments.length === 0) return; // need service+staff before we can check
-    const seq = ++customTimeSeq.current;
-    setCustomTimeCheck({ status: "checking" });
-    const result = await validateCustomTime({
-      assignments,
-      startTime: startInstant,
-      excludeAppointmentId: mode === "edit" ? appointment?.id : undefined,
-    });
-    if (seq !== customTimeSeq.current) return; // a newer check started — drop this one
-    if (!result.success) {
-      setCustomTimeCheck({ status: "invalid", message: result.error });
-      return;
-    }
-    const data = result.data;
-    if (data.ok) {
-      setCustomTimeCheck({ status: "ok" });
-      return;
-    }
-    const message =
-      data.reason === "past"
-        ? "That time has already passed — pick a later time."
-        : data.reason === "outside-hours"
-          ? `Outside business hours (${data.openLabel}–${data.closeLabel}).`
-          : "That time overlaps another booking for this staff — pick a free time.";
-    setCustomTimeCheck({
-      status: "invalid",
-      message,
-      suggestionHHMM: data.suggestionHHMM,
-      suggestionLabel: data.suggestionLabel,
-    });
-  };
-
-  // Apply a typed custom start time (HH:MM) on the selected salon-tz day.
-  const applyCustomTime = (hhmm: string) => {
-    setCustomTime(hhmm);
-    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
-    if (!hhmm || !selectedDate) {
-      customTimeSeq.current++; // cancel any in-flight check
-      setCustomTimeCheck({ status: "idle" });
-      return;
-    }
-    const [hh, mm] = hhmm.split(":").map(Number);
-    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
-    const dt = new TZDate(
-      selectedDate.getFullYear(),
-      selectedDate.getMonth(),
-      selectedDate.getDate(),
-      hh,
-      mm,
-      0,
-      timezone
-    );
-    const instant = new Date(dt.getTime());
-    setValue("startTime", instant, { shouldValidate: false });
-    setSlotError(null);
-    // Invalidate any in-flight check NOW (before the debounce), so an older response that lands
-    // during the wait can't stamp this newly-typed time as "available".
-    customTimeSeq.current++;
-    setCustomTimeCheck({ status: "checking" });
-    customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), 400);
-  };
-
-  // Flip the "Custom time" header toggle. Turning it on clears any auto-picked slot so nothing
-  // books until a minute is typed; turning it off clears the typed time so slot auto-select resumes.
-  const handleCustomTimeMode = (on: boolean) => {
-    setCustomTimeMode(on);
-    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
-    customTimeSeq.current++; // cancel any in-flight check
-    setCustomTimeCheck({ status: "idle" });
-    if (on) {
-      setValue("startTime", undefined as unknown as Date, { shouldValidate: false });
-    } else {
-      setCustomTime("");
-    }
-    setSlotError(null);
-  };
-
-  // Re-check a typed custom time whenever the service/staff or date changes, so a "this time is
-  // available" message can't go stale after the provider is switched. Typing itself is handled by
-  // applyCustomTime; this only covers the OTHER inputs changing.
-  useEffect(() => {
-    if (!customTimeMode || !customTime || !selectedDate) return;
-    const [hh, mm] = customTime.split(":").map(Number);
-    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
-    const dt = new TZDate(
-      selectedDate.getFullYear(),
-      selectedDate.getMonth(),
-      selectedDate.getDate(),
-      hh,
-      mm,
-      0,
-      timezone
-    );
-    const instant = new Date(dt.getTime());
-    setValue("startTime", instant, { shouldValidate: false });
-    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
-    // Invalidate any in-flight check NOW (before the debounce), so a response for the OLD staff/date
-    // can't land during the wait and wrongly mark this time available for the new selection.
-    customTimeSeq.current++;
-    setCustomTimeCheck({ status: "checking" });
-    customTimeTimer.current = setTimeout(() => runCustomTimeCheck(instant), 300);
-    return () => {
-      if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
-    };
-    // Intentionally excludes customTime (typing is handled in applyCustomTime).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignmentsKey, selectedDate, customTimeMode]);
-
   // Header copy reflects the visit mode so the whole page reframes with the toggle:
   // "New Appointment" (for later) ⇄ "New Walk-in" (here now). Edit mode is always a slot.
   const headerTitle = mode === "edit" ? "Edit Appointment" : isWalkIn ? "New Walk-in" : "New Appointment";
@@ -1079,9 +975,6 @@ export function AppointmentForm({
   const servicesComplete =
     readinessLines.length > 0 && readinessLines.every((l) => l.serviceId && l.staffId);
   const needsSlot = mode === "create" && !isWalkIn;
-  // A custom time only counts as chosen once the server confirms it's bookable ("ok"); a listed
-  // slot counts immediately. Outside custom mode, customTime is always cleared, so the slot rules.
-  const customTimeReady = customTime.length > 0 && customTimeCheck.status === "ok";
   // Order matches onSubmit: custom mode ALWAYS requires a server-confirmed time (create AND edit),
   // so evaluate it before the `!needsSlot` shortcut — otherwise edit mode would never require it.
   const slotChosen = customTimeMode
