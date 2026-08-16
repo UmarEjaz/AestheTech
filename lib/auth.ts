@@ -265,9 +265,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
-  // DEV ONLY: trust the incoming request host so auth redirects work on whatever
-  // port `next dev` actually binds to (3000, 3001, …) without hardcoding a URL.
-  // In production this stays false and the canonical URL is pinned via env
-  // (NEXTAUTH_URL/AUTH_URL) — never trust a spoofable host header in prod.
-  trustHost: process.env.NODE_ENV !== "production",
+  // Trust the incoming request host in development (so auth works on whatever port `next dev`
+  // binds to, 3000/3001/…, without hardcoding a URL). In production it stays false UNLESS the
+  // operator explicitly opts in with AUTH_TRUST_HOST=true — the standard Auth.js setting for
+  // running behind a trusted reverse proxy (e.g. Railway). Never trust a spoofable host header in
+  // prod by default.
+  trustHost:
+    process.env.NODE_ENV !== "production" || process.env.AUTH_TRUST_HOST === "true",
 });
