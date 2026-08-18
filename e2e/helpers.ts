@@ -1,4 +1,28 @@
 import { expect, type Page, type Locator } from "@playwright/test";
+import { TZDate } from "@date-fns/tz";
+
+// Pick a near-future weekday (≥3 days out, salon tz) at `hour` local, and how many single-day "Next"
+// clicks reach it from today. Shared by the calendar-view and lane-drag specs so the date math lives
+// in one place. Returns the start instant and the day-step count.
+export function futureWeekdaySlot(tz: string, hour = 11): { start: Date; dayStepsFromToday: number } {
+  const dayISOInTz = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
+  const utcDayMs = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  let probe = new Date(Date.now() + 3 * 86_400_000);
+  for (let i = 0; i < 7; i++) {
+    const wd = new Date(utcDayMs(dayISOInTz(probe))).getUTCDay();
+    if (wd !== 0 && wd !== 6) break;
+    probe = new Date(probe.getTime() + 86_400_000);
+  }
+  const [ty, tm, td] = dayISOInTz(probe).split("-").map(Number);
+  const start = new Date(new TZDate(ty, tm - 1, td, hour, 0, 0, tz).getTime());
+  const dayStepsFromToday = Math.round(
+    (utcDayMs(dayISOInTz(start)) - utcDayMs(dayISOInTz(new Date()))) / 86_400_000
+  );
+  return { start, dayStepsFromToday };
+}
 
 // Escape a free-text string (e.g. a client name) for safe use inside a `new RegExp(...)` locator, so
 // characters like ( ) . + break neither the pattern nor the match.

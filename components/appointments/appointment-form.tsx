@@ -1585,6 +1585,10 @@ export function AppointmentForm({
                         onChange={(e) => applyCustomTime(e.target.value)}
                         className="h-11 w-[8.75rem] text-base font-semibold tabular-nums"
                         aria-label="Custom start time"
+                        aria-invalid={customTimeCheck.status === "invalid"}
+                        aria-describedby={
+                          customTimeCheck.status === "invalid" ? "custom-time-error" : undefined
+                        }
                         autoFocus
                       />
                     </div>
@@ -1593,43 +1597,49 @@ export function AppointmentForm({
                       9:20. Perfect for back-to-back appointments.
                     </p>
                   </div>
-                  {/* Live availability check: business hours, past times, and provider conflicts. */}
-                  {customTimeCheck.status === "checking" && (
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Checking availability…
-                    </p>
-                  )}
-                  {customTimeCheck.status === "invalid" && (
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                        {customTimeCheck.message}
+                  {/* Live availability check (business hours, past times, provider conflicts).
+                      role="status" + aria-live announces each state change to screen readers. */}
+                  <div role="status" aria-live="polite">
+                    {customTimeCheck.status === "checking" && (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Checking availability…
                       </p>
-                      {customTimeCheck.suggestionHHMM && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            applyCustomTime(
-                              customTimeCheck.suggestionHHMM!,
-                              customTimeCheck.suggestionDateISO
-                                ? localDayFromISO(customTimeCheck.suggestionDateISO)
-                                : undefined
-                            )
-                          }
-                          className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
+                    )}
+                    {customTimeCheck.status === "invalid" && (
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p
+                          id="custom-time-error"
+                          className="flex items-center gap-1.5 text-xs font-medium text-destructive"
                         >
-                          Use {customTimeCheck.suggestionLabel}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {customTimeCheck.status === "ok" && (
-                    <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                      <Check className="h-3.5 w-3.5 shrink-0" />
-                      This time is available.
-                    </p>
-                  )}
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {customTimeCheck.message}
+                        </p>
+                        {customTimeCheck.suggestionHHMM && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              applyCustomTime(
+                                customTimeCheck.suggestionHHMM!,
+                                customTimeCheck.suggestionDateISO
+                                  ? localDayFromISO(customTimeCheck.suggestionDateISO)
+                                  : undefined
+                              )
+                            }
+                            className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
+                          >
+                            Use {customTimeCheck.suggestionLabel}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {customTimeCheck.status === "ok" && (
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        <Check className="h-3.5 w-3.5 shrink-0" />
+                        This time is available.
+                      </p>
+                    )}
+                  </div>
                 </div>
               ) : isLoadingSlots ? (
                 <div className="flex items-center justify-center py-8">

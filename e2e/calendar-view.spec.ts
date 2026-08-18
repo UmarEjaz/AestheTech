@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { config as loadEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
-import { TZDate } from "@date-fns/tz";
-import { login, escapeRegExp, clickUntil } from "./helpers";
+import { login, escapeRegExp, clickUntil, futureWeekdaySlot } from "./helpers";
 
 // End-to-end coverage for the FullCalendar-based Calendar view: our appointment-fetching + event
 // rendering + toolbar navigation + click-to-open-details (i.e. OUR integration around FullCalendar,
@@ -10,13 +9,6 @@ import { login, escapeRegExp, clickUntil } from "./helpers";
 
 loadEnv();
 const prisma = new PrismaClient();
-
-const dayISOInTz = (d: Date, tz: string) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d); // "yyyy-mm-dd"
-const utcDayMs = (iso: string) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
-};
 
 let apptId: string;
 let clientName: string;
@@ -40,18 +32,10 @@ test.beforeAll(async () => {
   const svc = seed.services[0];
   clientName = `${seed.client.firstName}${seed.client.lastName ? ` ${seed.client.lastName}` : ""}`;
 
-  let probe = new Date(Date.now() + 3 * 86_400_000);
-  for (let i = 0; i < 7; i++) {
-    const wd = new Date(utcDayMs(dayISOInTz(probe, tz))).getUTCDay();
-    if (wd !== 0 && wd !== 6) break;
-    probe = new Date(probe.getTime() + 86_400_000);
-  }
-  const [ty, tm, td] = dayISOInTz(probe, tz).split("-").map(Number);
-  const start = new Date(new TZDate(ty, tm - 1, td, 11, 0, 0, tz).getTime()); // 11:00 salon-local
+  const slot = futureWeekdaySlot(tz);
+  const start = slot.start;
   const end = new Date(start.getTime() + svc.duration * 60_000);
-  dayStepsFromToday = Math.round(
-    (utcDayMs(dayISOInTz(start, tz)) - utcDayMs(dayISOInTz(new Date(), tz))) / 86_400_000
-  );
+  dayStepsFromToday = slot.dayStepsFromToday;
 
   const created = await prisma.appointment.create({
     data: {

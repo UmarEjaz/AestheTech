@@ -23,6 +23,7 @@ function hhmmInTz(instant: Date, timeZone: string): string {
 
 let apptId: string;
 let salonTz: string;
+let svcDurationMin: number;
 
 test.beforeAll(async () => {
   // Reuse a seeded appointment's salon/client/service/staff pairing (guaranteed valid), then create a
@@ -40,6 +41,7 @@ test.beforeAll(async () => {
   });
   salonTz = settings?.timezone ?? "UTC";
   const svc = seed.services[0];
+  svcDurationMin = svc.duration;
   const start = futureWeekdayNoonUtc();
   const end = new Date(start.getTime() + svc.duration * 60_000);
   const created = await prisma.appointment.create({
@@ -103,7 +105,15 @@ test.describe("Booking — edit with a custom start time", () => {
 
     // The chosen custom time must have persisted: submit → updateAppointment → DB. Compare in the
     // salon's timezone, since startTime is stored as a UTC instant.
-    const updated = await prisma.appointment.findUniqueOrThrow({ where: { id: apptId } });
+    const updated = await prisma.appointment.findUniqueOrThrow({
+      where: { id: apptId },
+      include: { services: { orderBy: { order: "asc" } } },
+    });
     expect(hhmmInTz(updated.startTime, salonTz)).toBe("12:20");
+    // The end time and the service's busy-window (segment) must be recomputed from the new start.
+    const expectedEnd = new Date(updated.startTime.getTime() + svcDurationMin * 60_000);
+    expect(updated.endTime.getTime()).toBe(expectedEnd.getTime());
+    expect(updated.services[0].segmentStart?.getTime()).toBe(updated.startTime.getTime());
+    expect(updated.services[0].segmentEnd?.getTime()).toBe(expectedEnd.getTime());
   });
 });

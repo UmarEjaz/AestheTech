@@ -130,7 +130,10 @@ export function AppointmentCalendar({
   // across a salon daylight-saving transition, since the grid derives its day keys in the salon tz.
   const stepLaneDate = (days: number) =>
     setLaneDate((d) => {
-      const t = new TZDate(d.getTime(), timezone);
+      const z = new TZDate(d.getTime(), timezone);
+      // Normalize to midday in the salon tz before stepping so a DST changeover can't skip/repeat a
+      // day (matches how StaffLaneGrid derives its dayKeys).
+      const t = new TZDate(z.getFullYear(), z.getMonth(), z.getDate(), 12, 0, 0, 0, timezone);
       t.setDate(t.getDate() + days);
       return new Date(t.getTime());
     });

@@ -68,7 +68,7 @@ export const rescheduleSchema = z.object({
 // Ordered service→staff assignments, shared by the slots + custom-time validators so the 1–10
 // bound and messages stay in sync.
 const assignmentsSchema = z
-  .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
+  .array(appointmentServiceSchema)
   .min(1, "At least one service is required")
   .max(10, "At most 10 services");
 

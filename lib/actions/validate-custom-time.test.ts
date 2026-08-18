@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { formatInTz } from "@/lib/utils/timezone";
 
 // ---- Fakes for the server-action's dependencies (no real DB / auth / redis) ----
 const mockCheckAuth = vi.fn();
@@ -120,7 +121,7 @@ describe("validateCustomTime", () => {
     // Next free slot is the following day's opening time.
     expect(res.data.suggestionHHMM).toBe("09:00");
     const nextDay = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-    const expectedISO = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(nextDay);
+    const expectedISO = formatInTz(nextDay, "yyyy-MM-dd", TZ);
     expect(res.data.suggestionDateISO).toBe(expectedISO);
     // Since it's a different day, the label names the day (not a bare "9 AM").
     expect(res.data.suggestionLabel).not.toBe("9 AM");
@@ -130,7 +131,7 @@ describe("validateCustomTime", () => {
     const res = await validateCustomTime({ assignments: oneService, startTime: at(8) });
     if (!res.success) throw new Error(res.error);
     if (res.data.ok) return;
-    const sameDayISO = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(at(8));
+    const sameDayISO = formatInTz(at(8), "yyyy-MM-dd", TZ);
     expect(res.data.suggestionDateISO).toBe(sameDayISO);
     expect(res.data.suggestionLabel).toBe("9 AM");
   });

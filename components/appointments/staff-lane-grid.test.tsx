@@ -62,6 +62,12 @@ describe("StaffLaneGrid", () => {
     expect(screen.getByText(/9–9:30 AM · Beard Trim/)).toBeInTheDocument();
   });
 
+  it("calls onSelectAppointment when an appointment block is clicked", () => {
+    render(<StaffLaneGrid {...baseProps} appointments={[makeAppt()]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Jennifer Smith/i }));
+    expect(baseProps.onSelectAppointment).toHaveBeenCalledWith("apt_1");
+  });
+
   it("shows a loading spinner while loading", () => {
     const { container } = render(<StaffLaneGrid {...baseProps} appointments={[]} loading />);
     expect(container.querySelector(".animate-spin")).not.toBeNull();

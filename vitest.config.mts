@@ -23,7 +23,7 @@ export default defineConfig({
       // coverage is still low, so a hard gate would fail the build. Raise it as coverage grows.
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["lib/**/*.ts", "components/**/*.tsx"],
+      include: ["lib/**/*.ts", "components/**/*.{ts,tsx}"],
       exclude: ["**/*.test.ts", "**/*.d.ts"],
     },
   },

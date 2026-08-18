@@ -114,8 +114,9 @@ export function StaffLaneGrid({
   onEmptyToday,
 }: StaffLaneGridProps) {
   const gridRef = useRef<HTMLDivElement>(null);
-  // Lane rects captured at drag start (positions are stable during a drag — no auto-scroll).
-  const dragRectsRef = useRef<{ dayKey: string; staffId: string; rect: DOMRect }[]>([]);
+  // Lane elements captured at drag start; their rects are read LIVE during the drag so a sideways
+  // scroll mid-drag can't send the drop to a stale position.
+  const dragLanesRef = useRef<{ dayKey: string; staffId: string; el: HTMLElement }[]>([]);
   const didDragRef = useRef(false); // distinguishes a drag from a plain click
   const pressPosRef = useRef<{ x: number; y: number } | null>(null); // where the press started
   const [drag, setDrag] = useState<{
@@ -273,11 +274,11 @@ export function StaffLaneGrid({
     e.currentTarget.setPointerCapture(e.pointerId);
     didDragRef.current = false;
     pressPosRef.current = { x: e.clientX, y: e.clientY };
-    dragRectsRef.current = gridRef.current
+    dragLanesRef.current = gridRef.current
       ? Array.from(gridRef.current.querySelectorAll<HTMLElement>("[data-lane]")).map((lane) => ({
           dayKey: lane.dataset.dayKey!,
           staffId: lane.dataset.staffId!,
-          rect: lane.getBoundingClientRect(),
+          el: lane,
         }))
       : [];
     const durationMin = seg.appointment.services.reduce((s, x) => s + x.duration, 0) || SLOT_MIN;
@@ -307,15 +308,18 @@ export function StaffLaneGrid({
       if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD_PX) return;
       didDragRef.current = true;
     }
-    // Require the pointer to be inside a lane on BOTH axes. Otherwise clear the target, so releasing
-    // off the lanes can't reschedule to a stale destination.
-    const hit = dragRectsRef.current.find(
-      (r) =>
-        e.clientX >= r.rect.left &&
-        e.clientX <= r.rect.right &&
-        e.clientY >= r.rect.top &&
-        e.clientY <= r.rect.bottom
-    );
+    // Require the pointer to be inside a lane on BOTH axes. Measure each lane LIVE (positions can move
+    // if the grid is scrolled mid-drag). Otherwise clear the target, so releasing off the lanes can't
+    // reschedule to a stale destination.
+    const hit = dragLanesRef.current
+      .map((lane) => ({ ...lane, rect: lane.el.getBoundingClientRect() }))
+      .find(
+        (r) =>
+          e.clientX >= r.rect.left &&
+          e.clientX <= r.rect.right &&
+          e.clientY >= r.rect.top &&
+          e.clientY <= r.rect.bottom
+      );
     if (!hit) {
       setDrag((d) => (d ? { ...d, target: null } : d));
       return;

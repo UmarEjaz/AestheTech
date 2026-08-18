@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright install chromium && playwright test",
     "db:generate": "prisma generate",
     "db:push": "prisma db push && npm run db:constraints",
     "db:constraints": "prisma db execute --file prisma/constraints.sql --schema prisma/schema.prisma",

@@ -89,7 +89,11 @@ export function useCustomTimeCheck({
   // Ask the server whether a typed custom start time is bookable (business hours, past, conflict),
   // then show a friendly inline message. Debounced by the caller; guarded against stale responses.
   const runCustomTimeCheck = async (startInstant: Date) => {
-    if (assignments.length === 0) return; // need service+staff before we can check
+    if (assignments.length === 0) {
+      // No service+staff to check against — don't leave the status stuck on "checking".
+      setCustomTimeCheck({ status: "idle" });
+      return;
+    }
     const seq = ++customTimeSeq.current;
     setCustomTimeCheck({ status: "checking" });
     const result = await validateCustomTime({
@@ -189,6 +193,14 @@ export function useCustomTimeCheck({
     // Intentionally excludes customTime (typing is handled in applyCustomTime).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentsKey, selectedDate, customTimeMode]);
+
+  // Always clear a pending debounce when the form unmounts, regardless of mode/time, so a scheduled
+  // check can't fire (and setState) after the component is gone.
+  useEffect(() => {
+    return () => {
+      if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    };
+  }, []);
 
   // In custom mode the typed time only counts once the server confirms it; outside custom mode
   // customTime is always cleared, so a listed slot rules instead.
