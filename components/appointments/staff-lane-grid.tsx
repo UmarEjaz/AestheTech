@@ -397,6 +397,9 @@ export function StaffLaneGrid({
       </div>
       <div
         ref={gridRef}
+        // `group` lets the aria-label actually be announced (a plain div's generic role can't carry a
+        // name); keyboard/focus/mouse behavior is unchanged.
+        role="group"
         aria-label="Staff schedule. Use arrow keys to move between time slots and Enter to book."
         tabIndex={0}
         onKeyDown={handleKeyDown}

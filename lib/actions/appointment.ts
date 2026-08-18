@@ -955,21 +955,23 @@ async function buildBookingContext(
     getOrganizationSalonIds(salonId).then((orgSalonIds) =>
       prisma.service.findMany({
         where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
-        select: { id: true, duration: true },
+        select: { id: true, duration: true, isActive: true },
       })
     ),
     getSettings(),
   ]);
-  const durationById = new Map(serviceRows.map((s) => [s.id, s.duration]));
+  // Reject a service that's missing OR switched off, matching what createAppointment enforces — so
+  // the availability/custom-time check never green-lights a service booking would then refuse.
+  const serviceById = new Map(serviceRows.map((s) => [s.id, s]));
   const lines: { staffId: string; duration: number }[] = [];
   let totalDuration = 0;
   for (const a of assignments) {
-    const d = durationById.get(a.serviceId);
-    if (d === undefined) {
-      return { ok: false, error: "Service not found" };
+    const service = serviceById.get(a.serviceId);
+    if (!service || !service.isActive) {
+      return { ok: false, error: "A selected service is not available" };
     }
-    lines.push({ staffId: a.staffId, duration: d });
-    totalDuration += d;
+    lines.push({ staffId: a.staffId, duration: service.duration });
+    totalDuration += service.duration;
   }
 
   // Business hours + booking interval from settings.

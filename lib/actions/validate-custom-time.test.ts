@@ -36,6 +36,11 @@ const at = (localHour: number, localMin = 0) => {
 };
 
 const oneService = [{ serviceId: "svc_1", staffId: "stf_1" }];
+// Two services run back-to-back for DIFFERENT providers: svc_1 (30 min, stf_1) then svc_2 (45 min, stf_2).
+const twoServices = [
+  { serviceId: "svc_1", staffId: "stf_1" },
+  { serviceId: "svc_2", staffId: "stf_2" },
+];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -49,7 +54,7 @@ beforeEach(() => {
       appointmentInterval: 30,
     },
   });
-  mockServiceFindMany.mockResolvedValue([{ id: "svc_1", duration: 30 }]);
+  mockServiceFindMany.mockResolvedValue([{ id: "svc_1", duration: 30, isActive: true }]);
   mockAppointmentFindMany.mockResolvedValue([]); // no existing bookings by default
 });
 
@@ -150,6 +155,34 @@ describe("validateCustomTime", () => {
       excludeAppointmentId: "apt_self",
     });
     expect(mockAppointmentFindMany.mock.calls[0][0].where.id).toEqual({ not: "apt_self" });
+  });
+
+  it("detects a conflict on a LATER segment of a multi-service booking", async () => {
+    // Non-30 interval also exercises the interval clamp.
+    mockGetSettings.mockResolvedValue({
+      success: true,
+      data: { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: TZ, appointmentInterval: 15 },
+    });
+    mockServiceFindMany.mockResolvedValue([
+      { id: "svc_1", duration: 30, isActive: true },
+      { id: "svc_2", duration: 45, isActive: true },
+    ]);
+    // svc_1 (stf_1) runs 10:00–10:30, svc_2 (stf_2) runs 10:30–11:15. An existing stf_2 booking at
+    // 10:45–11:15 overlaps ONLY the second segment — the first provider's slice is free.
+    mockAppointmentFindMany.mockResolvedValue([
+      { startTime: at(10, 45), services: [{ staffId: "stf_2", duration: 30 }] },
+    ]);
+    const res = await validateCustomTime({ assignments: twoServices, startTime: at(10) });
+    if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(false);
+    if (res.data.ok) return;
+    expect(res.data.reason).toBe("conflict");
+  });
+
+  it("rejects a service that is switched off (inactive)", async () => {
+    mockServiceFindMany.mockResolvedValue([{ id: "svc_1", duration: 30, isActive: false }]);
+    const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
+    expect(res.success).toBe(false);
   });
 
   it("rejects an unknown service", async () => {

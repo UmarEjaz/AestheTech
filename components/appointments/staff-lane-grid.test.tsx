@@ -9,7 +9,7 @@ const TZ = "Asia/Karachi";
 const DAY = new Date("2026-08-17T04:00:00Z");
 
 // Minimal AppointmentListItem fixture — only the fields the grid actually reads at render time.
-function makeAppt(over: Partial<Record<string, unknown>> = {}): AppointmentListItem {
+function makeAppt(over: Partial<AppointmentListItem> = {}): AppointmentListItem {
   return {
     id: "apt_1",
     startTime: new Date("2026-08-17T04:00:00Z"), // 9:00 AM local
@@ -91,10 +91,13 @@ describe("StaffLaneGrid", () => {
   it("clusters overlapping appointments in one lane behind a '+N more' pill", () => {
     // Overlaps in a single provider lane (only possible via cancelled/no-show rows in real data) are
     // collapsed to one visible block (earliest active) plus a "+N more" pill that reveals the rest.
-    const a = makeAppt({ id: "apt_a", client: { firstName: "Alice", lastName: "A", isWalkIn: false } });
+    // The grid only reads firstName/lastName/isWalkIn from a client — cast a partial one for the fixture.
+    const client = (firstName: string, lastName: string) =>
+      ({ firstName, lastName, isWalkIn: false }) as AppointmentListItem["client"];
+    const a = makeAppt({ id: "apt_a", client: client("Alice", "A") });
     const b = makeAppt({
       id: "apt_b",
-      client: { firstName: "Bob", lastName: "B", isWalkIn: false },
+      client: client("Bob", "B"),
       startTime: new Date("2026-08-17T04:15:00Z"), // 9:15 AM local — overlaps a's 9:00–9:30
       endTime: new Date("2026-08-17T04:45:00Z"),
     });
