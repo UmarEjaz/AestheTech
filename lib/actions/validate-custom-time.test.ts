@@ -141,6 +141,17 @@ describe("validateCustomTime", () => {
     expect(res.data.ok).toBe(true);
   });
 
+  it("excludes the edited appointment from its own conflict check", async () => {
+    // Edit mode must pass excludeAppointmentId into the Prisma query so an appointment never
+    // conflicts with itself. Assert the emitted `where` filters it out.
+    await validateCustomTime({
+      assignments: oneService,
+      startTime: at(10),
+      excludeAppointmentId: "apt_self",
+    });
+    expect(mockAppointmentFindMany.mock.calls[0][0].where.id).toEqual({ not: "apt_self" });
+  });
+
   it("rejects an unknown service", async () => {
     mockServiceFindMany.mockResolvedValue([]); // service id not found
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });

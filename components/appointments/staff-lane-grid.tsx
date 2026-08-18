@@ -121,6 +121,9 @@ export function StaffLaneGrid({
   const [drag, setDrag] = useState<{
     apptId: string;
     durationMin: number;
+    // Pixels between the pointer and the block's top at grab time, so the block follows the cursor
+    // from where it was grabbed instead of jumping its top to the pointer.
+    grabOffsetPx: number;
     // `min` = minutes past business open, snapped to SNAP_MIN (finer than a 30-min row).
     origin: { dayKey: string; staffId: string; min: number };
     target: { dayKey: string; staffId: string; min: number } | null;
@@ -278,6 +281,9 @@ export function StaffLaneGrid({
         }))
       : [];
     const durationMin = seg.appointment.services.reduce((s, x) => s + x.duration, 0) || SLOT_MIN;
+    // Distance from the pointer to the block's top, preserved so the block doesn't jump when grabbed
+    // below its top edge.
+    const grabOffsetPx = e.clientY - e.currentTarget.getBoundingClientRect().top;
     // Remember where this block started so a drop back on the same spot is a no-op (see endDrag).
     const originMaxMin = Math.max(0, endMin - startMin - durationMin);
     const origin = {
@@ -291,7 +297,7 @@ export function StaffLaneGrid({
         Math.min(originMaxMin, Math.round((minutesOfDay(seg.start) - startMin) / SNAP_MIN) * SNAP_MIN)
       ),
     };
-    setDrag({ apptId: seg.appointment.id, durationMin, origin, target: null });
+    setDrag({ apptId: seg.appointment.id, durationMin, grabOffsetPx, origin, target: null });
   };
   const moveDrag = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag) return;
@@ -314,9 +320,10 @@ export function StaffLaneGrid({
       setDrag((d) => (d ? { ...d, target: null } : d));
       return;
     }
-    // Pixel offset → minutes past open, snapped to SNAP_MIN. Clamp so the block stays inside the
-    // business-hours window (last valid start = close − duration).
-    const rawMin = ((e.clientY - hit.rect.top) / ROW_H) * SLOT_MIN;
+    // Pixel offset → minutes past open, snapped to SNAP_MIN. Subtract the grab offset so the block's
+    // TOP (not the cursor) lands at the drop point. Clamp so it stays inside business hours
+    // (last valid start = close − duration).
+    const rawMin = ((e.clientY - hit.rect.top - drag.grabOffsetPx) / ROW_H) * SLOT_MIN;
     const maxMin = Math.max(0, endMin - startMin - drag.durationMin);
     const min = Math.max(0, Math.min(maxMin, Math.round(rawMin / SNAP_MIN) * SNAP_MIN));
     setDrag((d) => (d ? { ...d, target: { dayKey: hit.dayKey, staffId: hit.staffId, min } } : d));

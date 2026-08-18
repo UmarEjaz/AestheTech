@@ -7,10 +7,19 @@ import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
 import { getActiveServices } from "@/lib/actions/service";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
 
 interface PageProps {
   searchParams: Promise<{ startTime?: string; staffId?: string }>;
 }
+
+// Validate the URL query (external input) before use. Both are optional strings; anything unexpected
+// (e.g. an array) is dropped so a crafted URL can't reach the page logic. Membership of staffId is
+// still checked below as the authorization gate.
+const newApptParamsSchema = z.object({
+  startTime: z.string().optional(),
+  staffId: z.string().optional(),
+});
 
 export default async function NewAppointmentPage({ searchParams }: PageProps) {
   const session = await auth();
@@ -19,7 +28,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirect("/login");
   }
 
-  const params = await searchParams;
+  const params = newApptParamsSchema.safeParse(await searchParams).data ?? {};
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }

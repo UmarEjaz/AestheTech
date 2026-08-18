@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { StaffLaneGrid } from "./staff-lane-grid";
 import type { AppointmentListItem } from "@/lib/actions/appointment";
@@ -39,6 +39,12 @@ const baseProps = {
 };
 
 describe("StaffLaneGrid", () => {
+  beforeEach(() => {
+    // Shared spies (e.g. baseProps.onSelectAppointment) live at module scope; reset call counts so
+    // one test never reads state left by another.
+    vi.clearAllMocks();
+  });
+
   it("shows the empty-state card when there are no appointments", () => {
     render(<StaffLaneGrid {...baseProps} appointments={[]} onEmptyBook={vi.fn()} onEmptyToday={vi.fn()} />);
     expect(screen.getByText("No appointments this day")).toBeInTheDocument();
@@ -70,5 +76,37 @@ describe("StaffLaneGrid", () => {
     // First column is the only provider; the ISO string carries its start.
     expect(onBookSlot.mock.calls[0][0]).toBe("stf_1");
     expect(typeof onBookSlot.mock.calls[0][1]).toBe("string");
+  });
+
+  it("renders one lane per day in the week span (dayKeys × staff)", () => {
+    // Week span builds a Sun–Sat column set; with a single provider that's 7 lanes, and the
+    // appointment still shows in its own day's lane.
+    const { container } = render(
+      <StaffLaneGrid {...baseProps} span="week" appointments={[makeAppt()]} />
+    );
+    expect(container.querySelectorAll("[data-lane]")).toHaveLength(7);
+    expect(screen.getByText("Jennifer Smith")).toBeInTheDocument();
+  });
+
+  it("clusters overlapping appointments in one lane behind a '+N more' pill", () => {
+    // Overlaps in a single provider lane (only possible via cancelled/no-show rows in real data) are
+    // collapsed to one visible block (earliest active) plus a "+N more" pill that reveals the rest.
+    const a = makeAppt({ id: "apt_a", client: { firstName: "Alice", lastName: "A", isWalkIn: false } });
+    const b = makeAppt({
+      id: "apt_b",
+      client: { firstName: "Bob", lastName: "B", isWalkIn: false },
+      startTime: new Date("2026-08-17T04:15:00Z"), // 9:15 AM local — overlaps a's 9:00–9:30
+      endTime: new Date("2026-08-17T04:45:00Z"),
+    });
+    render(<StaffLaneGrid {...baseProps} appointments={[a, b]} />);
+
+    // The earliest shows as the block; the overlapping one hides behind the pill (not yet in the DOM).
+    expect(screen.getByText("Alice A")).toBeInTheDocument();
+    expect(screen.queryByText("Bob B")).toBeNull();
+    const morePill = screen.getByRole("button", { name: /1 more appointment/i });
+
+    // Opening the pill reveals the clustered appointment (name sits in a "name · time · service" row).
+    fireEvent.click(morePill);
+    expect(screen.getByText(/Bob B/)).toBeInTheDocument();
   });
 });

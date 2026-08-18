@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { config as loadEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { TZDate } from "@date-fns/tz";
-import { login } from "./helpers";
+import { login, escapeRegExp, clickUntil } from "./helpers";
 
 // End-to-end coverage for the FullCalendar-based Calendar view: our appointment-fetching + event
 // rendering + toolbar navigation + click-to-open-details (i.e. OUR integration around FullCalendar,
@@ -91,18 +91,20 @@ test.describe("Calendar view — appointment rendering", () => {
   test("shows the appointment on the calendar day and opens its details", async ({ page }) => {
     await login(page);
     await page.goto("/dashboard/appointments", { waitUntil: "domcontentloaded" });
-    // Let the FullCalendar client component hydrate before clicking the toolbar controls.
-    await page.waitForTimeout(2500);
 
-    // Default is the (FullCalendar) Calendar view; switch to the Day span for a deterministic day.
-    await page.getByRole("button", { name: /^day$/i }).click();
+    // Default is the (FullCalendar) Calendar view; switch to the Day span — retry until the button
+    // reflects its pressed state, which also confirms the toolbar hydrated (idempotent trigger).
+    const dayBtn = page.getByRole("button", { name: /^day$/i });
+    await clickUntil(dayBtn, () =>
+      expect(dayBtn).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 })
+    );
     await expect(page.locator(".fc").first()).toBeVisible(); // calendar grid rendered
     for (let i = 0; i < dayStepsFromToday; i++) {
       await page.getByRole("button", { name: "Next", exact: true }).click();
     }
 
     // The appointment renders as an event on this day (proves fetch + FullCalendar integration).
-    const event = page.getByRole("button", { name: new RegExp(clientName, "i") }).first();
+    const event = page.getByRole("button", { name: new RegExp(escapeRegExp(clientName), "i") }).first();
     await expect(event).toBeVisible();
 
     // Clicking it opens the details modal for that appointment.

@@ -409,12 +409,21 @@ export function AppointmentCalendar({
     }
   }, [currentViewDates, selectedStaffIds]);
 
+  // The staff selection whose data is actually on screen (empty = all). On a failed load we roll back
+  // to THIS — not to whatever `selectedStaffIds` was captured at call time, which can be stale under
+  // rapid toggles. Kept in a ref so the callback doesn't need to re-create when the selection changes.
+  const lastConfirmedStaffIdsRef = useRef<string[]>([]);
+
   // Apply a new staff selection (empty = all) and immediately refetch for the current view range.
   const applyStaffSelection = useCallback(
     async (nextIds: string[]) => {
-      const previous = selectedStaffIds;
       setSelectedStaffIds(nextIds);
-      if (!currentViewDates) return;
+      if (!currentViewDates) {
+        // No view range yet (the calendar's first datesSet will fetch with this selection), so there
+        // is no on-screen data to contradict — treat the new selection as the confirmed one.
+        lastConfirmedStaffIdsRef.current = nextIds;
+        return;
+      }
       const seq = ++fetchSeqRef.current;
       setCalendarLoading(true);
       try {
@@ -427,19 +436,20 @@ export function AppointmentCalendar({
         setCalendarLoading(false);
         if (result.success) {
           setAppointments(result.data);
+          lastConfirmedStaffIdsRef.current = nextIds; // this selection now matches the shown data
         } else {
-          // Revert to the last working selection so the dropdown matches the data still on screen.
-          setSelectedStaffIds(previous);
+          // Revert to the selection whose data is still on screen so the dropdown matches it.
+          setSelectedStaffIds(lastConfirmedStaffIdsRef.current);
           toast.error(result.error || "Couldn't load appointments for that staff filter.");
         }
       } catch {
         if (seq !== fetchSeqRef.current) return;
         setCalendarLoading(false);
-        setSelectedStaffIds(previous);
+        setSelectedStaffIds(lastConfirmedStaffIdsRef.current);
         toast.error("Couldn't load appointments for that staff filter.");
       }
     },
-    [selectedStaffIds, currentViewDates]
+    [currentViewDates]
   );
   const toggleStaff = (id: string) =>
     applyStaffSelection(
@@ -977,6 +987,11 @@ export function AppointmentCalendar({
           timeGridDay: { dayHeaderFormat: { weekday: "long", month: "short", day: "numeric" } },
         }}
         eventMinHeight={24}
+        // We render our own focusable button inside each event (see eventContent below), so turn OFF
+        // FullCalendar's own event interactivity — otherwise, because we pass an eventClick handler,
+        // FC also makes the event element focusable (tabindex + role=button), nesting two interactive
+        // controls. Mouse clicks still open details (eventClick fires regardless of this flag).
+        eventInteractive={false}
         events={events}
         eventContent={(arg) => {
           const apt = arg.event.extendedProps.appointment as AppointmentListItem;
@@ -991,8 +1006,9 @@ export function AppointmentCalendar({
           // Compact "10–10:30 AM" range (drops :00 on whole hours, shares the meridiem).
           const timeText = formatTimeRangeInTz(apt.startTime, apt.endTime, timezone);
           const serviceNames = apt.services.map((s) => s.service.name).join(", ");
-          // FullCalendar events aren't keyboard-focusable by default; make each block a real
-          // button so keyboard/screen-reader users can open its details (parity with Staff lanes).
+          // This inner button is the ONE focusable control for the event (FC's own interactivity is
+          // disabled via eventInteractive={false} above), so keyboard/screen-reader users can open
+          // its details (parity with the Staff lanes).
           const openOnKey = (e: ReactKeyboardEvent) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();

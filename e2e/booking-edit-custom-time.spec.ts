@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { config as loadEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
-import { login, futureWeekdayNoonUtc } from "./helpers";
+import { login, futureWeekdayNoonUtc, clickUntil } from "./helpers";
 
 // End-to-end proof that a custom start time picked while EDITING an existing appointment survives the
 // Save button — i.e. the validated time actually reaches updateAppointment and persists to the DB.
@@ -81,13 +81,15 @@ test.describe("Booking — edit with a custom start time", () => {
   test("saves an edited custom time and persists the new startTime", async ({ page }) => {
     await login(page);
     await page.goto(`/dashboard/appointments/${apptId}/edit`, { waitUntil: "domcontentloaded" });
-    // The service/staff are prefilled in edit mode, so the custom-time toggle is present. Wait for it,
-    // then let the heavy form hydrate before clicking (otherwise the handler isn't attached yet).
-    await expect(page.locator("#custom-time-toggle")).toBeVisible();
-    await page.waitForTimeout(2500);
-
-    // Switch on custom time and type a bookable minute (12:20) within business hours.
-    await page.locator("#custom-time-toggle").click();
+    // The service/staff are prefilled in edit mode, so the custom-time toggle is present in the SSR
+    // HTML. Retry turning it on until the custom-time input appears — that's the signal the form has
+    // hydrated (a click before then is dropped). No fixed sleep.
+    const toggle = page.locator("#custom-time-toggle");
+    await expect(toggle).toBeVisible();
+    await clickUntil(toggle, () =>
+      expect(page.getByLabel("Custom start time")).toBeVisible({ timeout: 1_000 })
+    );
+    // Type a bookable minute (12:20) within business hours.
     await page.getByLabel("Custom start time").fill("12:20");
 
     // The server confirms it's available.

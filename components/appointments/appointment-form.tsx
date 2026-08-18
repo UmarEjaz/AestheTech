@@ -2143,10 +2143,13 @@ export function AppointmentForm({
           watchedStartTime instanceof Date
             ? watchedStartTime.getTime()
             : new Date(watchedStartTime as string | number).getTime();
-        const slotChosen = slotIsChosen(chosenMs) || customTime.length > 0;
+        // Only show a "When" in the recap once the time is actually bookable — a listed slot, or a
+        // custom time the server has confirmed. (customTime having characters isn't enough: it may
+        // still be "checking"/"invalid", which would contradict the inline error above.)
+        const summaryTimeSet = slotIsChosen(chosenMs) || customTimeReady;
         const whenText = isWalkIn
           ? "Now"
-          : slotChosen
+          : summaryTimeSet
             ? formatInTz(new Date(chosenMs), "EEE, MMM d · h:mm a", timezone)
             : null;
         // Deposit only exists in the appointment (non-recurring) flow; surface it + the

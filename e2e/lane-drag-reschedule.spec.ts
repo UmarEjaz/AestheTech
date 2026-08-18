@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { config as loadEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { TZDate } from "@date-fns/tz";
-import { login } from "./helpers";
+import { login, escapeRegExp, clickUntil } from "./helpers";
 
 // End-to-end proof of this PR's headline feature: dragging an appointment from one staff lane to
 // another (in the Staff / Day view) reassigns its provider and persists. Drag needs REAL pixel
@@ -96,20 +96,22 @@ test.describe("Staff lanes — drag to reschedule", () => {
   test("dragging an appointment to another lane reassigns its provider and persists", async ({ page }) => {
     await login(page);
     await page.goto("/dashboard/appointments", { waitUntil: "domcontentloaded" });
-    // Let the calendar page hydrate before clicking the client-rendered view toggles.
-    await page.waitForTimeout(2500);
 
-    // Switch to the Staff (lane) view, Day span, then step to the appointment's day.
-    await page.getByRole("button", { name: /^staff$/i }).click();
+    // Switch to the Staff (lane) view — retry until the button reflects its pressed state, which also
+    // confirms the toolbar hydrated (idempotent: it sets a fixed view, so extra clicks are harmless).
+    const staffBtn = page.getByRole("button", { name: /^staff$/i });
+    await clickUntil(staffBtn, () =>
+      expect(staffBtn).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 })
+    );
     await page.getByRole("button", { name: /^Day$/i }).click();
-    // Wait for the lanes to render (confirms the view actually switched) before stepping the date.
+    // Lanes render once the view switched; wait for them before stepping the date.
     await expect(page.locator("[data-lane]").first()).toBeVisible();
     for (let i = 0; i < dayStepsFromToday; i++) {
       await page.getByRole("button", { name: "Next", exact: true }).click();
     }
 
     // The appointment block (a button labelled with the client name) should be on this day.
-    const block = page.getByRole("button", { name: new RegExp(clientName, "i") }).first();
+    const block = page.getByRole("button", { name: new RegExp(escapeRegExp(clientName), "i") }).first();
     await expect(block).toBeVisible();
     await block.scrollIntoViewIfNeeded();
 

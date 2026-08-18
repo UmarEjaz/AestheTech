@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { login, futureWeekdayNoonUtc } from "./helpers";
+import { login, futureWeekdayNoonUtc, clickUntil } from "./helpers";
 
 // Live end-to-end test for the booking form's custom-time flow. Needs the dev server on :3001 and a
 // seeded database (owner login + sample client/services/staff come from `npm run db:seed`).
@@ -7,11 +7,11 @@ import { login, futureWeekdayNoonUtc } from "./helpers";
 // Pick a client, a service, and a staff member so the "When" section (with the custom-time toggle)
 // appears.
 async function fillBookingBasics(page: Page) {
-  // Client picker (a controlled Radix popover). Click the trigger, then WAIT for the popover to open
-  // (opening depends on the form being hydrated), fill the cmdk search, and pick the first match.
-  await page.getByRole("combobox").first().click();
+  // Client picker (a controlled Radix popover). Retry the trigger until the popover actually opens —
+  // a click before the form hydrates is dropped — then fill the cmdk search and pick the first match.
+  const combobox = page.getByRole("combobox").first();
   const search = page.getByPlaceholder(/Search by name or phone/i);
-  await search.waitFor({ state: "visible" });
+  await clickUntil(combobox, () => expect(search).toBeVisible({ timeout: 1_000 }));
   await search.fill("Jennifer");
   await page.getByRole("option").first().click();
   // Service + staff selects.
@@ -30,10 +30,9 @@ test.describe("Booking — custom start time", () => {
     await page.goto(`/dashboard/appointments/new?startTime=${encodeURIComponent(bookDay)}`, {
       waitUntil: "domcontentloaded",
     });
-    // Let the heavy booking form hydrate before interacting (otherwise the picker's open-handler
-    // isn't attached yet and clicking the trigger only focuses it).
+    // The picker trigger is present in the SSR HTML; fillBookingBasics retries opening it until the
+    // form has hydrated (no fixed sleep needed).
     await expect(page.getByText("Search or add a client")).toBeVisible();
-    await page.waitForTimeout(2500);
     await fillBookingBasics(page);
 
     // Turn on custom time and type a time after closing.

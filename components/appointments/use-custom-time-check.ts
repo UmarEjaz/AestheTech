@@ -160,8 +160,11 @@ export function useCustomTimeCheck({
     clearSlotError();
   };
 
-  // Picking a listed slot clears any custom time (the slot wins).
+  // Picking a listed slot clears any custom time (the slot wins). Like the other entry points, bump
+  // the sequence and drop any pending debounce so a late in-flight check can't revive the old time.
   const clearForSlot = () => {
+    if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+    customTimeSeq.current++; // cancel any in-flight check
     setCustomTime("");
     setCustomTimeCheck({ status: "idle" });
   };
