@@ -11,6 +11,7 @@ const prisma = new PrismaClient();
 
 let salonId: string;
 let bookDay: Date;
+let createdApptId: string | null = null; // the exact appointment this test books (for verify + cleanup)
 // The booked time lands on `bookDay`'s weekday; the seed rows are ~14 days away, so a ±12h window
 // around it isolates exactly the appointment(s) this test creates for verification + cleanup.
 const bookedWindow = () => ({
@@ -33,9 +34,9 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await prisma.appointment
-    .deleteMany({ where: { salonId, startTime: bookedWindow() } })
-    .catch(() => {});
+  if (createdApptId) {
+    await prisma.appointment.delete({ where: { id: createdApptId } }).catch(() => {});
+  }
   await prisma.$disconnect();
 });
 
@@ -90,8 +91,18 @@ test.describe("Booking — custom start time", () => {
     // validation): the success toast fires, then the row exists in the DB.
     await bookBtn.click();
     await expect(page.getByText(/Appointment booked successfully/i)).toBeVisible();
+    // Capture the exact appointment this test created (the browser flow doesn't return its id), then
+    // verify by it — afterAll deletes only this row, never anything else in the window.
     await expect
-      .poll(() => prisma.appointment.count({ where: { salonId, startTime: bookedWindow() } }))
-      .toBeGreaterThan(0);
+      .poll(async () => {
+        const appt = await prisma.appointment.findFirst({
+          where: { salonId, startTime: bookedWindow() },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        });
+        createdApptId = appt?.id ?? null;
+        return createdApptId;
+      })
+      .not.toBeNull();
   });
 });
