@@ -87,6 +87,8 @@ describe("validateCustomTime", () => {
     if (res.data.ok) return;
     expect(res.data.reason).toBe("outside-hours");
     expect(res.data.suggestionLabel).toBe("9 AM");
+    expect(res.data.openLabel).toBe("9:00 AM");
+    expect(res.data.closeLabel).toBe("7:00 PM");
   });
 
   it("rejects a time whose end runs past closing", async () => {
@@ -96,6 +98,8 @@ describe("validateCustomTime", () => {
     expect(res.data.ok).toBe(false);
     if (res.data.ok) return;
     expect(res.data.reason).toBe("outside-hours");
+    expect(res.data.openLabel).toBe("9:00 AM");
+    expect(res.data.closeLabel).toBe("7:00 PM");
   });
 
   it("rejects a time that overlaps an existing booking and suggests the next free slot", async () => {

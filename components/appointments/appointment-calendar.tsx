@@ -395,17 +395,18 @@ export function AppointmentCalendar({
           staffIds: selectedStaffIds,
         });
         if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-        setCalendarLoading(false);
         if (result.success) {
           setAppointments(result.data);
         } else {
           toast.error(result.error || "Couldn't refresh the calendar.");
         }
       } catch {
-        // Transport / server-action rejection — clear the spinner (under the same guard) and warn.
+        // Transport / server-action rejection — warn (the spinner is cleared in finally).
         if (seq !== fetchSeqRef.current) return;
-        setCalendarLoading(false);
         toast.error("Couldn't refresh the calendar.");
+      } finally {
+        // Clear the spinner once, only if this fetch is still the current one.
+        if (seq === fetchSeqRef.current) setCalendarLoading(false);
       }
     },
     [selectedStaffIds]
@@ -424,7 +425,6 @@ export function AppointmentCalendar({
         staffIds: selectedStaffIds,
       });
       if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-      setCalendarLoading(false);
       if (result.success) {
         setAppointments(result.data);
       } else {
@@ -432,8 +432,9 @@ export function AppointmentCalendar({
       }
     } catch {
       if (seq !== fetchSeqRef.current) return;
-      setCalendarLoading(false);
       toast.error("Couldn't refresh the calendar.");
+    } finally {
+      if (seq === fetchSeqRef.current) setCalendarLoading(false);
     }
   }, [currentViewDates, selectedStaffIds]);
 
@@ -461,7 +462,6 @@ export function AppointmentCalendar({
           staffIds: nextIds,
         });
         if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-        setCalendarLoading(false);
         if (result.success) {
           setAppointments(result.data);
           lastConfirmedStaffIdsRef.current = nextIds; // this selection now matches the shown data
@@ -472,9 +472,10 @@ export function AppointmentCalendar({
         }
       } catch {
         if (seq !== fetchSeqRef.current) return;
-        setCalendarLoading(false);
         setSelectedStaffIds(lastConfirmedStaffIdsRef.current);
         toast.error("Couldn't load appointments for that staff filter.");
+      } finally {
+        if (seq === fetchSeqRef.current) setCalendarLoading(false);
       }
     },
     [currentViewDates]

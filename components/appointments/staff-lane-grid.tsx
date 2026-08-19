@@ -231,6 +231,13 @@ export function StaffLaneGrid({
     return count;
   }, [appointments, staff]);
 
+  // Overlap clusters per column, computed once per data change instead of on every render.
+  const clustersByColumn = useMemo(() => {
+    const map = new Map<string, AppointmentSegment[][]>();
+    for (const [key, segs] of segsByColumn) map.set(key, clusterSegments(segs));
+    return map;
+  }, [segsByColumn]);
+
   const nowMin = minutesOfDay(new Date());
   const showNow = nowMin >= startMin && nowMin <= endMin;
   const nowTop = ((nowMin - startMin) / SLOT_MIN) * ROW_H;
@@ -501,7 +508,7 @@ export function StaffLaneGrid({
           </div>
 
           {columns.map((c, ci) => {
-            const segs = segsByColumn.get(c.key) ?? [];
+            const clusters = clustersByColumn.get(c.key) ?? [];
             const isToday = c.dayKey === todayKey;
             const dayBoundary = span === "week" && ci > 0 && columns[ci - 1].dayKey !== c.dayKey;
             return (
@@ -561,7 +568,7 @@ export function StaffLaneGrid({
 
                 {/* One full-width block per overlap cluster (the active/earliest appointment); a
                     "+N" pill opens the rest (cancelled/no-show, etc.) in a popover. */}
-                {clusterSegments(segs).map((cluster) => {
+                {clusters.map((cluster) => {
                   const seg = pickVisible(cluster);
                   const overlapCount = cluster.length - 1;
                   const segStartMin = minutesOfDay(seg.start);

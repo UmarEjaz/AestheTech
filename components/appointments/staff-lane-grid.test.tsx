@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { StaffLaneGrid } from "./staff-lane-grid";
 import type { AppointmentListItem } from "@/lib/actions/appointment";
@@ -130,5 +130,96 @@ describe("StaffLaneGrid", () => {
     );
     expect(screen.getByText(/not shown/i)).toBeInTheDocument();
     expect(screen.queryByText("Jennifer Smith")).toBeNull(); // no lane, so the block isn't rendered
+  });
+});
+
+// Drag-to-reschedule logic in jsdom. jsdom has no layout, so we stub the lane/block geometry the drag
+// math reads (getBoundingClientRect) and pointer capture, then drive raw pointer events. (The full
+// user flow is also covered end-to-end in e2e/lane-drag-reschedule.spec.ts.)
+describe("StaffLaneGrid — drag to reschedule", () => {
+  const domRect = (r: { left: number; right: number; top: number; bottom: number }): DOMRect =>
+    ({
+      x: r.left,
+      y: r.top,
+      width: r.right - r.left,
+      height: r.bottom - r.top,
+      left: r.left,
+      right: r.right,
+      top: r.top,
+      bottom: r.bottom,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+  // Two side-by-side lanes (stf_1 left, stf_2 right); the block sits at the top of stf_1 (its 9:00 start).
+  const LANE1 = { left: 0, right: 100, top: 0, bottom: 1040 };
+  const LANE2 = { left: 100, right: 200, top: 0, bottom: 1040 };
+  const BLOCK = { left: 5, right: 95, top: 0, bottom: 52 };
+  const twoStaff = [
+    { id: "stf_1", firstName: "Emma", lastName: "Wilson" },
+    { id: "stf_2", firstName: "Ben", lastName: "Ng" },
+  ];
+
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement
+    ) {
+      if (this.hasAttribute("data-lane")) {
+        return domRect(this.dataset.staffId === "stf_2" ? LANE2 : LANE1);
+      }
+      if (this.tagName === "BUTTON" && this.getAttribute("aria-label")?.startsWith("Jennifer")) {
+        return domRect(BLOCK);
+      }
+      return domRect({ left: 0, right: 0, top: 0, bottom: 0 });
+    });
+    // jsdom doesn't implement pointer capture.
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function renderDraggable() {
+    const onReschedule = vi.fn();
+    render(
+      <StaffLaneGrid
+        {...baseProps}
+        staff={twoStaff}
+        appointments={[makeAppt()]}
+        canDrag
+        onReschedule={onReschedule}
+      />
+    );
+    const block = screen.getByRole("button", { name: /Jennifer Smith/i });
+    return { onReschedule, block };
+  }
+
+  it("reschedules to the dropped lane with the new provider and a snapped start", () => {
+    const { onReschedule, block } = renderDraggable();
+    fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 150, clientY: 10, pointerId: 1 }); // into stf_2's lane
+    fireEvent.pointerUp(block, { clientX: 150, clientY: 10, pointerId: 1 });
+
+    expect(onReschedule).toHaveBeenCalledTimes(1);
+    const [apptId, staffId, startISO] = onReschedule.mock.calls[0];
+    expect(apptId).toBe("apt_1");
+    expect(staffId).toBe("stf_2");
+    expect(typeof startISO).toBe("string");
+    expect(new Date(startISO as string).getUTCMinutes() % 5).toBe(0); // snapped to SNAP_MIN
+  });
+
+  it("does not reschedule when dropped back on the original slot", () => {
+    const { onReschedule, block } = renderDraggable();
+    fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 50, clientY: 40, pointerId: 1 }); // moves (passes threshold)
+    fireEvent.pointerMove(block, { clientX: 50, clientY: 10, pointerId: 1 }); // back to the origin
+    fireEvent.pointerUp(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    expect(onReschedule).not.toHaveBeenCalled();
+  });
+
+  it("cleans up on pointer cancel without rescheduling", () => {
+    const { onReschedule, block } = renderDraggable();
+    fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 150, clientY: 10, pointerId: 1 });
+    fireEvent.pointerCancel(block, { clientX: 150, clientY: 10, pointerId: 1 });
+    expect(onReschedule).not.toHaveBeenCalled();
   });
 });
