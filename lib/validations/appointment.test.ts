@@ -124,4 +124,20 @@ describe("calendarQuerySchema", () => {
     });
     expect(result.success).toBe(false);
   });
+  it("accepts exactly 200 staff ids (inclusive upper bound)", () => {
+    const exactly = Array.from({ length: 200 }, (_, i) => `stf_${i}`);
+    const result = calendarQuerySchema.safeParse({
+      startDate: new Date(),
+      endDate: new Date(),
+      staffIds: exactly,
+    });
+    expect(result.success).toBe(true);
+  });
+  it("accepts a range of exactly 70 days (inclusive upper bound)", () => {
+    const result = calendarQuerySchema.safeParse({
+      startDate: "2026-01-01T00:00:00Z",
+      endDate: "2026-03-12T00:00:00Z", // exactly 70 days after the start
+    });
+    expect(result.success).toBe(true);
+  });
 });

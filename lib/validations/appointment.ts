@@ -43,13 +43,17 @@ export const appointmentServiceSchema = z.object({
   staffId: z.string().min(1, "Staff member is required"),
 });
 
+// Ordered service→staff assignments (1–10), shared by appointmentSchema.services and the slots +
+// custom-time validators so the bound and messages stay in sync.
+const assignmentsSchema = z
+  .array(appointmentServiceSchema)
+  .min(1, "At least one service is required")
+  .max(10, "At most 10 services");
+
 export const appointmentSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
   // One or more services; services[0] is the primary (its staff becomes the appointment's staff).
-  services: z
-    .array(appointmentServiceSchema)
-    .min(1, "At least one service is required")
-    .max(10, "At most 10 services"),
+  services: assignmentsSchema,
   startTime: z.coerce.date({ message: "Start time is required" }),
   notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
 });
@@ -64,13 +68,6 @@ export const rescheduleSchema = z.object({
   startTime: z.coerce.date({ message: "Start time is required" }),
   staffId: z.string().min(1, "Staff member is required").optional(),
 });
-
-// Ordered service→staff assignments, shared by the slots + custom-time validators so the 1–10
-// bound and messages stay in sync.
-const assignmentsSchema = z
-  .array(appointmentServiceSchema)
-  .min(1, "At least one service is required")
-  .max(10, "At most 10 services");
 
 // Available-slots request. Carries the ordered service→staff assignments so slots can be
 // validated per-provider-per-segment (each provider free only for the slice they'd actually work).

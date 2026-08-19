@@ -218,6 +218,19 @@ export function StaffLaneGrid({
     return map;
   }, [appointments, timezone]);
 
+  // Lanes only exist for the provided staff. An appointment assigned to a provider not in that list
+  // (e.g. one who was deactivated) would otherwise vanish silently — count them so we can warn.
+  const hiddenApptCount = useMemo(() => {
+    const staffIdSet = new Set(staff.map((s) => s.id));
+    const hidden = new Set<string>();
+    for (const appt of appointments) {
+      for (const seg of appointmentSegments(appt)) {
+        if (!staffIdSet.has(seg.staffId)) hidden.add(appt.id);
+      }
+    }
+    return hidden.size;
+  }, [appointments, staff]);
+
   const nowMin = minutesOfDay(new Date());
   const showNow = nowMin >= startMin && nowMin <= endMin;
   const nowTop = ((nowMin - startMin) / SLOT_MIN) * ROW_H;
@@ -385,6 +398,15 @@ export function StaffLaneGrid({
   // Horizontal-only scroll (many columns). overflow-y hidden so the page owns vertical scroll.
   return (
     <div ref={wrapperRef} className="relative">
+      {hiddenApptCount > 0 && (
+        <div
+          role="status"
+          className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          {hiddenApptCount} appointment{hiddenApptCount > 1 ? "s" : ""} not shown — the assigned
+          provider isn&apos;t in this view.
+        </div>
+      )}
       {!loading && appointments.length === 0 && (
         <CalendarEmptyState span={span} onBook={onEmptyBook} onToday={onEmptyToday} />
       )}

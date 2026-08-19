@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { config as loadEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
-import { login, escapeRegExp, clickUntil, futureWeekdaySlot } from "./helpers";
+import { login, escapeRegExp, clickUntil, seedAppointment } from "./helpers";
 
 // End-to-end proof of this PR's headline feature: dragging an appointment from one staff lane to
 // another (in the Staff / Day view) reassigns its provider and persists. Drag needs REAL pixel
@@ -17,55 +17,11 @@ let clientName: string;
 let dayStepsFromToday: number;
 
 test.beforeAll(async () => {
-  // Reuse a seeded appointment's salon/client/service/staff pairing, then create a FRESH appointment
-  // on a near-future weekday at 11:00 (salon-local) so it lands inside business hours (09–19) and a
-  // few day-steps from "today" — independent of the seed rows.
-  const seed = await prisma.appointment.findFirst({
-    include: { services: { orderBy: { order: "asc" } }, client: true },
-    orderBy: { createdAt: "asc" },
-  });
-  if (!seed || seed.services.length === 0) {
-    throw new Error("No seeded appointment found — run `npm run db:seed` first.");
-  }
-  const settings = await prisma.settings.findFirst({
-    where: { salonId: seed.salonId },
-    select: { timezone: true },
-  });
-  const tz = settings?.timezone ?? "UTC";
-  const svc = seed.services[0];
-  currentStaffId = svc.staffId;
-  clientName = `${seed.client.firstName}${seed.client.lastName ? ` ${seed.client.lastName}` : ""}`;
-
-  const slot = futureWeekdaySlot(tz);
-  const start = slot.start;
-  const end = new Date(start.getTime() + svc.duration * 60_000);
-  dayStepsFromToday = slot.dayStepsFromToday;
-
-  const created = await prisma.appointment.create({
-    data: {
-      salonId: seed.salonId,
-      clientId: seed.clientId,
-      startTime: start,
-      endTime: end,
-      status: "SCHEDULED",
-      services: {
-        create: [
-          {
-            salonId: seed.salonId,
-            serviceId: svc.serviceId,
-            staffId: svc.staffId,
-            price: svc.price,
-            duration: svc.duration,
-            order: 0,
-            segmentStart: start,
-            segmentEnd: end,
-            active: true,
-          },
-        ],
-      },
-    },
-  });
-  apptId = created.id;
+  const seeded = await seedAppointment(prisma, 13); // 13:00 — distinct hour so fixtures can't collide
+  apptId = seeded.apptId;
+  currentStaffId = seeded.staffId;
+  clientName = seeded.clientName;
+  dayStepsFromToday = seeded.dayStepsFromToday;
 });
 
 test.afterAll(async () => {

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { config as loadEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
-import { login, futureWeekdayNoonUtc, clickUntil } from "./helpers";
+import { login, seedAppointment, clickUntil } from "./helpers";
 
 // End-to-end proof that a custom start time picked while EDITING an existing appointment survives the
 // Save button — i.e. the validated time actually reaches updateAppointment and persists to the DB.
@@ -26,49 +26,10 @@ let salonTz: string;
 let svcDurationMin: number;
 
 test.beforeAll(async () => {
-  // Reuse a seeded appointment's salon/client/service/staff pairing (guaranteed valid), then create a
-  // FRESH appointment on a future weekday for this test to edit — independent of the seed rows.
-  const seed = await prisma.appointment.findFirst({
-    include: { services: true },
-    orderBy: { createdAt: "asc" },
-  });
-  if (!seed || seed.services.length === 0) {
-    throw new Error("No seeded appointment found — run `npm run db:seed` first.");
-  }
-  const settings = await prisma.settings.findFirst({
-    where: { salonId: seed.salonId },
-    select: { timezone: true },
-  });
-  salonTz = settings?.timezone ?? "UTC";
-  const svc = seed.services[0];
-  svcDurationMin = svc.duration;
-  const start = futureWeekdayNoonUtc();
-  const end = new Date(start.getTime() + svc.duration * 60_000);
-  const created = await prisma.appointment.create({
-    data: {
-      salonId: seed.salonId,
-      clientId: seed.clientId,
-      startTime: start,
-      endTime: end,
-      status: "SCHEDULED",
-      services: {
-        create: [
-          {
-            salonId: seed.salonId,
-            serviceId: svc.serviceId,
-            staffId: svc.staffId,
-            price: svc.price,
-            duration: svc.duration,
-            order: 0,
-            segmentStart: start,
-            segmentEnd: end,
-            active: true,
-          },
-        ],
-      },
-    },
-  });
-  apptId = created.id;
+  const seeded = await seedAppointment(prisma, 15); // 15:00 — distinct hour so fixtures can't collide
+  apptId = seeded.apptId;
+  salonTz = seeded.tz;
+  svcDurationMin = seeded.durationMin;
 });
 
 test.afterAll(async () => {

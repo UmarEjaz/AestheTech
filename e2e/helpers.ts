@@ -1,5 +1,6 @@
 import { expect, type Page, type Locator } from "@playwright/test";
 import { TZDate } from "@date-fns/tz";
+import type { PrismaClient } from "@prisma/client";
 
 // Pick a near-future weekday (≥3 days out, salon tz) at `hour` local, and how many single-day "Next"
 // clicks reach it from today. Shared by the calendar-view and lane-drag specs so the date math lives
@@ -55,6 +56,64 @@ export function futureWeekdayNoonUtc(): Date {
     d.setUTCDate(d.getUTCDate() + 1);
   }
   return d;
+}
+
+// Create a fresh appointment for a test to act on, scoped to the LOGGED-IN OWNER'S salon (so the
+// fixture is always one the test user can access), on a near-future weekday at `hour` local. Reuses a
+// seeded appointment's client/service/staff pairing. Shared by the calendar-view, lane-drag, and
+// edit specs; each passes a distinct hour so their fixtures can't collide on the same day. Returns
+// the ids/metadata each spec needs; the caller deletes the row + disconnects in afterAll.
+export async function seedAppointment(prisma: PrismaClient, hour: number) {
+  // Find a seeded appointment in ANY salon the logged-in owner belongs to (they're a member of more
+  // than one), so the fixture is always one the test user can access — and take that salon's id.
+  const seed = await prisma.appointment.findFirst({
+    where: {
+      salon: { userSalons: { some: { user: { email: "owner@aesthetech.com" }, isActive: true } } },
+    },
+    include: { services: { orderBy: { order: "asc" } }, client: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!seed || seed.services.length === 0) {
+    throw new Error("No seeded appointment in the owner's salon — run `npm run db:seed` first.");
+  }
+  const salonId = seed.salonId;
+  const settings = await prisma.settings.findFirst({ where: { salonId }, select: { timezone: true } });
+  const tz = settings?.timezone ?? "UTC";
+  const svc = seed.services[0];
+  const { start, dayStepsFromToday } = futureWeekdaySlot(tz, hour);
+  const end = new Date(start.getTime() + svc.duration * 60_000);
+  const created = await prisma.appointment.create({
+    data: {
+      salonId,
+      clientId: seed.clientId,
+      startTime: start,
+      endTime: end,
+      status: "SCHEDULED",
+      services: {
+        create: [
+          {
+            salonId,
+            serviceId: svc.serviceId,
+            staffId: svc.staffId,
+            price: svc.price,
+            duration: svc.duration,
+            order: 0,
+            segmentStart: start,
+            segmentEnd: end,
+            active: true,
+          },
+        ],
+      },
+    },
+  });
+  return {
+    apptId: created.id,
+    tz,
+    staffId: svc.staffId,
+    durationMin: svc.duration,
+    dayStepsFromToday,
+    clientName: `${seed.client.firstName}${seed.client.lastName ? ` ${seed.client.lastName}` : ""}`,
+  };
 }
 
 // Log in as the seeded owner. Before hydration React can re-mount and wipe our input, so instead of a

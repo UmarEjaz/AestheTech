@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
-import { ChevronLeft, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -23,7 +23,6 @@ import { EventClickArg, DatesSetArg, EventDropArg } from "@fullcalendar/core";
 import { AppointmentListItem, getAppointmentsForCalendar, rescheduleAppointment } from "@/lib/actions/appointment";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AppointmentDetailModal } from "./appointment-detail-modal";
 import { StaffLaneGrid } from "./staff-lane-grid";
@@ -45,6 +44,21 @@ const SPANS = [
   { key: "month", label: "month", fcView: "dayGridMonth" },
 ] as const;
 type SpanKey = (typeof SPANS)[number]["key"];
+
+// Non-interactive checked indicator for the staff-filter rows (the row button owns the interaction;
+// its state is exposed via aria-pressed, so this is purely visual and hidden from assistive tech).
+function StaffCheckIndicator({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
+        checked ? "border-primary bg-primary text-primary-foreground" : "border-input"
+      }`}
+    >
+      {checked && <Check className="h-3 w-3" />}
+    </span>
+  );
+}
 
 // Validate the view preference restored from localStorage (external/user-writable data). Unknown
 // values fall back to the calendar/week defaults.
@@ -103,6 +117,13 @@ export function AppointmentCalendar({
 
   // ── Per-staff lane view (custom-rendered, not a FullCalendar view) ──────────────
   const isLaneView = viewType === "staff";
+  // FullCalendar is only CSS-hidden (not unmounted) while in Staff view, so it can return mis-sized.
+  // Nudge it to recalculate whenever we switch back to the Calendar view.
+  useEffect(() => {
+    if (!isLaneView) calendarApi()?.updateSize();
+    // calendarApi reads a ref; only the view toggle should re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLaneView]);
   // Staff view supports only day/week spans (month has no lane form).
   const laneSpan: "day" | "week" = span === "week" ? "week" : "day";
   const [laneDate, setLaneDate] = useState<Date>(() => new Date());
@@ -937,12 +958,15 @@ export function AppointmentCalendar({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-[220px] p-1">
+                  {/* Each row is a single toggle button; its checked state is a non-interactive
+                      indicator + aria-pressed (a nested Checkbox would be a button inside a button). */}
                   <button
                     type="button"
+                    aria-pressed={selectedStaffIds.length === 0}
                     onClick={() => applyStaffSelection([])}
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
                   >
-                    <Checkbox checked={selectedStaffIds.length === 0} className="pointer-events-none" />
+                    <StaffCheckIndicator checked={selectedStaffIds.length === 0} />
                     All staff
                   </button>
                   <div className="my-1 h-px bg-border" />
@@ -950,13 +974,11 @@ export function AppointmentCalendar({
                     <button
                       key={member.id}
                       type="button"
+                      aria-pressed={selectedStaffIds.includes(member.id)}
                       onClick={() => toggleStaff(member.id)}
                       className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
                     >
-                      <Checkbox
-                        checked={selectedStaffIds.includes(member.id)}
-                        className="pointer-events-none"
-                      />
+                      <StaffCheckIndicator checked={selectedStaffIds.includes(member.id)} />
                       <span className="truncate">
                         {member.firstName} {member.lastName}
                       </span>
