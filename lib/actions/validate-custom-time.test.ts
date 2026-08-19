@@ -6,6 +6,7 @@ const mockCheckAuth = vi.fn();
 const mockGetSettings = vi.fn();
 const mockServiceFindMany = vi.fn();
 const mockAppointmentFindMany = vi.fn();
+const mockUserSalonFindMany = vi.fn();
 
 vi.mock("@/lib/auth-helpers", () => ({ checkAuth: (...a: unknown[]) => mockCheckAuth(...a) }));
 vi.mock("@/lib/permissions", () => ({ hasPermission: vi.fn() }));
@@ -20,6 +21,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     service: { findMany: (...a: unknown[]) => mockServiceFindMany(...a) },
     appointment: { findMany: (...a: unknown[]) => mockAppointmentFindMany(...a) },
+    userSalon: { findMany: (...a: unknown[]) => mockUserSalonFindMany(...a) },
   },
 }));
 
@@ -61,6 +63,8 @@ beforeEach(() => {
   });
   mockServiceFindMany.mockResolvedValue([{ id: "svc_1", duration: 30, isActive: true }]);
   mockAppointmentFindMany.mockResolvedValue([]); // no existing bookings by default
+  // Both fixture staff are valid active providers by default (verifyStaffProviders).
+  mockUserSalonFindMany.mockResolvedValue([{ userId: "stf_1" }, { userId: "stf_2" }]);
 });
 
 afterEach(() => {
@@ -197,11 +201,23 @@ describe("validateCustomTime", () => {
     mockServiceFindMany.mockResolvedValue([{ id: "svc_1", duration: 30, isActive: false }]);
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
     expect(res.success).toBe(false);
+    if (!res.success) expect(res.error).toBe("A selected service is not available");
   });
 
   it("rejects an unknown service", async () => {
     mockServiceFindMany.mockResolvedValue([]); // service id not found
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
     expect(res.success).toBe(false);
+    if (!res.success) expect(res.error).toBe("A selected service is not available");
+  });
+
+  it("rejects a staff member who is not a valid provider in this branch", async () => {
+    mockUserSalonFindMany.mockResolvedValue([]); // no matching active provider
+    const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
+    expect(res.success).toBe(false);
+    if (!res.success)
+      expect(res.error).toBe(
+        "Staff member not found, inactive, or not a service provider in this branch"
+      );
   });
 });

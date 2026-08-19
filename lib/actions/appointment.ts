@@ -1122,6 +1122,15 @@ export async function validateCustomTime(params: {
     if (!ctx.ok) {
       return { success: false, error: ctx.error };
     }
+    // Verify every assigned provider is a real, active service provider in this branch (parity with
+    // createAppointment/rescheduleAppointment) before spending effort on the availability math.
+    const staffCheck = await verifyStaffProviders(
+      [...new Set(assignments.map((a) => a.staffId))],
+      authResult.salonId
+    );
+    if (!staffCheck.ok) {
+      return { success: false, error: staffCheck.error };
+    }
     const { lines, totalDuration, tz, slotInterval, dayStart, dayEnd, existingSegments } = ctx;
     const startMs = startTime.getTime();
     const totalMs = totalDuration * 60_000;

@@ -79,9 +79,9 @@ describe("StaffLaneGrid", () => {
     const grid = screen.getByLabelText(/Staff schedule/i);
     fireEvent.keyDown(grid, { key: "Enter" });
     expect(onBookSlot).toHaveBeenCalledTimes(1);
-    // First column is the only provider; the ISO string carries its start.
+    // First column is the only provider; slot 0 = 09:00 on 2026-08-17 in the salon tz (+05:00).
     expect(onBookSlot.mock.calls[0][0]).toBe("stf_1");
-    expect(typeof onBookSlot.mock.calls[0][1]).toBe("string");
+    expect(onBookSlot.mock.calls[0][1]).toBe("2026-08-17T09:00:00+05:00");
   });
 
   it("renders one lane per day in the week span (dayKeys × staff)", () => {
@@ -171,9 +171,7 @@ describe("StaffLaneGrid — drag to reschedule", () => {
       }
       return domRect({ left: 0, right: 0, top: 0, bottom: 0 });
     });
-    // jsdom doesn't implement pointer capture.
-    HTMLElement.prototype.setPointerCapture = vi.fn();
-    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    // Pointer-capture is stubbed once in vitest.setup.ts (jsdom lacks it).
   });
   afterEach(() => vi.restoreAllMocks());
 

@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, coverageConfigDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 
@@ -24,7 +24,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       include: ["lib/**/*.ts", "components/**/*.{ts,tsx}"],
-      exclude: ["**/*.test.ts", "**/*.d.ts"],
+      // Keep Vitest's built-in excludes (configs, dist, etc.) and drop all test/type-decl files —
+      // both .test.ts and .test.tsx — so test code isn't measured as source.
+      exclude: [...coverageConfigDefaults.exclude, "**/*.test.ts", "**/*.test.tsx", "**/*.d.ts"],
     },
   },
 });
