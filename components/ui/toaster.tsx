@@ -21,11 +21,7 @@ export function Toaster() {
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          // Move the dismiss button from Sonner's LTR default (top-left) to the top-right corner by
-          // setting Sonner's own close-button CSS variables (the values it uses for RTL) — no
-          // !important overrides needed since these live on the close button that reads them.
-          closeButton:
-            "[--toast-close-button-start:unset] [--toast-close-button-end:0] [--toast-close-button-transform:translate(35%,-35%)]",
+          // Close-button positioning (top-right + hover reveal) lives in app/globals.css.
         },
       }}
     />

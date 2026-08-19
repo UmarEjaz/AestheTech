@@ -222,13 +222,13 @@ export function StaffLaneGrid({
   // (e.g. one who was deactivated) would otherwise vanish silently — count them so we can warn.
   const hiddenApptCount = useMemo(() => {
     const staffIdSet = new Set(staff.map((s) => s.id));
-    const hidden = new Set<string>();
+    let count = 0;
     for (const appt of appointments) {
-      for (const seg of appointmentSegments(appt)) {
-        if (!staffIdSet.has(seg.staffId)) hidden.add(appt.id);
-      }
+      const segs = appointmentSegments(appt);
+      // Only fully hidden — if ANY service is with a shown provider, the appointment still appears.
+      if (segs.length > 0 && segs.every((seg) => !staffIdSet.has(seg.staffId))) count++;
     }
-    return hidden.size;
+    return count;
   }, [appointments, staff]);
 
   const nowMin = minutesOfDay(new Date());
@@ -324,15 +324,19 @@ export function StaffLaneGrid({
     // Require the pointer to be inside a lane on BOTH axes. Measure each lane LIVE (positions can move
     // if the grid is scrolled mid-drag). Otherwise clear the target, so releasing off the lanes can't
     // reschedule to a stale destination.
-    const hit = dragLanesRef.current
-      .map((lane) => ({ ...lane, rect: lane.el.getBoundingClientRect() }))
-      .find(
-        (r) =>
-          e.clientX >= r.rect.left &&
-          e.clientX <= r.rect.right &&
-          e.clientY >= r.rect.top &&
-          e.clientY <= r.rect.bottom
-      );
+    let hit: { dayKey: string; staffId: string; rect: DOMRect } | undefined;
+    for (const lane of dragLanesRef.current) {
+      const rect = lane.el.getBoundingClientRect();
+      if (
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom
+      ) {
+        hit = { dayKey: lane.dayKey, staffId: lane.staffId, rect };
+        break; // first match wins — no need to measure the rest
+      }
+    }
     if (!hit) {
       setDrag((d) => (d ? { ...d, target: null } : d));
       return;

@@ -177,7 +177,16 @@ export function useCustomTimeCheck({
   // available" message can't go stale after the provider is switched. Typing itself is handled by
   // applyCustomTime; this only covers the OTHER inputs changing.
   useEffect(() => {
-    if (!customTimeMode || !customTime || !selectedDate) return;
+    if (!customTimeMode || !customTime) return;
+    if (!selectedDate) {
+      // The date was cleared out from under a typed custom time — cancel any pending check and reset
+      // so a stale "available" can't be submitted.
+      if (customTimeTimer.current) clearTimeout(customTimeTimer.current);
+      customTimeSeq.current++;
+      setCustomTimeCheck({ status: "idle" });
+      setStartTime(undefined);
+      return;
+    }
     const instant = buildInstant(customTime);
     if (!instant) return;
     setStartTime(instant);

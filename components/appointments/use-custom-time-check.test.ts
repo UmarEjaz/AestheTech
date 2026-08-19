@@ -199,6 +199,31 @@ describe("useCustomTimeCheck", () => {
     expect(time).toBe("12:20");
   });
 
+  it("resets a validated custom time when the selected date is cleared", async () => {
+    mockValidate.mockResolvedValue({ success: true, data: { ok: true } });
+    const { result, rerender } = renderHook((props) => useCustomTimeCheck(props), {
+      initialProps: makeParams(),
+    });
+
+    act(() => result.current.setCustomTimeMode(true));
+    act(() => result.current.applyCustomTime("09:20"));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    await flush();
+    expect(result.current.customTimeCheck.status).toBe("ok");
+    expect(result.current.customTimeReady).toBe(true);
+
+    // Clear the date out from under the validated time — the stale "available" must not remain.
+    const cleared = makeParams({ selectedDate: undefined });
+    rerender(cleared);
+    await flush();
+
+    expect(result.current.customTimeCheck.status).toBe("idle");
+    expect(result.current.customTimeReady).toBe(false);
+    expect(cleared.setStartTime).toHaveBeenCalledWith(undefined);
+  });
+
   it("does not send an exclude id when creating a new appointment", async () => {
     mockValidate.mockResolvedValue({ success: true, data: { ok: true } });
     const { result } = renderHook(() => useCustomTimeCheck(makeParams({ mode: "create" })));

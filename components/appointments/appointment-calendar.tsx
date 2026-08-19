@@ -292,6 +292,8 @@ export function AppointmentCalendar({
     } catch {
       toast.error("Couldn't undo the reschedule.", { action: retryAction });
     } finally {
+      // Refresh the FullCalendar copy too (not just the lanes) so neither view goes stale.
+      await refreshAppointments();
       setLaneRefreshKey((k) => k + 1);
     }
   };
@@ -333,6 +335,8 @@ export function AppointmentCalendar({
       // Transport / server-action rejection — show an error; the finally refetch snaps the block back.
       toast.error("Couldn't reschedule this appointment.");
     } finally {
+      // Refresh the FullCalendar copy too (not just the lanes) so neither view goes stale.
+      await refreshAppointments();
       setLaneRefreshKey((k) => k + 1);
     }
   };

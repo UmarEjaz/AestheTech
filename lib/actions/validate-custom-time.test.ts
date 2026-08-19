@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { formatInTz } from "@/lib/utils/timezone";
 
 // ---- Fakes for the server-action's dependencies (no real DB / auth / redis) ----
@@ -44,6 +44,10 @@ const twoServices = [
 ];
 
 beforeEach(() => {
+  // Freeze the clock so `at()` (which builds dates off "now") and the action's own now-checks are
+  // deterministic regardless of when the suite runs.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
   vi.clearAllMocks();
   mockCheckAuth.mockResolvedValue({ salonId: "salon_1", userId: "u1" });
   mockGetSettings.mockResolvedValue({
@@ -57,6 +61,10 @@ beforeEach(() => {
   });
   mockServiceFindMany.mockResolvedValue([{ id: "svc_1", duration: 30, isActive: true }]);
   mockAppointmentFindMany.mockResolvedValue([]); // no existing bookings by default
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("validateCustomTime", () => {
@@ -130,6 +138,7 @@ describe("validateCustomTime", () => {
   it("keeps the suggestion on the requested day (no date name) when that day has room", async () => {
     const res = await validateCustomTime({ assignments: oneService, startTime: at(8) });
     if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(false);
     if (res.data.ok) return;
     const sameDayISO = formatInTz(at(8), "yyyy-MM-dd", TZ);
     expect(res.data.suggestionDateISO).toBe(sameDayISO);

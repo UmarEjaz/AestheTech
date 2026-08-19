@@ -118,4 +118,17 @@ describe("StaffLaneGrid", () => {
     fireEvent.click(morePill);
     expect(screen.getByText(/Bob B/)).toBeInTheDocument();
   });
+
+  it("warns when an appointment's provider has no lane", () => {
+    // makeAppt's service is with "stf_1"; render with a DIFFERENT provider list so it has no lane.
+    render(
+      <StaffLaneGrid
+        {...baseProps}
+        staff={[{ id: "stf_other", firstName: "Other", lastName: "Provider" }]}
+        appointments={[makeAppt()]}
+      />
+    );
+    expect(screen.getByText(/not shown/i)).toBeInTheDocument();
+    expect(screen.queryByText("Jennifer Smith")).toBeNull(); // no lane, so the block isn't rendered
+  });
 });
