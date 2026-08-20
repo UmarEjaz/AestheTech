@@ -473,6 +473,7 @@ export function AppointmentForm({
     timezone,
     mode,
     appointmentId: appointment?.id,
+    getStartTime: () => (watchedStartTime instanceof Date ? watchedStartTime : undefined),
     setStartTime: (instant) =>
       setValue("startTime", instant as unknown as Date, { shouldValidate: false }),
     setSelectedDate,

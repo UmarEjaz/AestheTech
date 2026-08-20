@@ -25,6 +25,8 @@ interface UseCustomTimeCheckParams {
   mode: "create" | "edit";
   /** In edit mode, exclude this appointment from its own conflict check. */
   appointmentId?: string;
+  /** Read the form's current start instant (so it can be saved/restored around the custom-time toggle). */
+  getStartTime: () => Date | undefined;
   /** Push the resolved start instant (or clear it) into the form's field. */
   setStartTime: (instant: Date | undefined) => void;
   /** Move the form to a different day (used when a suggestion rolls to a later date). */
@@ -51,6 +53,7 @@ export function useCustomTimeCheck({
   timezone,
   mode,
   appointmentId,
+  getStartTime,
   setStartTime,
   setSelectedDate,
   clearSlotError,
@@ -63,6 +66,7 @@ export function useCustomTimeCheck({
   const [customTimeCheck, setCustomTimeCheck] = useState<CustomTimeCheck>({ status: "idle" });
   const customTimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const customTimeSeq = useRef(0); // ignore out-of-order validation responses
+  const savedStartTimeRef = useRef<Date | undefined>(undefined); // slot to restore when custom mode is off
 
   // Stable string key of the assignments for the effect dependency.
   const assignmentsKey = assignments.map((s) => `${s.serviceId}:${s.staffId}`).join(",");
@@ -157,9 +161,12 @@ export function useCustomTimeCheck({
     customTimeSeq.current++; // cancel any in-flight check
     setCustomTimeCheck({ status: "idle" });
     if (on) {
+      // Remember the picked slot so turning custom time back off restores it instead of losing it.
+      savedStartTimeRef.current = getStartTime();
       setStartTime(undefined);
     } else {
       setCustomTime("");
+      if (savedStartTimeRef.current) setStartTime(savedStartTimeRef.current);
     }
     clearSlotError();
   };

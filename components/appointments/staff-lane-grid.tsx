@@ -215,6 +215,19 @@ export function StaffLaneGrid({
     [dayKeys, staff]
   );
 
+  // If the lane set or the number of rows shrinks (fewer providers, shorter hours, week→day), a
+  // keyboard cursor parked past the new edge would point at a lane/slot that no longer exists. Pull
+  // it back within bounds so Enter can't book against a stale target.
+  useEffect(() => {
+    setCursor((c) => {
+      if (!c) return c;
+      const col = Math.min(c.col, columns.length - 1);
+      const slot = Math.min(c.slot, numSlots - 1);
+      if (col === c.col && slot === c.slot) return c;
+      return { col: Math.max(0, col), slot: Math.max(0, slot) };
+    });
+  }, [columns.length, numSlots]);
+
   const minutesOfDay = (d: Date) => {
     const [h, m] = formatInTz(d, "HH:mm", timezone).split(":").map(Number);
     return h * 60 + m;

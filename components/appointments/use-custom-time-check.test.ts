@@ -40,6 +40,7 @@ function makeParams(
     timezone: "America/New_York",
     mode: "create",
     appointmentId: undefined,
+    getStartTime: vi.fn(() => undefined),
     setStartTime: vi.fn(),
     setSelectedDate: vi.fn(),
     clearSlotError: vi.fn(),
@@ -222,6 +223,33 @@ describe("useCustomTimeCheck", () => {
     expect(result.current.customTimeCheck.status).toBe("idle");
     expect(result.current.customTimeReady).toBe(false);
     expect(cleared.setStartTime).toHaveBeenCalledWith(undefined);
+  });
+
+  it("restores the previously picked slot when custom mode is turned back off", () => {
+    // Turning custom time ON must remember the slot that was already picked, and turning it OFF must
+    // put that slot back (instead of leaving the booking with no time).
+    const picked = new Date("2026-09-01T13:00:00Z");
+    const params = makeParams({ getStartTime: () => picked });
+    const { result } = renderHook(() => useCustomTimeCheck(params));
+
+    act(() => result.current.setCustomTimeMode(true));
+    expect(params.setStartTime).toHaveBeenCalledWith(undefined); // slot cleared while typing a custom time
+
+    act(() => result.current.setCustomTimeMode(false));
+    expect(params.setStartTime).toHaveBeenLastCalledWith(picked); // original slot restored
+  });
+
+  it("does not restore a slot when none was picked before custom mode", () => {
+    // No slot was chosen (getStartTime → undefined), so turning custom mode off must not push a value.
+    const params = makeParams({ getStartTime: () => undefined });
+    const { result } = renderHook(() => useCustomTimeCheck(params));
+
+    act(() => result.current.setCustomTimeMode(true));
+    act(() => result.current.setCustomTimeMode(false));
+
+    // The only setStartTime call is the clear on enable; the disable branch restores nothing.
+    expect(params.setStartTime).toHaveBeenCalledTimes(1);
+    expect(params.setStartTime).toHaveBeenCalledWith(undefined);
   });
 
   it("does not send an exclude id when creating a new appointment", async () => {

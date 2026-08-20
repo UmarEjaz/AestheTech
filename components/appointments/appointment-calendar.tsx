@@ -277,6 +277,33 @@ export function AppointmentCalendar({
       ? now >= currentViewDates.start.getTime() && now < currentViewDates.end.getTime()
       : false;
   })();
+  // Refresh appointments (called when modal makes changes). Declared before the drag/undo handlers
+  // below so they can call it without reading a not-yet-initialized const.
+  const refreshAppointments = useCallback(async () => {
+    if (!currentViewDates) return;
+
+    const seq = ++fetchSeqRef.current;
+    setCalendarLoading(true);
+    try {
+      const result = await getAppointmentsForCalendar({
+        startDate: currentViewDates.start,
+        endDate: currentViewDates.end,
+        staffIds: selectedStaffIds,
+      });
+      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+      if (result.success) {
+        setAppointments(result.data);
+      } else {
+        toast.error(result.error || "Couldn't refresh the calendar.");
+      }
+    } catch {
+      if (seq !== fetchSeqRef.current) return;
+      toast.error("Couldn't refresh the calendar.");
+    } finally {
+      if (seq === fetchSeqRef.current) setCalendarLoading(false);
+    }
+  }, [currentViewDates, selectedStaffIds]);
+
   // Undo a reschedule back to its previous slot. If it fails, re-offer a one-click "Retry" so a
   // transient error doesn't strand the appointment at the dragged-to spot with no easy way back.
   const attemptUndo = async (apptId: string, prevStart: Date, prevStaffId: string) => {
@@ -411,32 +438,6 @@ export function AppointmentCalendar({
     },
     [selectedStaffIds]
   );
-
-  // Refresh appointments (called when modal makes changes)
-  const refreshAppointments = useCallback(async () => {
-    if (!currentViewDates) return;
-
-    const seq = ++fetchSeqRef.current;
-    setCalendarLoading(true);
-    try {
-      const result = await getAppointmentsForCalendar({
-        startDate: currentViewDates.start,
-        endDate: currentViewDates.end,
-        staffIds: selectedStaffIds,
-      });
-      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-      if (result.success) {
-        setAppointments(result.data);
-      } else {
-        toast.error(result.error || "Couldn't refresh the calendar.");
-      }
-    } catch {
-      if (seq !== fetchSeqRef.current) return;
-      toast.error("Couldn't refresh the calendar.");
-    } finally {
-      if (seq === fetchSeqRef.current) setCalendarLoading(false);
-    }
-  }, [currentViewDates, selectedStaffIds]);
 
   // The staff selection whose data is actually on screen (empty = all). On a failed load we roll back
   // to THIS — not to whatever `selectedStaffIds` was captured at call time, which can be stale under
