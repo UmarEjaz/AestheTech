@@ -129,6 +129,9 @@ export function StaffLaneGrid({
     vy: 0,
     raf: null,
   });
+  // The vertical scroll container, resolved once per drag (the ancestor chain doesn't change mid-drag)
+  // so updateAutoScroll doesn't re-walk it + call getComputedStyle on every pointermove.
+  const vScrollerRef = useRef<HTMLElement | null>(null);
   // Cancel any in-flight auto-scroll frame if the grid unmounts mid-drag.
   useEffect(() => {
     return () => {
@@ -288,9 +291,11 @@ export function StaffLaneGrid({
     const [y, m, d] = dayKeys[0].split("-").map(Number);
     const labels: { top: number; text: string }[] = [];
     for (let mm = startMin; mm <= endMin; mm += 60) {
-      const h = Math.floor(mm / 60);
-      const label = new TZDate(y, m - 1, d, h, 0, timezone);
-      labels.push({ top: ((mm - startMin) / SLOT_MIN) * ROW_H, text: formatInTz(label, "h a", timezone) });
+      // Build the label from the row's actual minutes (not a floored hour), so a half-hour opening
+      // like 08:30 reads "8:30 AM" instead of a 30-minutes-early "8 AM".
+      const label = new TZDate(y, m - 1, d, Math.floor(mm / 60), mm % 60, timezone);
+      const fmt = mm % 60 === 0 ? "h a" : "h:mm a";
+      labels.push({ top: ((mm - startMin) / SLOT_MIN) * ROW_H, text: formatInTz(label, fmt, timezone) });
     }
     return labels;
   }, [startMin, endMin, dayKeys, timezone]);
@@ -365,10 +370,11 @@ export function StaffLaneGrid({
   const stopAutoScroll = () => {
     if (autoScrollRef.current.raf != null) cancelAnimationFrame(autoScrollRef.current.raf);
     autoScrollRef.current = { vx: 0, vy: 0, raf: null };
+    vScrollerRef.current = null; // drop the per-drag scroller cache
   };
   const updateAutoScroll = (clientX: number, clientY: number) => {
     const grid = gridRef.current;
-    const vScroller = getVerticalScroller();
+    const vScroller = vScrollerRef.current;
     const vTop = vScroller ? vScroller.getBoundingClientRect().top : 0;
     const vBottom = vScroller ? vScroller.getBoundingClientRect().bottom : window.innerHeight;
     const vy = edgeSpeed(clientY, vTop, vBottom);
@@ -405,6 +411,7 @@ export function StaffLaneGrid({
     if (!canDragSeg(seg)) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    vScrollerRef.current = getVerticalScroller(); // resolve once for this drag; reused each pointermove
     didDragRef.current = false;
     pressPosRef.current = { x: e.clientX, y: e.clientY };
     dragLanesRef.current = gridRef.current
@@ -662,13 +669,22 @@ export function StaffLaneGrid({
                 {/* One full-width block per overlap cluster (the active/earliest appointment); a
                     "+N" pill opens the rest (cancelled/no-show, etc.) in a popover. */}
                 {clusters.map((cluster) => {
-                  const seg = pickVisible(cluster);
+                  // A cluster can straddle the open/close boundary. Choose the visible card from the
+                  // segments that actually fall within business hours, and drop the whole cluster only
+                  // when NONE do — otherwise an out-of-hours front card would hide its in-hours
+                  // neighbours (and the "+N" pill) along with it.
+                  const inGrid = cluster.filter((s) => {
+                    const st = minutesOfDay(s.start);
+                    const en = st + (s.end.getTime() - s.start.getTime()) / 60000;
+                    return en > startMin && st < endMin;
+                  });
+                  if (inGrid.length === 0) return null;
+                  const seg = pickVisible(inGrid);
                   const overlapCount = cluster.length - 1;
                   const segStartMin = minutesOfDay(seg.start);
                   const durationMin = (seg.end.getTime() - seg.start.getTime()) / 60000;
                   const segEndMin = segStartMin + durationMin;
-                  // Skip appointments entirely outside business hours; clamp partial ones to the grid.
-                  if (segEndMin <= startMin || segStartMin >= endMin) return null;
+                  // seg is guaranteed to intersect business hours; clamp partial overlaps to the grid.
                   const top = Math.max(0, ((segStartMin - startMin) / SLOT_MIN) * ROW_H);
                   const bottom = Math.min(bodyHeight, ((segEndMin - startMin) / SLOT_MIN) * ROW_H);
                   const height = Math.max(bottom - top, MIN_BLOCK_H);

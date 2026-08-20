@@ -225,10 +225,11 @@ describe("useCustomTimeCheck", () => {
     expect(cleared.setStartTime).toHaveBeenCalledWith(undefined);
   });
 
-  it("restores the previously picked slot when custom mode is turned back off", () => {
+  it("restores the previously picked slot when custom mode is turned back off (same day)", () => {
     // Turning custom time ON must remember the slot that was already picked, and turning it OFF must
-    // put that slot back (instead of leaving the booking with no time).
-    const picked = new Date("2026-09-01T13:00:00Z");
+    // put that slot back (instead of leaving the booking with no time) — as long as the day is unchanged.
+    // 11:00 in America/New_York on Aug 20, matching SELECTED_DATE's day.
+    const picked = new Date("2026-08-20T15:00:00Z");
     const params = makeParams({ getStartTime: () => picked });
     const { result } = renderHook(() => useCustomTimeCheck(params));
 
@@ -237,6 +238,27 @@ describe("useCustomTimeCheck", () => {
 
     act(() => result.current.setCustomTimeMode(false));
     expect(params.setStartTime).toHaveBeenLastCalledWith(picked); // original slot restored
+  });
+
+  it("does NOT restore the saved slot when the day changed while custom mode was on", () => {
+    // Pick a slot on Aug 20, enable custom mode, then move to Aug 21 and disable custom mode. Restoring
+    // the Aug 20 instant here would silently move the booking back to Aug 20 (the reported edit-mode
+    // bug) — so the time must be cleared instead.
+    const picked = new Date("2026-08-20T15:00:00Z"); // NY day = Aug 20
+    const day1 = makeParams({ getStartTime: () => picked, selectedDate: new Date(2026, 7, 20) });
+    const { result, rerender } = renderHook((props) => useCustomTimeCheck(props), {
+      initialProps: day1,
+    });
+
+    act(() => result.current.setCustomTimeMode(true)); // saves picked (day = Aug 20), clears start
+
+    // The user moves to a different day while custom mode is still on.
+    const day2 = makeParams({ getStartTime: () => picked, selectedDate: new Date(2026, 7, 21) });
+    rerender(day2);
+
+    act(() => result.current.setCustomTimeMode(false)); // must NOT restore the Aug 20 instant
+    expect(day2.setStartTime).toHaveBeenLastCalledWith(undefined);
+    expect(day2.setStartTime).not.toHaveBeenCalledWith(picked);
   });
 
   it("does not restore a slot when none was picked before custom mode", () => {

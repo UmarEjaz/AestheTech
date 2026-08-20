@@ -929,7 +929,7 @@ export function AppointmentForm({
           toast.error(result.error);
         }
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred");
     } finally {
       setIsSubmitting(false);
@@ -984,14 +984,22 @@ export function AppointmentForm({
   const servicesComplete =
     readinessLines.length > 0 && readinessLines.every((l) => l.serviceId && l.staffId);
   const needsSlot = mode === "create" && !isWalkIn;
+  // A start time is "set" when the field holds a real instant. Edit mode uses this instead of the
+  // stricter listed-slot check, because an existing booking may sit at a custom minute that isn't one
+  // of the listed slots — but it must still not be empty (e.g. after the custom-time toggle clears a
+  // slot that belonged to a since-changed day, we must not let a blank time submit).
+  const startTimeSet =
+    watchedStartTime instanceof Date && !Number.isNaN(watchedStartTime.getTime());
   // Walk-ins book at "now", so they never need a chosen time. Otherwise, custom mode ALWAYS requires
-  // a server-confirmed time (create AND edit) — evaluate it before the `!needsSlot` shortcut, else
-  // edit mode would never require it.
+  // a server-confirmed time (create AND edit) — evaluate it before the slot checks, else edit mode
+  // would never require it. Create needs a listed slot; edit only needs a time to be set.
   const slotChosen = isWalkIn
     ? true
     : customTimeMode
       ? customTimeReady
-      : !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
+      : needsSlot
+        ? slotIsChosen(watchedStartTime as Date | string | number)
+        : startTimeSet;
   // Walk-ins book at "now" (slotChosen is already true for them), so never surface custom-time hints
   // or block their booking even if stale custom-time state lingers — guard those branches with !isWalkIn.
   const bookingHint = !hasClient

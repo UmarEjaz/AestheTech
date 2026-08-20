@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { TZDate } from "@date-fns/tz";
 import { validateCustomTime } from "@/lib/actions/appointment";
+import { formatInTz } from "@/lib/utils/timezone";
+
+// The salon-local calendar day ("yyyy-MM-dd") encoded by a picked date. Matches how buildInstant
+// reads selectedDate (its local Y/M/D fields ARE the salon day), so it lines up with formatInTz of a
+// resolved instant.
+const localDayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // Server-checked status of the typed custom time (business hours, past, provider conflict).
 // "ok" is required before the booking can go through.
@@ -66,7 +73,9 @@ export function useCustomTimeCheck({
   const [customTimeCheck, setCustomTimeCheck] = useState<CustomTimeCheck>({ status: "idle" });
   const customTimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const customTimeSeq = useRef(0); // ignore out-of-order validation responses
-  const savedStartTimeRef = useRef<Date | undefined>(undefined); // slot to restore when custom mode is off
+  // Slot to restore when custom mode is switched off, tagged with the salon-local day it was picked
+  // for so we never silently restore a time that belongs to a different (since-changed) date.
+  const savedStartTimeRef = useRef<{ instant: Date; dayKey: string } | null>(null);
 
   // Stable string key of the assignments for the effect dependency.
   const assignmentsKey = assignments.map((s) => `${s.serviceId}:${s.staffId}`).join(",");
@@ -161,12 +170,23 @@ export function useCustomTimeCheck({
     customTimeSeq.current++; // cancel any in-flight check
     setCustomTimeCheck({ status: "idle" });
     if (on) {
-      // Remember the picked slot so turning custom time back off restores it instead of losing it.
-      savedStartTimeRef.current = getStartTime();
+      // Remember the picked slot (and the day it was for) so turning custom time back off restores it
+      // instead of losing it.
+      const cur = getStartTime();
+      savedStartTimeRef.current = cur
+        ? { instant: cur, dayKey: formatInTz(cur, "yyyy-MM-dd", timezone) }
+        : null;
       setStartTime(undefined);
     } else {
       setCustomTime("");
-      if (savedStartTimeRef.current) setStartTime(savedStartTimeRef.current);
+      const saved = savedStartTimeRef.current;
+      if (saved) {
+        // Only restore the slot if the selected day is still the one it was picked for. If the date
+        // changed while custom mode was on, restoring the old-day instant would silently move the
+        // booking back to that day — so clear the time instead and make the user re-pick.
+        const selKey = selectedDate ? localDayKey(selectedDate) : null;
+        setStartTime(selKey && saved.dayKey === selKey ? saved.instant : undefined);
+      }
     }
     clearSlotError();
   };

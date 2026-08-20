@@ -119,6 +119,37 @@ describe("StaffLaneGrid", () => {
     expect(screen.getByText(/Bob B/)).toBeInTheDocument();
   });
 
+  it("still shows an in-hours appointment when the cluster's earliest segment is before opening", () => {
+    // Two overlapping appointments in one lane: the EARLIER one (08:30–09:00) ends exactly at the
+    // 09:00 open, so it's out of hours; the later one (08:45–09:15) runs into business hours. The
+    // earliest is the natural "front" card — but dropping it must not drop the in-hours neighbour too.
+    const client = (firstName: string, lastName: string) =>
+      ({ firstName, lastName, isWalkIn: false }) as AppointmentListItem["client"];
+    // The grid only reads duration/staff/service.name from a service row — cast a partial one.
+    const svc = (name: string) =>
+      ({
+        duration: 30,
+        staff: { id: "stf_1", firstName: "Emma", lastName: "Wilson" },
+        service: { name },
+      }) as unknown as AppointmentListItem["services"][number];
+    const early = makeAppt({
+      id: "apt_early",
+      client: client("Early", "Bird"),
+      startTime: new Date("2026-08-17T03:30:00Z"), // 08:30 local — ends at the 09:00 open
+      endTime: new Date("2026-08-17T04:00:00Z"),
+      services: [svc("Beard Trim")],
+    });
+    const inHours = makeAppt({
+      id: "apt_in",
+      client: client("In", "Hours"),
+      startTime: new Date("2026-08-17T03:45:00Z"), // 08:45 local — runs 08:45–09:15, into hours
+      endTime: new Date("2026-08-17T04:15:00Z"),
+      services: [svc("Beard Trim")],
+    });
+    render(<StaffLaneGrid {...baseProps} appointments={[early, inHours]} />);
+    expect(screen.getByText("In Hours")).toBeInTheDocument();
+  });
+
   it("warns when an appointment's provider has no lane", () => {
     // makeAppt's service is with "stf_1"; render with a DIFFERENT provider list so it has no lane.
     render(
@@ -220,5 +251,29 @@ describe("StaffLaneGrid — drag to reschedule", () => {
     fireEvent.pointerMove(block, { clientX: 150, clientY: 10, pointerId: 1 });
     fireEvent.pointerCancel(block, { clientX: 150, clientY: 10, pointerId: 1 });
     expect(onReschedule).not.toHaveBeenCalled();
+  });
+
+  it("swallows the click that follows a drag (drawer does not open)", () => {
+    // A drag ends with a pointerup that also synthesizes a click. That click must be ignored so the
+    // details drawer doesn't pop open on top of the just-rescheduled appointment.
+    baseProps.onSelectAppointment.mockClear();
+    const { block } = renderDraggable();
+    fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 150, clientY: 10, pointerId: 1 }); // past the 4px threshold
+    fireEvent.pointerUp(block, { clientX: 150, clientY: 10, pointerId: 1 });
+    fireEvent.click(block); // the trailing click
+    expect(baseProps.onSelectAppointment).not.toHaveBeenCalled();
+  });
+
+  it("still opens the drawer on a tap that stays under the drag threshold", () => {
+    // A press-and-release that never moves past the threshold is a click, not a drag — it must open
+    // the drawer as usual.
+    baseProps.onSelectAppointment.mockClear();
+    const { onReschedule, block } = renderDraggable();
+    fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(block, { clientX: 51, clientY: 11, pointerId: 1 }); // <4px move
+    fireEvent.click(block);
+    expect(onReschedule).not.toHaveBeenCalled();
+    expect(baseProps.onSelectAppointment).toHaveBeenCalledWith("apt_1");
   });
 });

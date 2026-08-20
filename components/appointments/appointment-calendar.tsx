@@ -443,10 +443,16 @@ export function AppointmentCalendar({
   // to THIS — not to whatever `selectedStaffIds` was captured at call time, which can be stale under
   // rapid toggles. Kept in a ref so the callback doesn't need to re-create when the selection changes.
   const lastConfirmedStaffIdsRef = useRef<string[]>([]);
+  // Mirror the live selection in a ref so two very fast toggles in the same render pass each start
+  // from the latest value, not the same stale render snapshot (the second would otherwise discard the
+  // first). Kept in sync on every render AND synchronously whenever a selection is applied below.
+  const selectedStaffIdsRef = useRef<string[]>([]);
+  selectedStaffIdsRef.current = selectedStaffIds;
 
   // Apply a new staff selection (empty = all) and immediately refetch for the current view range.
   const applyStaffSelection = useCallback(
     async (nextIds: string[]) => {
+      selectedStaffIdsRef.current = nextIds; // sync immediately so a follow-up toggle sees this pick
       setSelectedStaffIds(nextIds);
       if (!currentViewDates) {
         // No view range yet (the calendar's first datesSet will fetch with this selection), so there
@@ -481,12 +487,10 @@ export function AppointmentCalendar({
     },
     [currentViewDates]
   );
-  const toggleStaff = (id: string) =>
-    applyStaffSelection(
-      selectedStaffIds.includes(id)
-        ? selectedStaffIds.filter((s) => s !== id)
-        : [...selectedStaffIds, id]
-    );
+  const toggleStaff = (id: string) => {
+    const cur = selectedStaffIdsRef.current; // latest applied selection, not the render snapshot
+    return applyStaffSelection(cur.includes(id) ? cur.filter((s) => s !== id) : [...cur, id]);
+  };
   const staffFilterLabel =
     selectedStaffIds.length === 0
       ? "All staff"

@@ -57,11 +57,14 @@ test.describe("Staff lanes — drag to reschedule", () => {
     await expect(block).toBeVisible();
     await block.scrollIntoViewIfNeeded();
 
-    // Pick a DIFFERENT staff lane as the drop target and remember its id for the assertion.
+    // Pick a DIFFERENT, EMPTY staff lane as the drop target (an occupied lane would conflict at the
+    // seeded hour, making a real reschedule look like a drag failure) and remember its id.
     const targetLane = page
       .locator(`[data-lane][data-staff-id]:not([data-staff-id="${currentStaffId}"])`)
+      .filter({ hasNot: page.locator("button[aria-label]") })
       .first();
     await expect(targetLane).toBeVisible();
+    await targetLane.scrollIntoViewIfNeeded(); // a far-off lane must be on-screen before we measure it
     const targetStaffId = await targetLane.getAttribute("data-staff-id");
     expect(targetStaffId).toBeTruthy();
 
@@ -81,6 +84,8 @@ test.describe("Staff lanes — drag to reschedule", () => {
 
     // A success toast confirms the reschedule went through.
     await expect(page.getByText(/rescheduled to/i)).toBeVisible();
+    // And no conflict/error toast slipped in (which would mean the drop landed on an occupied slot).
+    await expect(page.getByText(/conflicts with another appointment/i)).toHaveCount(0);
 
     // The primary provider must have changed to the drop lane's staff, and it must be persisted.
     const updated = await prisma.appointment.findUniqueOrThrow({

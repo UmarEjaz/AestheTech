@@ -1052,7 +1052,7 @@ export async function getAvailableSlots(params: {
 
     // Calculate available slots
     const slots: { startTime: Date; endTime: Date }[] = [];
-    let currentTime = new TZDate(dayStart.getTime(), tz);
+    const currentTime = new TZDate(dayStart.getTime(), tz);
 
     // Generate slots at the configured interval
     while (currentTime.getTime() < dayEndMs) {
