@@ -42,7 +42,10 @@ test.describe("Staff lanes — drag to reschedule", () => {
     await clickUntil(staffBtn, () =>
       expect(staffBtn).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 })
     );
-    await page.getByRole("button", { name: /^Day$/i }).click();
+    const dayBtn = page.getByRole("button", { name: /^Day$/i });
+    await clickUntil(dayBtn, () =>
+      expect(dayBtn).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 })
+    );
     // Lanes render once the view switched; wait for them before stepping the date.
     await expect(page.locator("[data-lane]").first()).toBeVisible();
     for (let i = 0; i < dayStepsFromToday; i++) {

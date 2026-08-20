@@ -76,6 +76,7 @@ describe("validateCustomTime", () => {
     mockCheckAuth.mockResolvedValue(null);
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
     expect(res.success).toBe(false);
+    if (!res.success) expect(res.error).toBe("Unauthorized");
   });
 
   it("accepts a valid in-hours, conflict-free time", async () => {

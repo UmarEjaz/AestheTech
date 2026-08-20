@@ -201,7 +201,8 @@ describe("StaffLaneGrid — drag to reschedule", () => {
     expect(apptId).toBe("apt_1");
     expect(staffId).toBe("stf_2");
     expect(typeof startISO).toBe("string");
-    expect(new Date(startISO as string).getUTCMinutes() % 5).toBe(0); // snapped to SNAP_MIN
+    // Dropped at the top of the lane → 09:00 on 2026-08-17 in the salon tz (+05:00).
+    expect(startISO).toBe("2026-08-17T09:00:00+05:00");
   });
 
   it("does not reschedule when dropped back on the original slot", () => {

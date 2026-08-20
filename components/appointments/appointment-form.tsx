@@ -991,13 +991,15 @@ export function AppointmentForm({
     : customTimeMode
       ? customTimeReady
       : !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
+  // Walk-ins book at "now" (slotChosen is already true for them), so never surface custom-time hints
+  // or block their booking even if stale custom-time state lingers — guard those branches with !isWalkIn.
   const bookingHint = !hasClient
     ? "Choose or add a client to continue"
     : !servicesComplete
       ? "Pick a service and staff for every line"
-      : customTimeMode && customTimeCheck.status === "checking"
+      : !isWalkIn && customTimeMode && customTimeCheck.status === "checking"
         ? "Checking that time…"
-        : customTimeMode && customTimeCheck.status === "invalid"
+        : !isWalkIn && customTimeMode && customTimeCheck.status === "invalid"
           ? customTimeCheck.message ?? "Pick a bookable time"
           : !slotChosen
             ? customTimeMode
