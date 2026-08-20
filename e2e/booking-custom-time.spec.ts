@@ -89,14 +89,16 @@ test.describe("Booking — custom start time", () => {
 
     // Actually submit and confirm the appointment was created (exercises createAppointment, not just
     // validation): the success toast fires, then the row exists in the DB.
+    const submittedAt = new Date(); // only rows created after this can be the one we just booked
     await bookBtn.click();
     await expect(page.getByText(/Appointment booked successfully/i)).toBeVisible();
     // Capture the exact appointment this test created (the browser flow doesn't return its id), then
-    // verify by it — afterAll deletes only this row, never anything else in the window.
+    // verify by it — afterAll deletes only this row, never anything else in the window. Bound by
+    // createdAt so a pre-existing row in the same window can't be matched (and then wrongly deleted).
     await expect
       .poll(async () => {
         const appt = await prisma.appointment.findFirst({
-          where: { salonId, startTime: bookedWindow() },
+          where: { salonId, startTime: bookedWindow(), createdAt: { gte: submittedAt } },
           orderBy: { createdAt: "desc" },
           select: { id: true },
         });

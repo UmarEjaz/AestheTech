@@ -1,4 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
+import { config as loadEnv } from "dotenv";
+
+// Resolve DATABASE_URL from the SAME source the guard (scripts/testing/guard-e2e-db.mjs) and the specs
+// use — dotenv's `.env`, with any real process.env value taking precedence. We then hand this exact
+// value to the test server below, so the DB the guard validates is provably the DB the server writes
+// to (Next.js would otherwise apply its own `.env.local`/`.env.production` precedence and could pick a
+// different — even production — database that the guard never checked).
+loadEnv();
 
 // End-to-end tests run against a PRODUCTION build of the app on :3001 with a seeded database.
 // A production build (`next build && next start`) serves every route pre-compiled, so navigations
@@ -37,6 +45,11 @@ export default defineConfig({
     timeout: 300_000,
     // In production mode Auth.js won't trust the request host unless told to. Trust localhost for
     // the test server so login works (the app's trustHost honors this env — see lib/auth.ts).
-    env: { AUTH_TRUST_HOST: "true" },
+    // Pin DATABASE_URL to the guard-validated value so Next.js can't fall back to a different env file
+    // and write to an unchecked database. process.env is Next's highest-priority source, so this wins.
+    env: {
+      AUTH_TRUST_HOST: "true",
+      ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
+    },
   },
 });

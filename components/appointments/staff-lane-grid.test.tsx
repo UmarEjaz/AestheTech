@@ -117,6 +117,9 @@ describe("StaffLaneGrid", () => {
     // Opening the pill reveals the clustered appointment (name sits in a "name · time · service" row).
     fireEvent.click(morePill);
     expect(screen.getByText(/Bob B/)).toBeInTheDocument();
+    // The popover shows ONLY the hidden appointment, not the one already on the card — so the "+1"
+    // count matches its contents (Alice stays a single element: the card, not duplicated below).
+    expect(screen.getAllByText("Alice A")).toHaveLength(1);
   });
 
   it("still shows an in-hours appointment when the cluster's earliest segment is before opening", () => {

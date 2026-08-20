@@ -261,17 +261,19 @@ describe("useCustomTimeCheck", () => {
     expect(day2.setStartTime).not.toHaveBeenCalledWith(picked);
   });
 
-  it("does not restore a slot when none was picked before custom mode", () => {
-    // No slot was chosen (getStartTime → undefined), so turning custom mode off must not push a value.
+  it("clears the start time on disable when no slot was picked (no lingering typed time)", () => {
+    // No slot was chosen (getStartTime → undefined). Enabling clears the field; disabling must ALSO
+    // clear it, so a custom time typed-then-abandoned can't stay in the form after the toggle goes off.
     const params = makeParams({ getStartTime: () => undefined });
     const { result } = renderHook(() => useCustomTimeCheck(params));
 
     act(() => result.current.setCustomTimeMode(true));
     act(() => result.current.setCustomTimeMode(false));
 
-    // The only setStartTime call is the clear on enable; the disable branch restores nothing.
-    expect(params.setStartTime).toHaveBeenCalledTimes(1);
-    expect(params.setStartTime).toHaveBeenCalledWith(undefined);
+    // Both the enable and the disable clear the field; neither restores a value.
+    expect(params.setStartTime).toHaveBeenCalledTimes(2);
+    expect(params.setStartTime).toHaveBeenNthCalledWith(1, undefined);
+    expect(params.setStartTime).toHaveBeenNthCalledWith(2, undefined);
   });
 
   it("does not send an exclude id when creating a new appointment", async () => {

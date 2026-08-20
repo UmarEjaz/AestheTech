@@ -680,7 +680,13 @@ export function StaffLaneGrid({
                   });
                   if (inGrid.length === 0) return null;
                   const seg = pickVisible(inGrid);
-                  const overlapCount = cluster.length - 1;
+                  // Everything except the card already on screen — this is what the "+N" pill reveals,
+                  // so its count matches overlapCount (cluster.length - 1) instead of showing a dupe.
+                  const hiddenSegs = cluster.filter(
+                    (s) =>
+                      !(s.appointment.id === seg.appointment.id && s.serviceIndex === seg.serviceIndex)
+                  );
+                  const overlapCount = hiddenSegs.length;
                   const segStartMin = minutesOfDay(seg.start);
                   const durationMin = (seg.end.getTime() - seg.start.getTime()) / 60000;
                   const segEndMin = segStartMin + durationMin;
@@ -736,7 +742,7 @@ export function StaffLaneGrid({
                     {overlapCount > 0 && (
                       <button
                         type="button"
-                        onClick={(e) => openOverlapPopover(e, cluster)}
+                        onClick={(e) => openOverlapPopover(e, hiddenSegs)}
                         aria-label={`${overlapCount} more appointment${overlapCount > 1 ? "s" : ""} at this time`}
                         title={`${overlapCount} more at this time`}
                         className="absolute right-1 z-[7] rounded-full border border-primary/40 bg-background px-1.5 text-[0.65rem] font-bold leading-4 text-primary shadow-sm hover:bg-primary/10"
@@ -756,7 +762,7 @@ export function StaffLaneGrid({
       </div>
 
       {/* "+N more" overlap popover — rendered in the outer wrapper so the grid's overflow can't clip
-          it. Lists every appointment in the cluster; clicking one opens the details drawer. */}
+          it. Lists the hidden appointments (those not shown as the card); clicking one opens the drawer. */}
       {overlapPopover && (
         <>
           <button

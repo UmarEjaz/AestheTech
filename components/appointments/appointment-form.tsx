@@ -28,9 +28,12 @@ function toSalonLocalDay(instant: Date, tz: string): Date {
 
 // Turn a "yyyy-MM-dd" salon-day string into a floating local Date (same shape as toSalonLocalDay),
 // so the date-picker + slot fetch treat it as that salon calendar day regardless of browser tz.
-function localDayFromISO(iso: string): Date {
+function localDayFromISO(iso: string): Date | undefined {
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1);
+  // Reject anything that isn't a real yyyy-MM-dd — an Invalid Date would flow into the date picker and
+  // later throw in format(...). Returning undefined lets the caller keep the current day.
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return undefined;
+  return new Date(y, m - 1, d);
 }
 import { Loader2, Calendar as CalendarIcon, UserPlus, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, ChevronUp, ChevronDown, Plus, X, Star, Pencil, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";

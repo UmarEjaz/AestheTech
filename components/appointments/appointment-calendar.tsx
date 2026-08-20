@@ -445,9 +445,12 @@ export function AppointmentCalendar({
   const lastConfirmedStaffIdsRef = useRef<string[]>([]);
   // Mirror the live selection in a ref so two very fast toggles in the same render pass each start
   // from the latest value, not the same stale render snapshot (the second would otherwise discard the
-  // first). Kept in sync on every render AND synchronously whenever a selection is applied below.
+  // first). applyStaffSelection sets this synchronously for the rapid-toggle case; the effect keeps it
+  // in sync after commit (never during render, which a discarded render could otherwise poison).
   const selectedStaffIdsRef = useRef<string[]>([]);
-  selectedStaffIdsRef.current = selectedStaffIds;
+  useEffect(() => {
+    selectedStaffIdsRef.current = selectedStaffIds;
+  }, [selectedStaffIds]);
 
   // Apply a new staff selection (empty = all) and immediately refetch for the current view range.
   const applyStaffSelection = useCallback(

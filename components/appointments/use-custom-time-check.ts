@@ -180,13 +180,12 @@ export function useCustomTimeCheck({
     } else {
       setCustomTime("");
       const saved = savedStartTimeRef.current;
-      if (saved) {
-        // Only restore the slot if the selected day is still the one it was picked for. If the date
-        // changed while custom mode was on, restoring the old-day instant would silently move the
-        // booking back to that day — so clear the time instead and make the user re-pick.
-        const selKey = selectedDate ? localDayKey(selectedDate) : null;
-        setStartTime(selKey && saved.dayKey === selKey ? saved.instant : undefined);
-      }
+      // Restore the slot only if the selected day is still the one it was picked for; if the date
+      // changed while custom mode was on, restoring the old-day instant would silently move the
+      // booking back to that day. Always assign (even with no saved slot) so a typed-then-abandoned
+      // custom time can't linger in the form while the UI shows no selected time.
+      const selKey = selectedDate ? localDayKey(selectedDate) : null;
+      setStartTime(saved && selKey && saved.dayKey === selKey ? saved.instant : undefined);
     }
     clearSlotError();
   };
