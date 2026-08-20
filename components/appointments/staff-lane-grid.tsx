@@ -119,6 +119,22 @@ export function StaffLaneGrid({
   const dragLanesRef = useRef<{ dayKey: string; staffId: string; el: HTMLElement }[]>([]);
   const didDragRef = useRef(false); // distinguishes a drag from a plain click
   const pressPosRef = useRef<{ x: number; y: number } | null>(null); // where the press started
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null); // latest pointer during a drag
+  // Stable per-drag values read by applyPointer WITHOUT the `drag` state, so the auto-scroll rAF loop
+  // isn't tripped up by a stale closure.
+  const dragMetaRef = useRef<{ grabOffsetPx: number; durationMin: number } | null>(null);
+  // Edge auto-scroll while dragging: current velocities + the requestAnimationFrame handle.
+  const autoScrollRef = useRef<{ vx: number; vy: number; raf: number | null }>({
+    vx: 0,
+    vy: 0,
+    raf: null,
+  });
+  // Cancel any in-flight auto-scroll frame if the grid unmounts mid-drag.
+  useEffect(() => {
+    return () => {
+      if (autoScrollRef.current.raf != null) cancelAnimationFrame(autoScrollRef.current.raf);
+    };
+  }, []);
   const [drag, setDrag] = useState<{
     apptId: string;
     durationMin: number;
@@ -288,6 +304,90 @@ export function StaffLaneGrid({
     seg.serviceIndex === 0 &&
     DRAGGABLE_STATUSES.includes(seg.appointment.status);
 
+  // Set the drop target from a viewport pointer position. Uses LIVE lane rects + the stable drag meta
+  // (from refs), so it's safe to call from both moveDrag and the auto-scroll loop.
+  const applyPointer = (clientX: number, clientY: number) => {
+    const meta = dragMetaRef.current;
+    if (!meta) return;
+    let hit: { dayKey: string; staffId: string; rect: DOMRect } | undefined;
+    for (const lane of dragLanesRef.current) {
+      const rect = lane.el.getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+        hit = { dayKey: lane.dayKey, staffId: lane.staffId, rect };
+        break; // first match wins
+      }
+    }
+    if (!hit) {
+      setDrag((d) => (d ? { ...d, target: null } : d));
+      return;
+    }
+    const rawMin = ((clientY - hit.rect.top - meta.grabOffsetPx) / ROW_H) * SLOT_MIN;
+    const maxMin = Math.max(0, endMin - startMin - meta.durationMin);
+    const min = Math.max(0, Math.min(maxMin, Math.round(rawMin / SNAP_MIN) * SNAP_MIN));
+    setDrag((d) => (d ? { ...d, target: { dayKey: hit.dayKey, staffId: hit.staffId, min } } : d));
+  };
+
+  // ── Edge auto-scroll: while dragging near an edge, scroll the view toward it so an off-screen lane
+  // or time can be reached without letting go (works on touch + desktop). ────────────────────────────
+  const AUTO_SCROLL_EDGE = 64; // px from an edge where scrolling kicks in
+  const AUTO_SCROLL_MAX = 22; // px per frame at the very edge
+  const edgeSpeed = (pos: number, min: number, max: number) => {
+    if (pos < min + AUTO_SCROLL_EDGE)
+      return -Math.ceil(((min + AUTO_SCROLL_EDGE - pos) / AUTO_SCROLL_EDGE) * AUTO_SCROLL_MAX);
+    if (pos > max - AUTO_SCROLL_EDGE)
+      return Math.ceil(((pos - (max - AUTO_SCROLL_EDGE)) / AUTO_SCROLL_EDGE) * AUTO_SCROLL_MAX);
+    return 0;
+  };
+  // The nearest scrollable ancestor for vertical scrolling; null = scroll the window (this dashboard
+  // scrolls at the document level).
+  const getVerticalScroller = (): HTMLElement | null => {
+    let node: HTMLElement | null = gridRef.current?.parentElement ?? null;
+    while (node) {
+      const oy = getComputedStyle(node).overflowY;
+      if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight) return node;
+      node = node.parentElement;
+    }
+    return null;
+  };
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current.raf != null) cancelAnimationFrame(autoScrollRef.current.raf);
+    autoScrollRef.current = { vx: 0, vy: 0, raf: null };
+  };
+  const updateAutoScroll = (clientX: number, clientY: number) => {
+    const grid = gridRef.current;
+    const vScroller = getVerticalScroller();
+    const vTop = vScroller ? vScroller.getBoundingClientRect().top : 0;
+    const vBottom = vScroller ? vScroller.getBoundingClientRect().bottom : window.innerHeight;
+    const vy = edgeSpeed(clientY, vTop, vBottom);
+    // Horizontal scrolls the grid's own overflow-x container, only when it actually overflows.
+    let vx = 0;
+    if (grid && grid.scrollWidth > grid.clientWidth) {
+      const r = grid.getBoundingClientRect();
+      vx = edgeSpeed(clientX, r.left, r.right);
+    }
+    autoScrollRef.current.vx = vx;
+    autoScrollRef.current.vy = vy;
+    if ((vx !== 0 || vy !== 0) && autoScrollRef.current.raf == null) {
+      const step = () => {
+        const { vx, vy } = autoScrollRef.current;
+        if (vx === 0 && vy === 0) {
+          autoScrollRef.current.raf = null;
+          return;
+        }
+        if (vy !== 0) {
+          if (vScroller) vScroller.scrollTop += vy;
+          else window.scrollBy(0, vy);
+        }
+        if (vx !== 0 && gridRef.current) gridRef.current.scrollLeft += vx;
+        // Re-evaluate the drop against the new scroll offsets (pointer may be stationary at the edge).
+        const p = lastPointerRef.current;
+        if (p) applyPointer(p.x, p.y);
+        autoScrollRef.current.raf = requestAnimationFrame(step);
+      };
+      autoScrollRef.current.raf = requestAnimationFrame(step);
+    }
+  };
+
   const beginDrag = (e: ReactPointerEvent<HTMLButtonElement>, seg: AppointmentSegment) => {
     if (!canDragSeg(seg)) return;
     e.preventDefault();
@@ -318,6 +418,8 @@ export function StaffLaneGrid({
         Math.min(originMaxMin, Math.round((minutesOfDay(seg.start) - startMin) / SNAP_MIN) * SNAP_MIN)
       ),
     };
+    dragMetaRef.current = { grabOffsetPx, durationMin };
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
     setDrag({ apptId: seg.appointment.id, durationMin, grabOffsetPx, origin, target: null });
   };
   const moveDrag = (e: ReactPointerEvent<HTMLButtonElement>) => {
@@ -328,35 +430,12 @@ export function StaffLaneGrid({
       if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD_PX) return;
       didDragRef.current = true;
     }
-    // Require the pointer to be inside a lane on BOTH axes. Measure each lane LIVE (positions can move
-    // if the grid is scrolled mid-drag). Otherwise clear the target, so releasing off the lanes can't
-    // reschedule to a stale destination.
-    let hit: { dayKey: string; staffId: string; rect: DOMRect } | undefined;
-    for (const lane of dragLanesRef.current) {
-      const rect = lane.el.getBoundingClientRect();
-      if (
-        e.clientX >= rect.left &&
-        e.clientX <= rect.right &&
-        e.clientY >= rect.top &&
-        e.clientY <= rect.bottom
-      ) {
-        hit = { dayKey: lane.dayKey, staffId: lane.staffId, rect };
-        break; // first match wins — no need to measure the rest
-      }
-    }
-    if (!hit) {
-      setDrag((d) => (d ? { ...d, target: null } : d));
-      return;
-    }
-    // Pixel offset → minutes past open, snapped to SNAP_MIN. Subtract the grab offset so the block's
-    // TOP (not the cursor) lands at the drop point. Clamp so it stays inside business hours
-    // (last valid start = close − duration).
-    const rawMin = ((e.clientY - hit.rect.top - drag.grabOffsetPx) / ROW_H) * SLOT_MIN;
-    const maxMin = Math.max(0, endMin - startMin - drag.durationMin);
-    const min = Math.max(0, Math.min(maxMin, Math.round(rawMin / SNAP_MIN) * SNAP_MIN));
-    setDrag((d) => (d ? { ...d, target: { dayKey: hit.dayKey, staffId: hit.staffId, min } } : d));
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
+    applyPointer(e.clientX, e.clientY); // set the drop target (LIVE lane rects)
+    updateAutoScroll(e.clientX, e.clientY); // scroll the view if the pointer is near an edge
   };
   const endDrag = () => {
+    stopAutoScroll();
     const d = drag;
     setDrag(null);
     if (!d || !d.target || !onReschedule) return;
@@ -372,6 +451,7 @@ export function StaffLaneGrid({
   // so just clear the drag visuals. Do NOT reschedule: the drag never completed, and the appointment
   // was never actually moved (only the faded block + drop preview were shown).
   const cancelDrag = () => {
+    stopAutoScroll();
     // A cancelled pointer stream fires no click, so clear the click guard here too — otherwise the
     // next click on this block is swallowed and its details drawer won't open.
     didDragRef.current = false;
@@ -605,7 +685,13 @@ export function StaffLaneGrid({
                       onPointerCancel={draggable ? cancelDrag : undefined}
                       aria-label={`${clientName}, ${formatInTz(seg.start, "h:mm a", timezone)}, ${seg.serviceName}, ${seg.appointment.status.toLowerCase().replace("_", " ")}`}
                       className={`absolute left-0.5 right-0.5 overflow-hidden rounded border-l-4 px-1 py-0.5 text-left text-[0.7rem] leading-tight shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${colors.bg} ${colors.border} ${colors.text} ${draggable ? "cursor-grab active:cursor-grabbing" : ""} ${dimmed ? "z-[4] opacity-60" : "z-[5]"}`}
-                      style={{ top, height, opacity: isDragging ? 0.4 : undefined }}
+                      style={{
+                        top,
+                        height,
+                        opacity: isDragging ? 0.4 : undefined,
+                        // Let the pointer drag own the gesture on touch devices (no scroll hijack).
+                        touchAction: draggable ? "none" : undefined,
+                      }}
                       title={`${clientName} · ${formatInTz(seg.start, "h:mm a", timezone)} · ${seg.serviceName}`}
                     >
                       <span className="block truncate font-semibold">

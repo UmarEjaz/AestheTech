@@ -1118,18 +1118,19 @@ export async function validateCustomTime(params: {
   const { assignments, startTime, excludeAppointmentId } = validated.data;
 
   try {
-    const ctx = await buildBookingContext(authResult.salonId, assignments, startTime, excludeAppointmentId);
-    if (!ctx.ok) {
-      return { success: false, error: ctx.error };
-    }
     // Verify every assigned provider is a real, active service provider in this branch (parity with
-    // createAppointment/rescheduleAppointment) before spending effort on the availability math.
+    // createAppointment/rescheduleAppointment) BEFORE the availability lookups, so an invalid staff id
+    // is rejected without those queries.
     const staffCheck = await verifyStaffProviders(
       [...new Set(assignments.map((a) => a.staffId))],
       authResult.salonId
     );
     if (!staffCheck.ok) {
       return { success: false, error: staffCheck.error };
+    }
+    const ctx = await buildBookingContext(authResult.salonId, assignments, startTime, excludeAppointmentId);
+    if (!ctx.ok) {
+      return { success: false, error: ctx.error };
     }
     const { lines, totalDuration, tz, slotInterval, dayStart, dayEnd, existingSegments } = ctx;
     const startMs = startTime.getTime();

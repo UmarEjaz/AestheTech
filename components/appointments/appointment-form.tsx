@@ -983,11 +983,14 @@ export function AppointmentForm({
   const servicesComplete =
     readinessLines.length > 0 && readinessLines.every((l) => l.serviceId && l.staffId);
   const needsSlot = mode === "create" && !isWalkIn;
-  // Order matches onSubmit: custom mode ALWAYS requires a server-confirmed time (create AND edit),
-  // so evaluate it before the `!needsSlot` shortcut — otherwise edit mode would never require it.
-  const slotChosen = customTimeMode
-    ? customTimeReady
-    : !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
+  // Walk-ins book at "now", so they never need a chosen time. Otherwise, custom mode ALWAYS requires
+  // a server-confirmed time (create AND edit) — evaluate it before the `!needsSlot` shortcut, else
+  // edit mode would never require it.
+  const slotChosen = isWalkIn
+    ? true
+    : customTimeMode
+      ? customTimeReady
+      : !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
   const bookingHint = !hasClient
     ? "Choose or add a client to continue"
     : !servicesComplete

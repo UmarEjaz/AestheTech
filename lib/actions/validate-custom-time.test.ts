@@ -84,6 +84,21 @@ describe("validateCustomTime", () => {
     if (res.success) expect(res.data.ok).toBe(true);
   });
 
+  it("rejects a time that has already passed and suggests the next free slot from now", async () => {
+    // Frozen now = 2026-06-15T12:00:00Z (17:00 Karachi). Earlier the same day is in the past; the
+    // next free slot is the current time rounded onto the grid (17:00).
+    const res = await validateCustomTime({
+      assignments: oneService,
+      startTime: new Date("2026-06-15T06:00:00Z"), // 11:00 Karachi, before "now"
+    });
+    if (!res.success) throw new Error(res.error);
+    expect(res.data.ok).toBe(false);
+    if (res.data.ok) return;
+    expect(res.data.reason).toBe("past");
+    expect(res.data.suggestionHHMM).toBe("17:00");
+    expect(res.data.suggestionLabel).toBe("5 PM");
+  });
+
   it("rejects a time before opening and suggests the first open slot", async () => {
     const res = await validateCustomTime({ assignments: oneService, startTime: at(8) });
     if (!res.success) throw new Error(res.error);
