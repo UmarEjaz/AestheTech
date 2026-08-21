@@ -52,7 +52,7 @@ export function CalendarEmptyState({
               onClick={onToday}
               className="pointer-events-auto text-sm font-medium text-primary hover:underline"
             >
-              Jump to today →
+              Jump to today <span aria-hidden>→</span>
             </button>
           )}
         </div>

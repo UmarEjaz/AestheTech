@@ -28,7 +28,9 @@ function makeAppt(over: Partial<AppointmentListItem> = {}): AppointmentListItem 
   } as unknown as AppointmentListItem;
 }
 
-const baseProps = {
+// Fresh props (with a NEW onSelectAppointment spy) per test, so one test never reads call history
+// left by another — no manual mockClear() needed.
+const makeBaseProps = () => ({
   staff: [{ id: "stf_1", firstName: "Emma", lastName: "Wilson" }],
   date: DAY,
   span: "day" as const,
@@ -36,13 +38,12 @@ const baseProps = {
   businessHoursEnd: "19:00",
   timezone: TZ,
   onSelectAppointment: vi.fn(),
-};
+});
+let baseProps = makeBaseProps();
 
 describe("StaffLaneGrid", () => {
   beforeEach(() => {
-    // Shared spies (e.g. baseProps.onSelectAppointment) live at module scope; reset call counts so
-    // one test never reads state left by another.
-    vi.clearAllMocks();
+    baseProps = makeBaseProps();
   });
 
   it("shows the empty-state card when there are no appointments", () => {
@@ -194,6 +195,7 @@ describe("StaffLaneGrid — drag to reschedule", () => {
   ];
 
   beforeEach(() => {
+    baseProps = makeBaseProps(); // fresh onSelectAppointment spy per drag test
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement
     ) {
@@ -259,7 +261,6 @@ describe("StaffLaneGrid — drag to reschedule", () => {
   it("swallows the click that follows a drag (drawer does not open)", () => {
     // A drag ends with a pointerup that also synthesizes a click. That click must be ignored so the
     // details drawer doesn't pop open on top of the just-rescheduled appointment.
-    baseProps.onSelectAppointment.mockClear();
     const { block } = renderDraggable();
     fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
     fireEvent.pointerMove(block, { clientX: 150, clientY: 10, pointerId: 1 }); // past the 4px threshold
@@ -268,12 +269,24 @@ describe("StaffLaneGrid — drag to reschedule", () => {
     expect(baseProps.onSelectAppointment).not.toHaveBeenCalled();
   });
 
+  it("does not eat the next click when a drag ends without a trailing click", async () => {
+    // Releasing over a different lane can fire NO trailing click, so endDrag must clear the guard on a
+    // macrotask — otherwise the flag stays armed and the user's NEXT real click is swallowed.
+    const { block } = renderDraggable();
+    fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 150, clientY: 10, pointerId: 1 }); // past threshold → drag
+    fireEvent.pointerUp(block, { clientX: 150, clientY: 10, pointerId: 1 }); // dropped on the other lane, no click
+    await new Promise((r) => setTimeout(r, 0)); // let endDrag's macrotask reset run
+    fireEvent.click(block); // a fresh, genuine click
+    expect(baseProps.onSelectAppointment).toHaveBeenCalledWith("apt_1");
+  });
+
   it("still opens the drawer on a tap that stays under the drag threshold", () => {
     // A press-and-release that never moves past the threshold is a click, not a drag — it must open
-    // the drawer as usual.
-    baseProps.onSelectAppointment.mockClear();
+    // the drawer as usual. The tiny pointerMove exercises moveDrag's DRAG_THRESHOLD_PX check.
     const { onReschedule, block } = renderDraggable();
     fireEvent.pointerDown(block, { clientX: 50, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 52, clientY: 11, pointerId: 1 }); // ~2px: under the threshold
     fireEvent.pointerUp(block, { clientX: 51, clientY: 11, pointerId: 1 }); // <4px move
     fireEvent.click(block);
     expect(onReschedule).not.toHaveBeenCalled();

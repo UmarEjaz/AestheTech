@@ -456,6 +456,16 @@ export function StaffLaneGrid({
   };
   const endDrag = () => {
     stopAutoScroll();
+    // A real drag's pointerup synthesizes a trailing click on the captured block, which the onClick
+    // handler swallows by reading didDragRef (still true here). But when the pointer is released over a
+    // DIFFERENT lane the browser fires no click, leaving the flag armed — which would then eat the next
+    // genuine click. Clear it on the next macrotask: the trailing click (if any) runs synchronously
+    // right after this handler and is suppressed first; if none comes, the flag is safely reset.
+    if (didDragRef.current) {
+      setTimeout(() => {
+        didDragRef.current = false;
+      }, 0);
+    }
     const d = drag;
     setDrag(null);
     if (!d || !d.target || !onReschedule) return;

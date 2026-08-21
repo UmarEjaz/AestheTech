@@ -49,7 +49,9 @@ test.afterAll(async () => {
     idToDelete = orphan?.id ?? null;
   }
   if (idToDelete) {
-    await prisma.appointment.delete({ where: { id: idToDelete } }).catch(() => {});
+    await prisma.appointment
+      .delete({ where: { id: idToDelete } })
+      .catch((e) => console.error(`Cleanup failed to delete appointment ${idToDelete}:`, e));
   }
   await prisma.$disconnect();
 });

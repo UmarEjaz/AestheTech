@@ -967,10 +967,12 @@ async function buildBookingContext(
     duration: serviceMap.get(a.serviceId)!.duration,
   }));
 
-  // Business hours + booking interval from settings.
-  const settings = settingsResult.success
-    ? settingsResult.data
-    : { businessHoursStart: "09:00", businessHoursEnd: "19:00", timezone: "UTC", appointmentInterval: 30 };
+  // Business hours + booking interval from settings. A failed read must NOT silently fall back to
+  // UTC/09:00–19:00 — that would report times outside the salon's real hours as bookable.
+  if (!settingsResult.success) {
+    return { ok: false, error: "Couldn't load salon settings" };
+  }
+  const settings = settingsResult.data;
   const tz = settings.timezone || "UTC";
   // Honor the salon's configured booking interval (default 30 min). Round to whole minutes and
   // clamp to the allowed 15–120 range so a bad stored value can't break the slot list.

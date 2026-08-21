@@ -113,6 +113,23 @@ describe("useCustomTimeCheck", () => {
     expect(mockValidate).toHaveBeenCalledTimes(2);
   });
 
+  it("marks the time invalid (recoverable) when the server check rejects", async () => {
+    // A transport/serialization failure rejects the promise. The status must not stay stuck on
+    // "checking" (which would block booking with no way to retry) — it flips to a recoverable invalid.
+    mockValidate.mockRejectedValueOnce(new Error("network down"));
+    const { result } = renderHook(() => useCustomTimeCheck(makeParams()));
+
+    act(() => result.current.applyCustomTime("09:20"));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    await flush();
+
+    expect(result.current.customTimeCheck.status).toBe("invalid");
+    expect(result.current.customTimeCheck.message).toBe("Couldn't check that time — try again.");
+    expect(result.current.customTimeReady).toBe(false);
+  });
+
   it("clearForSlot drops an in-flight check so a late 'available' can't revive a replaced time", async () => {
     const inflight = deferred<Awaited<ReturnType<typeof validateCustomTime>>>();
     mockValidate.mockReturnValueOnce(inflight.promise);

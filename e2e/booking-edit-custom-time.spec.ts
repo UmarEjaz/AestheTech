@@ -35,7 +35,9 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   // Delete cascades to the appointment's services (onDelete: Cascade).
   if (apptId) {
-    await prisma.appointment.delete({ where: { id: apptId } }).catch(() => {});
+    await prisma.appointment
+      .delete({ where: { id: apptId } })
+      .catch((e) => console.error(`Cleanup failed to delete appointment ${apptId}:`, e));
   }
   await prisma.$disconnect();
 });

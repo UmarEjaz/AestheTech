@@ -213,7 +213,7 @@ export function AppointmentCalendar({
           typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
         if (smallScreen) {
           setSpan("day");
-          calendarApi()?.changeView(SPANS.find((s) => s.key === "day")!.fcView);
+          calendarApi()?.changeView(SPANS.find((s) => s.key === "day")?.fcView ?? "timeGridDay");
         }
         return;
       }
@@ -227,7 +227,7 @@ export function AppointmentCalendar({
       if (viewType === "staff" && span === "month") span = "day";
       setSpan(span);
       if (viewType === "staff") setViewType("staff");
-      else calendarApi()?.changeView(SPANS.find((s) => s.key === span)!.fcView);
+      else calendarApi()?.changeView(SPANS.find((s) => s.key === span)?.fcView ?? "timeGridWeek");
     } catch {
       /* ignore malformed / unavailable storage */
     }

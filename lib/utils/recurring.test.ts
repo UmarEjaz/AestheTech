@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { RecurrencePattern, RecurrenceEndType } from "@prisma/client";
 import {
   parseTimeOfDay,
@@ -124,5 +124,41 @@ describe("calculateRecurringDates", () => {
     expect(dates).toHaveLength(3);
     const skipped = secondDay.toISOString().slice(0, 10);
     expect(dates.map((d) => d.toISOString().slice(0, 10))).not.toContain(skipped);
+  });
+
+  it("keeps the wall-clock time across a DST transition in a non-UTC zone", () => {
+    // The UTC cases above rely on a fixed 24h/7d delta. In a DST-observing zone that assumption breaks:
+    // across the fall-back boundary two daily 10 AM occurrences are 25h apart, not 24h. This case is
+    // what catches a regression in the salon-timezone (TZDate) math. Pin "now" just before the US
+    // 2026 fall-back (Sun Nov 1, 02:00) so the series deterministically spans it.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-30T12:00:00Z"));
+      const tz = "America/New_York";
+      const dates = calculateRecurringDates(
+        base({
+          pattern: "DAILY" as RecurrencePattern,
+          startDate: new Date("2026-10-31T04:00:00Z"), // Oct 31, 00:00 EDT — before the transition
+          timeOfDay: "10:00",
+          endAfterCount: 4,
+          timeZone: tz,
+        })
+      );
+      expect(dates).toHaveLength(4);
+      // Every occurrence stays at 10:00 wall-clock in the salon zone, even across the DST boundary.
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      for (const d of dates) expect(fmt.format(d)).toBe("10:00");
+      // Which means the raw spacing is NOT a constant 24h across the fall-back (one gap is 25h) — the
+      // exact thing a fixed-millisecond implementation would get wrong.
+      const deltas = dates.slice(1).map((d, i) => d.getTime() - dates[i].getTime());
+      expect(deltas.some((ms) => ms !== DAY)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

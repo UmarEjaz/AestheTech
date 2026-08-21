@@ -26,7 +26,9 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (apptId) {
-    await prisma.appointment.delete({ where: { id: apptId } }).catch(() => {});
+    await prisma.appointment
+      .delete({ where: { id: apptId } })
+      .catch((e) => console.error(`Cleanup failed to delete appointment ${apptId}:`, e));
   }
   await prisma.$disconnect();
 });
@@ -68,6 +70,10 @@ test.describe("Staff lanes — drag to reschedule", () => {
     const targetStaffId = await targetLane.getAttribute("data-staff-id");
     expect(targetStaffId).toBeTruthy();
 
+    // Scrolling the target lane into view scrolls the grid horizontally, which can push the block
+    // off-screen; confirm it's still hittable before measuring and pressing (a clearer failure than a
+    // later timeout on an off-screen click target).
+    await expect(block).toBeInViewport();
     const from = await block.boundingBox();
     const to = await targetLane.boundingBox();
     if (!from || !to) throw new Error("Could not measure the block or target lane.");

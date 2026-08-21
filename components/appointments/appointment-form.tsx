@@ -2173,7 +2173,12 @@ export function AppointmentForm({
         // Only show a "When" in the recap once the time is actually bookable — a listed slot, or a
         // custom time the server has confirmed. (customTime having characters isn't enough: it may
         // still be "checking"/"invalid", which would contradict the inline error above.)
-        const summaryTimeSet = slotIsChosen(chosenMs) || customTimeReady;
+        // Edit mode may legitimately hold a custom minute that isn't on the slot grid, so accept a
+        // set start time there too — matching the `startTimeSet` rule used for booking readiness.
+        const summaryTimeSet =
+          slotIsChosen(chosenMs) ||
+          customTimeReady ||
+          (mode === "edit" && !customTimeMode && Number.isFinite(chosenMs));
         const whenText = isWalkIn
           ? "Now"
           : summaryTimeSet

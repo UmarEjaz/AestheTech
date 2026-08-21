@@ -228,6 +228,15 @@ describe("validateCustomTime", () => {
     if (!res.success) expect(res.error).toBe("A selected service was not found");
   });
 
+  it("returns an error (not a UTC fallback) when settings fail to load", async () => {
+    // A failed settings read must NOT silently fall back to 09:00–19:00 UTC — that would report times
+    // outside the salon's real hours as bookable. buildBookingContext returns a failure instead.
+    mockGetSettings.mockResolvedValue({ success: false, error: "db down" });
+    const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
+    expect(res.success).toBe(false);
+    if (!res.success) expect(res.error).toBe("Couldn't load salon settings");
+  });
+
   it("rejects a staff member who is not a valid provider in this branch", async () => {
     mockUserSalonFindMany.mockResolvedValue([]); // no matching active provider
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });

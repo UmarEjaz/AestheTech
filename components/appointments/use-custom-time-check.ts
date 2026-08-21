@@ -109,11 +109,21 @@ export function useCustomTimeCheck({
     }
     const seq = ++customTimeSeq.current;
     setCustomTimeCheck({ status: "checking" });
-    const result = await validateCustomTime({
-      assignments,
-      startTime: startInstant,
-      excludeAppointmentId: mode === "edit" ? appointmentId : undefined,
-    });
+    let result: Awaited<ReturnType<typeof validateCustomTime>>;
+    try {
+      result = await validateCustomTime({
+        assignments,
+        startTime: startInstant,
+        excludeAppointmentId: mode === "edit" ? appointmentId : undefined,
+      });
+    } catch {
+      // A transport/serialization failure (network drop, aborted Server Action) rejects the call —
+      // don't leave the status stuck on "checking" forever, which would block submission with no
+      // way to retry other than retyping.
+      if (seq !== customTimeSeq.current) return;
+      setCustomTimeCheck({ status: "invalid", message: "Couldn't check that time — try again." });
+      return;
+    }
     if (seq !== customTimeSeq.current) return; // a newer check started — drop this one
     if (!result.success) {
       setCustomTimeCheck({ status: "invalid", message: result.error });
