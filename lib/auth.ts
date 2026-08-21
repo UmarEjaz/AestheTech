@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { z } from "zod";
 import {
   isSuperAdminEmail,
   verifySuperAdminPassword,
@@ -9,6 +10,19 @@ import {
 } from "@/lib/super-admin";
 
 const prisma = new PrismaClient();
+
+// Validate the auth-related environment at startup so a mistyped AUTH_TRUST_HOST fails fast with a
+// clear error instead of silently reading as "off" — which, in production, breaks login with an
+// opaque UntrustedHost error. Only "true"/"false" are accepted; unset (or empty) means "not trusted".
+const authEnv = z
+  .object({ AUTH_TRUST_HOST: z.enum(["true", "false"]).optional() })
+  .safeParse({ AUTH_TRUST_HOST: process.env.AUTH_TRUST_HOST || undefined });
+if (!authEnv.success) {
+  throw new Error(
+    `Invalid AUTH_TRUST_HOST=${JSON.stringify(process.env.AUTH_TRUST_HOST)} — must be "true" or "false".`
+  );
+}
+const authTrustHostOptIn = authEnv.data.AUTH_TRUST_HOST === "true";
 
 // Active impersonation/support session carried in the token. Set only for super
 // admins who have "entered" a salon; null/absent otherwise. The DB
@@ -270,6 +284,5 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   // operator explicitly opts in with AUTH_TRUST_HOST=true — the standard Auth.js setting for
   // running behind a trusted reverse proxy (e.g. Railway). Never trust a spoofable host header in
   // prod by default.
-  trustHost:
-    process.env.NODE_ENV !== "production" || process.env.AUTH_TRUST_HOST === "true",
+  trustHost: process.env.NODE_ENV !== "production" || authTrustHostOptIn,
 });

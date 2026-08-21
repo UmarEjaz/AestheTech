@@ -951,28 +951,21 @@ async function buildBookingContext(
 
   // Resolve durations (org-scoped) and read settings CONCURRENTLY — settings don't depend on the
   // org/service lookup, and this runs on every debounced keystroke, so avoid serial round trips.
-  const [serviceRows, settingsResult] = await Promise.all([
-    getOrganizationSalonIds(salonId).then((orgSalonIds) =>
-      prisma.service.findMany({
-        where: { id: { in: assignments.map((a) => a.serviceId) }, salonId: { in: orgSalonIds } },
-        select: { id: true, duration: true, isActive: true },
-      })
-    ),
+  // resolveServices owns the "found + active" rule (used by createAppointment too), so availability
+  // and booking stay in lockstep — no second copy of the rule to drift. Settings don't depend on it,
+  // so both run concurrently (this runs on every debounced keystroke — avoid serial round trips).
+  const [serviceResolution, settingsResult] = await Promise.all([
+    getOrganizationSalonIds(salonId).then((orgSalonIds) => resolveServices(assignments, orgSalonIds)),
     getSettings(),
   ]);
-  // Reject a service that's missing OR switched off, matching what createAppointment enforces — so
-  // the availability/custom-time check never green-lights a service booking would then refuse.
-  const serviceById = new Map(serviceRows.map((s) => [s.id, s]));
-  const lines: { staffId: string; duration: number }[] = [];
-  let totalDuration = 0;
-  for (const a of assignments) {
-    const service = serviceById.get(a.serviceId);
-    if (!service || !service.isActive) {
-      return { ok: false, error: "A selected service is not available" };
-    }
-    lines.push({ staffId: a.staffId, duration: service.duration });
-    totalDuration += service.duration;
+  if (!serviceResolution.ok) {
+    return { ok: false, error: serviceResolution.error };
   }
+  const { totalDuration, serviceMap } = serviceResolution;
+  const lines = assignments.map((a) => ({
+    staffId: a.staffId,
+    duration: serviceMap.get(a.serviceId)!.duration,
+  }));
 
   // Business hours + booking interval from settings.
   const settings = settingsResult.success
@@ -1043,6 +1036,16 @@ export async function getAvailableSlots(params: {
   const { assignments, date, excludeAppointmentId } = validated.data;
 
   try {
+    // Parity with validateCustomTime/createAppointment: an invalid staff id (another branch or an
+    // inactive provider) must be rejected, not reported as fully available (it matches no existing
+    // segment, so every slot would look free — and createAppointment would then refuse the booking).
+    const staffCheck = await verifyStaffProviders(
+      [...new Set(assignments.map((a) => a.staffId))],
+      authResult.salonId
+    );
+    if (!staffCheck.ok) {
+      return { success: false, error: staffCheck.error };
+    }
     const ctx = await buildBookingContext(authResult.salonId, assignments, date, excludeAppointmentId);
     if (!ctx.ok) {
       return { success: false, error: ctx.error };

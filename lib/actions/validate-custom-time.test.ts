@@ -224,7 +224,8 @@ describe("validateCustomTime", () => {
     mockServiceFindMany.mockResolvedValue([]); // service id not found
     const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
     expect(res.success).toBe(false);
-    if (!res.success) expect(res.error).toBe("A selected service is not available");
+    // resolveServices distinguishes missing ("not found") from switched-off ("not available").
+    if (!res.success) expect(res.error).toBe("A selected service was not found");
   });
 
   it("rejects a staff member who is not a valid provider in this branch", async () => {

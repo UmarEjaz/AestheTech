@@ -113,6 +113,32 @@ describe("useCustomTimeCheck", () => {
     expect(mockValidate).toHaveBeenCalledTimes(2);
   });
 
+  it("clearForSlot drops an in-flight check so a late 'available' can't revive a replaced time", async () => {
+    const inflight = deferred<Awaited<ReturnType<typeof validateCustomTime>>>();
+    mockValidate.mockReturnValueOnce(inflight.promise);
+
+    const { result } = renderHook(() => useCustomTimeCheck(makeParams()));
+
+    // Type a custom time and let its check go in flight.
+    act(() => result.current.applyCustomTime("09:20"));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(result.current.customTimeCheck.status).toBe("checking");
+
+    // The user picks a listed slot instead → clearForSlot cancels the pending check and resets to idle.
+    act(() => result.current.clearForSlot());
+    expect(result.current.customTimeCheck.status).toBe("idle");
+
+    // The old check's answer lands late saying "available" — it must NOT revive the cleared time.
+    await act(async () => {
+      inflight.resolve({ success: true, data: { ok: true } });
+    });
+    await flush();
+    expect(result.current.customTimeCheck.status).toBe("idle");
+    expect(result.current.customTimeReady).toBe(false);
+  });
+
   it("drops a stale answer when the provider changes mid-check", async () => {
     const first = deferred<Awaited<ReturnType<typeof validateCustomTime>>>();
     const second = deferred<Awaited<ReturnType<typeof validateCustomTime>>>();

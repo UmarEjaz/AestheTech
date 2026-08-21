@@ -12,6 +12,7 @@ const prisma = new PrismaClient();
 let salonId: string;
 let bookDay: Date;
 let createdApptId: string | null = null; // the exact appointment this test books (for verify + cleanup)
+let submittedAt: Date | undefined; // set just before booking; bounds both the poll and the cleanup fallback
 // The booked time lands on `bookDay`'s weekday; the seed rows are ~14 days away, so a ±12h window
 // around it isolates exactly the appointment(s) this test creates for verification + cleanup.
 const bookedWindow = () => ({
@@ -34,8 +35,21 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (createdApptId) {
-    await prisma.appointment.delete({ where: { id: createdApptId } }).catch(() => {});
+  // Normally we delete the exact row the poll captured. But if the poll never assigned an id (e.g. it
+  // timed out) the booked appointment would otherwise be orphaned in the DB and skew later runs — so
+  // fall back to the newest row this test created. Bounded by createdAt >= submittedAt so the fallback
+  // can only ever hit a row THIS test created, never a pre-existing one in the same window.
+  let idToDelete = createdApptId;
+  if (!idToDelete && submittedAt) {
+    const orphan = await prisma.appointment.findFirst({
+      where: { salonId, startTime: bookedWindow(), createdAt: { gte: submittedAt } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    idToDelete = orphan?.id ?? null;
+  }
+  if (idToDelete) {
+    await prisma.appointment.delete({ where: { id: idToDelete } }).catch(() => {});
   }
   await prisma.$disconnect();
 });
@@ -89,7 +103,9 @@ test.describe("Booking — custom start time", () => {
 
     // Actually submit and confirm the appointment was created (exercises createAppointment, not just
     // validation): the success toast fires, then the row exists in the DB.
-    const submittedAt = new Date(); // only rows created after this can be the one we just booked
+    // Only rows created after this can be the one we just booked. The 60s buffer absorbs clock skew
+    // between this process and the database, which would otherwise hide the new row.
+    submittedAt = new Date(Date.now() - 60_000);
     await bookBtn.click();
     await expect(page.getByText(/Appointment booked successfully/i)).toBeVisible();
     // Capture the exact appointment this test created (the browser flow doesn't return its id), then
