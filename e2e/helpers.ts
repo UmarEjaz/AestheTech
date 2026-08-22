@@ -48,11 +48,15 @@ export async function clickUntil(trigger: Locator, settled: () => Promise<void>,
 // business hours. Using a FUTURE day makes the "next free slot" suggestion deterministic: findNextFree
 // floors at max(dayStart, now), so on a future day it starts at open time (09:00) instead of "now" —
 // otherwise the test flakes on evenings/weekends when no slot fits before closing today.
-export function futureWeekdayNoonUtc(): Date {
+// The weekday is checked in the SALON timezone (not UTC): for a salon far from UTC, 12:00 UTC on a
+// UTC weekday can be a local Saturday/Sunday, which would break the "inside business hours" premise.
+export function futureWeekdayNoonUtc(tz = "Asia/Karachi"): Date {
+  const salonWeekday = (d: Date) =>
+    new Date(`${new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d)}T00:00:00Z`).getUTCDay();
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 14);
   d.setUTCHours(12, 0, 0, 0);
-  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) {
+  while (salonWeekday(d) === 0 || salonWeekday(d) === 6) {
     d.setUTCDate(d.getUTCDate() + 1);
   }
   return d;

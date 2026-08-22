@@ -9,7 +9,6 @@ import { login, futureWeekdayNoonUtc, clickUntil } from "./helpers";
 loadEnv(); // DATABASE_URL, so this test process can verify + clean up what it books
 const prisma = new PrismaClient();
 
-let salonId: string;
 let bookDay: Date;
 let createdApptId: string | null = null; // the exact appointment this test books (for verify + cleanup)
 let submittedAt: Date | undefined; // set just before booking; bounds both the poll and the cleanup fallback
@@ -22,16 +21,17 @@ const bookedWindow = () => ({
 
 test.beforeAll(async () => {
   bookDay = futureWeekdayNoonUtc();
-  // Resolve the owner's salon (the one the logged-in owner books into) for the DB checks below.
+  // Verify seed data exists (login + sample client/services come from `npm run db:seed`). We do NOT
+  // pin the appointment's salonId below: the owner belongs to more than one salon and the form books
+  // into their ACTIVE salon, which may not be this row's salon — the future time window + createdAt
+  // already isolate exactly the row this test creates.
   const seed = await prisma.appointment.findFirst({
     where: {
       salon: { userSalons: { some: { user: { email: "owner@aesthetech.com" }, isActive: true } } },
     },
-    select: { salonId: true },
-    orderBy: { createdAt: "asc" },
+    select: { id: true },
   });
   if (!seed) throw new Error("No seeded data for the owner's salon — run `npm run db:seed` first.");
-  salonId = seed.salonId;
 });
 
 test.afterAll(async () => {
@@ -42,7 +42,7 @@ test.afterAll(async () => {
   let idToDelete = createdApptId;
   if (!idToDelete && submittedAt) {
     const orphan = await prisma.appointment.findFirst({
-      where: { salonId, startTime: bookedWindow(), createdAt: { gte: submittedAt } },
+      where: { startTime: bookedWindow(), createdAt: { gte: submittedAt } },
       orderBy: { createdAt: "desc" },
       select: { id: true },
     });
@@ -116,7 +116,7 @@ test.describe("Booking — custom start time", () => {
     await expect
       .poll(async () => {
         const appt = await prisma.appointment.findFirst({
-          where: { salonId, startTime: bookedWindow(), createdAt: { gte: submittedAt } },
+          where: { startTime: bookedWindow(), createdAt: { gte: submittedAt } },
           orderBy: { createdAt: "desc" },
           select: { id: true },
         });

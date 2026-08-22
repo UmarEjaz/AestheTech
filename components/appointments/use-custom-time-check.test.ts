@@ -113,6 +113,22 @@ describe("useCustomTimeCheck", () => {
     expect(mockValidate).toHaveBeenCalledTimes(2);
   });
 
+  it("resets to idle when there is no service/staff to check against", async () => {
+    // Empty assignments → nothing to conflict-check. The guard must reset to idle (never call the
+    // server), because a stuck "checking" would block submission in the form.
+    const { result } = renderHook(() => useCustomTimeCheck(makeParams({ assignments: [] })));
+
+    act(() => result.current.applyCustomTime("09:20"));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    await flush();
+
+    expect(mockValidate).not.toHaveBeenCalled();
+    expect(result.current.customTimeCheck.status).toBe("idle");
+    expect(result.current.customTimeReady).toBe(false);
+  });
+
   it("marks the time invalid (recoverable) when the server check rejects", async () => {
     // A transport/serialization failure rejects the promise. The status must not stay stuck on
     // "checking" (which would block booking with no way to retry) — it flips to a recoverable invalid.

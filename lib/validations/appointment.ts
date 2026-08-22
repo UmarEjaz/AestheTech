@@ -89,8 +89,11 @@ export const calendarQuerySchema = z
   .object({
     startDate: z.coerce.date({ message: "Start date is required" }),
     endDate: z.coerce.date({ message: "End date is required" }),
-    staffId: z.string().min(1).optional(),
-    staffIds: z.array(z.string().min(1)).max(200).optional(),
+    staffId: z.string().min(1, "Staff id is required").optional(),
+    staffIds: z
+      .array(z.string().min(1, "Staff id is required"))
+      .max(200, "Too many staff filters selected")
+      .optional(),
   })
   .refine((v) => v.endDate >= v.startDate, {
     message: "End date must not be before the start date",

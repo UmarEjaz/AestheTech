@@ -228,6 +228,18 @@ describe("validateCustomTime", () => {
     if (!res.success) expect(res.error).toBe("A selected service was not found");
   });
 
+  it("returns an error when stored business hours are malformed (no 09:00–19:00 default)", async () => {
+    // Settings load fine but a stored value is garbage — must NOT silently fall back to 9-to-7, which
+    // would report out-of-hours times as bookable.
+    mockGetSettings.mockResolvedValue({
+      success: true,
+      data: { businessHoursStart: "nonsense", businessHoursEnd: "19:00", timezone: TZ, appointmentInterval: 30 },
+    });
+    const res = await validateCustomTime({ assignments: oneService, startTime: at(10) });
+    expect(res.success).toBe(false);
+    if (!res.success) expect(res.error).toBe("Salon business hours are not configured correctly");
+  });
+
   it("returns an error (not a UTC fallback) when settings fail to load", async () => {
     // A failed settings read must NOT silently fall back to 09:00–19:00 UTC — that would report times
     // outside the salon's real hours as bookable. buildBookingContext returns a failure instead.

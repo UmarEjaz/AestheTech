@@ -22,6 +22,20 @@ describe("generateRRule", () => {
     );
   });
 
+  it("omits INTERVAL when customWeeks is 1", () => {
+    expect(generateRRule({ pattern: "CUSTOM", customWeeks: 1, dayOfWeek: 5 })).toBe(
+      "FREQ=WEEKLY;BYDAY=FR"
+    );
+  });
+
+  it("builds a bare monthly rule", () => {
+    expect(generateRRule({ pattern: "MONTHLY" })).toBe("FREQ=MONTHLY");
+  });
+
+  it("omits BYDAY when SPECIFIC_DAYS is empty", () => {
+    expect(generateRRule({ pattern: "SPECIFIC_DAYS", specificDays: [] })).toBe("FREQ=WEEKLY");
+  });
+
   it("lists all selected days for SPECIFIC_DAYS", () => {
     expect(generateRRule({ pattern: "SPECIFIC_DAYS", specificDays: [1, 3, 5] })).toBe(
       "FREQ=WEEKLY;BYDAY=MO,WE,FR"

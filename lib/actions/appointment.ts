@@ -949,6 +949,14 @@ async function buildBookingContext(
 > {
   const allStaffIds = Array.from(new Set(assignments.map((a) => a.staffId)));
 
+  // Reject an invalid staff id (another branch, inactive, or not a provider) BEFORE the availability
+  // lookups — otherwise it matches no existing segment and every slot looks free. Owning this here
+  // (rather than in each caller) keeps getAvailableSlots/validateCustomTime in parity automatically.
+  const staffCheck = await verifyStaffProviders(allStaffIds, salonId);
+  if (!staffCheck.ok) {
+    return { ok: false, error: staffCheck.error };
+  }
+
   // Resolve durations (org-scoped) and read settings CONCURRENTLY — settings don't depend on the
   // org/service lookup, and this runs on every debounced keystroke, so avoid serial round trips.
   // resolveServices owns the "found + active" rule (used by createAppointment too), so availability
@@ -978,18 +986,25 @@ async function buildBookingContext(
   // clamp to the allowed 15–120 range so a bad stored value can't break the slot list.
   const slotInterval = Math.min(120, Math.max(15, Math.round(settings.appointmentInterval) || 30));
 
-  const parseTime = (timeStr: string, defaultHour: number, defaultMin: number): [number, number] => {
+  const parseTime = (timeStr: string): [number, number] | null => {
     const parts = timeStr?.split(":");
-    if (!parts || parts.length !== 2) return [defaultHour, defaultMin];
+    if (!parts || parts.length !== 2) return null;
     const hour = parseInt(parts[0], 10);
     const min = parseInt(parts[1], 10);
     if (isNaN(hour) || isNaN(min) || hour < 0 || hour > 23 || min < 0 || min > 59) {
-      return [defaultHour, defaultMin];
+      return null;
     }
     return [hour, min];
   };
-  const [startHour, startMin] = parseTime(settings.businessHoursStart, 9, 0);
-  const [endHour, endMin] = parseTime(settings.businessHoursEnd, 19, 0);
+  // A malformed stored value must NOT silently default to 09:00–19:00 — that would compute
+  // availability against the wrong window and report out-of-hours times as bookable.
+  const open = parseTime(settings.businessHoursStart);
+  const close = parseTime(settings.businessHoursEnd);
+  if (!open || !close) {
+    return { ok: false, error: "Salon business hours are not configured correctly" };
+  }
+  const [startHour, startMin] = open;
+  const [endHour, endMin] = close;
 
   // Build the day's business-hours window in the SALON timezone from the anchor's calendar day.
   const dayInTz = new TZDate(anchor, tz);
@@ -1038,16 +1053,7 @@ export async function getAvailableSlots(params: {
   const { assignments, date, excludeAppointmentId } = validated.data;
 
   try {
-    // Parity with validateCustomTime/createAppointment: an invalid staff id (another branch or an
-    // inactive provider) must be rejected, not reported as fully available (it matches no existing
-    // segment, so every slot would look free — and createAppointment would then refuse the booking).
-    const staffCheck = await verifyStaffProviders(
-      [...new Set(assignments.map((a) => a.staffId))],
-      authResult.salonId
-    );
-    if (!staffCheck.ok) {
-      return { success: false, error: staffCheck.error };
-    }
+    // buildBookingContext validates the staff providers before computing availability.
     const ctx = await buildBookingContext(authResult.salonId, assignments, date, excludeAppointmentId);
     if (!ctx.ok) {
       return { success: false, error: ctx.error };
@@ -1123,16 +1129,7 @@ export async function validateCustomTime(params: {
   const { assignments, startTime, excludeAppointmentId } = validated.data;
 
   try {
-    // Verify every assigned provider is a real, active service provider in this branch (parity with
-    // createAppointment/rescheduleAppointment) BEFORE the availability lookups, so an invalid staff id
-    // is rejected without those queries.
-    const staffCheck = await verifyStaffProviders(
-      [...new Set(assignments.map((a) => a.staffId))],
-      authResult.salonId
-    );
-    if (!staffCheck.ok) {
-      return { success: false, error: staffCheck.error };
-    }
+    // buildBookingContext validates the staff providers before computing availability.
     const ctx = await buildBookingContext(authResult.salonId, assignments, startTime, excludeAppointmentId);
     if (!ctx.ok) {
       return { success: false, error: ctx.error };
