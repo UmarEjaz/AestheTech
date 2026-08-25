@@ -52,8 +52,7 @@ export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }:
     watch,
     formState: { errors },
   } = useForm<ExpenseFormInput, unknown, CreateExpenseInput>({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- zodResolver's generics don't line up with RHF's Resolver type
-    resolver: zodResolver(createExpenseSchema) as any,
+    resolver: zodResolver(createExpenseSchema),
     defaultValues: {
       categoryId: expense?.categoryId || "",
       amount: expense ? Number(expense.amount) : undefined,

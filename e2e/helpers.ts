@@ -50,7 +50,9 @@ export async function clickUntil(trigger: Locator, settled: () => Promise<void>,
 // otherwise the test flakes on evenings/weekends when no slot fits before closing today.
 // The weekday is checked in the SALON timezone (not UTC): for a salon far from UTC, 12:00 UTC on a
 // UTC weekday can be a local Saturday/Sunday, which would break the "inside business hours" premise.
-export function futureWeekdayNoonUtc(tz = "Asia/Karachi"): Date {
+// `tz` is REQUIRED (no default) so the caller passes the real salon timezone rather than silently
+// relying on a hardcoded one that could drift from the seed.
+export function futureWeekdayNoonUtc(tz: string): Date {
   const salonWeekday = (d: Date) =>
     new Date(`${new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d)}T00:00:00Z`).getUTCDay();
   const d = new Date();

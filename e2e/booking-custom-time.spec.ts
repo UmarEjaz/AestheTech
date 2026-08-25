@@ -20,18 +20,23 @@ const bookedWindow = () => ({
 });
 
 test.beforeAll(async () => {
-  bookDay = futureWeekdayNoonUtc();
-  // Verify seed data exists (login + sample client/services come from `npm run db:seed`). We do NOT
-  // pin the appointment's salonId below: the owner belongs to more than one salon and the form books
+  // Verify seed data exists (login + sample client/services come from `npm run db:seed`) and read the
+  // salon's real timezone for the weekday math (no hardcoded tz). We do NOT pin the appointment's
+  // salonId in the poll/cleanup below: the owner belongs to more than one salon and the form books
   // into their ACTIVE salon, which may not be this row's salon — the future time window + createdAt
   // already isolate exactly the row this test creates.
   const seed = await prisma.appointment.findFirst({
     where: {
       salon: { userSalons: { some: { user: { email: "owner@aesthetech.com" }, isActive: true } } },
     },
-    select: { id: true },
+    select: { salonId: true },
   });
   if (!seed) throw new Error("No seeded data for the owner's salon — run `npm run db:seed` first.");
+  const settings = await prisma.settings.findFirst({
+    where: { salonId: seed.salonId },
+    select: { timezone: true },
+  });
+  bookDay = futureWeekdayNoonUtc(settings?.timezone ?? "UTC");
 });
 
 test.afterAll(async () => {
