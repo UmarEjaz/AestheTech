@@ -25,6 +25,16 @@ function toSalonLocalDay(instant: Date, tz: string): Date {
   const z = new TZDate(instant, tz);
   return new Date(z.getFullYear(), z.getMonth(), z.getDate());
 }
+
+// Turn a "yyyy-MM-dd" salon-day string into a floating local Date (same shape as toSalonLocalDay),
+// so the date-picker + slot fetch treat it as that salon calendar day regardless of browser tz.
+function localDayFromISO(iso: string): Date | undefined {
+  const [y, m, d] = iso.split("-").map(Number);
+  // Reject anything that isn't a real yyyy-MM-dd — an Invalid Date would flow into the date picker and
+  // later throw in format(...). Returning undefined lets the caller keep the current day.
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return undefined;
+  return new Date(y, m - 1, d);
+}
 import { Loader2, Calendar as CalendarIcon, UserPlus, Repeat, Info, DollarSign, Clock, AlertTriangle, Check, Wallet, ChevronsUpDown, ChevronUp, ChevronDown, Plus, X, Star, Pencil, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
@@ -71,6 +81,7 @@ import {
   addAppointmentDeposit,
   AppointmentListItem,
 } from "@/lib/actions/appointment";
+import { useCustomTimeCheck } from "./use-custom-time-check";
 import { createRecurringSeries, previewRecurringConflicts, getRecurringPreviewDates, ConflictPreview } from "@/lib/actions/recurring-series";
 import { ConflictResolutionUI, AlternativeSlot, SelectedAlternative } from "./conflict-resolution-ui";
 import { createBookingClient, getClientBookingContext, updateClient, getClients, ClientBookingContext } from "@/lib/actions/client";
@@ -182,6 +193,8 @@ interface AppointmentFormProps {
   services: Service[];
   staff: Staff[];
   initialDate?: Date;
+  /** Pre-select this provider on the first service line (e.g. when booking from a staff lane). */
+  initialStaffId?: string;
   defaultBookingMode?: BookingMode;
   timezone?: string;
   /** Whether the current user may take payments (sales:create). Hides the deposit toggle if not. */
@@ -194,6 +207,7 @@ export function AppointmentForm({
   services,
   staff,
   initialDate,
+  initialStaffId,
   defaultBookingMode = "APPOINTMENT",
   timezone = "UTC",
   canTakeDeposit = false,
@@ -209,6 +223,8 @@ export function AppointmentForm({
     )
   );
   const [availableSlots, setAvailableSlots] = useState<{ startTime: Date; endTime: Date }[]>([]);
+  // Custom-time toggle state + its server validation live in useCustomTimeCheck (called below,
+  // after `assignments` is derived). It owns customTime/customTimeMode/customTimeCheck.
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
   // Visit mode: "walkin" books at the current time (client is here now); "appointment"
@@ -325,7 +341,7 @@ export function AppointmentForm({
   const [serviceLines, setServiceLines] = useState<{ serviceId: string; staffId: string }[]>(
     appointment && appointment.services.length > 0
       ? appointment.services.map((s) => ({ serviceId: s.service.id, staffId: s.staff.id }))
-      : [{ serviceId: "", staffId: "" }]
+      : [{ serviceId: "", staffId: initialStaffId ?? "" }]
   );
   const [servicesError, setServicesError] = useState<string | null>(null);
 
@@ -444,6 +460,29 @@ export function AppointmentForm({
   // Stable string key of the assignments for the effect dependency.
   const assignmentsKey = assignments.map((s) => `${s.serviceId}:${s.staffId}`).join(",");
 
+  // "Custom time" toggle: type any minute (e.g. 9:20) instead of a listed slot, server-validated
+  // and guarded against stale/out-of-order answers. See use-custom-time-check.ts.
+  const {
+    customTime,
+    customTimeMode,
+    customTimeCheck,
+    customTimeReady,
+    applyCustomTime,
+    setCustomTimeMode: handleCustomTimeMode,
+    clearForSlot: clearCustomTimeForSlot,
+  } = useCustomTimeCheck({
+    assignments,
+    selectedDate,
+    timezone,
+    mode,
+    appointmentId: appointment?.id,
+    getStartTime: () => (watchedStartTime instanceof Date ? watchedStartTime : undefined),
+    setStartTime: (instant) =>
+      setValue("startTime", instant as unknown as Date, { shouldValidate: false }),
+    setSelectedDate,
+    clearSlotError: () => setSlotError(null),
+  });
+
   // Fetch available slots when the service/staff assignments or date change
   useEffect(() => {
     let cancelled = false;
@@ -486,6 +525,7 @@ export function AppointmentForm({
   // Auto-select the matching time slot when slots load
   useEffect(() => {
     if (availableSlots.length === 0) return;
+    if (customTime || customTimeMode) return; // a typed/custom-mode time wins — don't overwrite it when slots reload
 
     // Determine the target time to match
     const targetTime = mode === "edit" && appointment
@@ -521,7 +561,7 @@ export function AppointmentForm({
       // In edit mode, warn the user that their original time slot is no longer available
       toast.warning("Original time slot is no longer available. Please select a new time.");
     }
-  }, [availableSlots, initialDate, mode, appointment, setValue]);
+  }, [availableSlots, initialDate, mode, appointment, setValue, customTime, customTimeMode]);
 
   // Reset conflict preview when recurring settings change
   useEffect(() => {
@@ -767,12 +807,22 @@ export function AppointmentForm({
     }
     // A time slot must be explicitly chosen — otherwise startTime silently defaults to
     // "now", which can land outside business hours and become invisible on the calendar.
-    if (mode === "create") {
-      if (!slotIsChosen(data.startTime)) {
-        setSlotError("Please select an available time slot");
-        toast.error("Please select a time slot");
+    if (customTimeMode) {
+      // A typed custom time must pass the server check (business hours, not past, no conflict) —
+      // in BOTH create and edit mode, since the custom-time UI is available in both.
+      if (customTimeCheck.status !== "ok") {
+        const msg =
+          customTimeCheck.status === "checking"
+            ? "Still checking that time — one moment."
+            : customTimeCheck.message ?? "Please enter a bookable custom time";
+        setSlotError(msg);
+        toast.error(msg);
         return;
       }
+    } else if (mode === "create" && !slotIsChosen(data.startTime)) {
+      setSlotError("Please select an available time slot");
+      toast.error("Please select a time slot");
+      return;
     }
     setSlotError(null);
 
@@ -882,7 +932,7 @@ export function AppointmentForm({
           toast.error(result.error);
         }
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred");
     } finally {
       setIsSubmitting(false);
@@ -913,10 +963,10 @@ export function AppointmentForm({
   };
 
   const handleTimeSlotSelect = (slot: { startTime: Date; endTime: Date }) => {
+    clearCustomTimeForSlot(); // picking a listed slot clears any custom time
     setValue("startTime", slot.startTime);
     setSlotError(null);
   };
-
   // Header copy reflects the visit mode so the whole page reframes with the toggle:
   // "New Appointment" (for later) ⇄ "New Walk-in" (here now). Edit mode is always a slot.
   const headerTitle = mode === "edit" ? "Edit Appointment" : isWalkIn ? "New Walk-in" : "New Appointment";
@@ -937,14 +987,37 @@ export function AppointmentForm({
   const servicesComplete =
     readinessLines.length > 0 && readinessLines.every((l) => l.serviceId && l.staffId);
   const needsSlot = mode === "create" && !isWalkIn;
-  const slotChosen = !needsSlot || slotIsChosen(watchedStartTime as Date | string | number);
+  // A start time is "set" when the field holds a real instant. Edit mode uses this instead of the
+  // stricter listed-slot check, because an existing booking may sit at a custom minute that isn't one
+  // of the listed slots — but it must still not be empty (e.g. after the custom-time toggle clears a
+  // slot that belonged to a since-changed day, we must not let a blank time submit).
+  const startTimeSet =
+    watchedStartTime instanceof Date && !Number.isNaN(watchedStartTime.getTime());
+  // Walk-ins book at "now", so they never need a chosen time. Otherwise, custom mode ALWAYS requires
+  // a server-confirmed time (create AND edit) — evaluate it before the slot checks, else edit mode
+  // would never require it. Create needs a listed slot; edit only needs a time to be set.
+  const slotChosen = isWalkIn
+    ? true
+    : customTimeMode
+      ? customTimeReady
+      : needsSlot
+        ? slotIsChosen(watchedStartTime as Date | string | number)
+        : startTimeSet;
+  // Walk-ins book at "now" (slotChosen is already true for them), so never surface custom-time hints
+  // or block their booking even if stale custom-time state lingers — guard those branches with !isWalkIn.
   const bookingHint = !hasClient
     ? "Choose or add a client to continue"
     : !servicesComplete
       ? "Pick a service and staff for every line"
-      : !slotChosen
-        ? "Select a time slot to continue"
-        : null;
+      : !isWalkIn && customTimeMode && customTimeCheck.status === "checking"
+        ? "Checking that time…"
+        : !isWalkIn && customTimeMode && customTimeCheck.status === "invalid"
+          ? customTimeCheck.message ?? "Pick a bookable time"
+          : !slotChosen
+            ? customTimeMode
+              ? "Enter a bookable custom time to continue"
+              : "Select a time slot to continue"
+            : null;
   const canBook = bookingHint === null;
 
   return (
@@ -1500,8 +1573,92 @@ export function AppointmentForm({
 
           {primaryStaffId && primaryServiceId && selectedDate && (
             <div className="space-y-2">
-              <Label>Available Time Slots</Label>
-              {isLoadingSlots ? (
+              {/* Header: slot list by default; the toggle flips to a custom-minute input (e.g. 9:20). */}
+              <div className="flex items-center justify-between gap-3">
+                <Label>{customTimeMode ? "Custom start time" : "Available Time Slots"}</Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="custom-time-toggle" className="text-sm font-normal">
+                    Custom time
+                  </Label>
+                  <Switch
+                    id="custom-time-toggle"
+                    checked={customTimeMode}
+                    onCheckedChange={handleCustomTimeMode}
+                  />
+                </div>
+              </div>
+
+              {customTimeMode ? (
+                /* Custom start time — book at any minute (e.g. 9:20), not just the listed slots. */
+                <div className="mt-1 space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-4 duration-200 animate-in fade-in-0">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Clock className="h-5 w-5" />
+                      </span>
+                      <Input
+                        type="time"
+                        value={customTime}
+                        onChange={(e) => applyCustomTime(e.target.value)}
+                        className="h-11 w-[8.75rem] text-base font-semibold tabular-nums"
+                        aria-label="Custom start time"
+                        aria-invalid={customTimeCheck.status === "invalid"}
+                        aria-describedby={
+                          customTimeCheck.status === "invalid" ? "custom-time-error" : undefined
+                        }
+                        autoFocus
+                      />
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground sm:border-l sm:border-primary/15 sm:pl-4">
+                      Book at <span className="font-medium text-foreground">any minute</span> — e.g.
+                      9:20. Perfect for back-to-back appointments.
+                    </p>
+                  </div>
+                  {/* Live availability check (business hours, past times, provider conflicts).
+                      role="status" + aria-live announces each state change to screen readers. */}
+                  <div role="status" aria-live="polite">
+                    {customTimeCheck.status === "checking" && (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Checking availability…
+                      </p>
+                    )}
+                    {customTimeCheck.status === "invalid" && (
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p
+                          id="custom-time-error"
+                          className="flex items-center gap-1.5 text-xs font-medium text-destructive"
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {customTimeCheck.message}
+                        </p>
+                        {customTimeCheck.suggestionHHMM && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              applyCustomTime(
+                                customTimeCheck.suggestionHHMM!,
+                                customTimeCheck.suggestionDateISO
+                                  ? localDayFromISO(customTimeCheck.suggestionDateISO)
+                                  : undefined
+                              )
+                            }
+                            className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
+                          >
+                            Use {customTimeCheck.suggestionLabel}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {customTimeCheck.status === "ok" && (
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        <Check className="h-3.5 w-3.5 shrink-0" />
+                        This time is available.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : isLoadingSlots ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
@@ -1531,8 +1688,9 @@ export function AppointmentForm({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground py-4 text-center">
-                  No available time slots for this date. Please select a different date or staff
-                  member.
+                  No available time slots for this date. Turn on{" "}
+                  <span className="font-medium text-foreground">Custom time</span> above, or select a
+                  different date or staff member.
                 </p>
               )}
               {(errors.startTime || slotError) && (
@@ -2012,10 +2170,18 @@ export function AppointmentForm({
           watchedStartTime instanceof Date
             ? watchedStartTime.getTime()
             : new Date(watchedStartTime as string | number).getTime();
-        const slotChosen = slotIsChosen(chosenMs);
+        // Only show a "When" in the recap once the time is actually bookable — a listed slot, or a
+        // custom time the server has confirmed. (customTime having characters isn't enough: it may
+        // still be "checking"/"invalid", which would contradict the inline error above.)
+        // Edit mode may legitimately hold a custom minute that isn't on the slot grid, so accept a
+        // set start time there too — matching the `startTimeSet` rule used for booking readiness.
+        const summaryTimeSet =
+          slotIsChosen(chosenMs) ||
+          customTimeReady ||
+          (mode === "edit" && !customTimeMode && Number.isFinite(chosenMs));
         const whenText = isWalkIn
           ? "Now"
-          : slotChosen
+          : summaryTimeSet
             ? formatInTz(new Date(chosenMs), "EEE, MMM d · h:mm a", timezone)
             : null;
         // Deposit only exists in the appointment (non-recurring) flow; surface it + the

@@ -21,6 +21,7 @@ export function Toaster() {
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          // Close-button positioning (top-right + hover reveal) lives in app/globals.css.
         },
       }}
     />

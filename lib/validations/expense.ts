@@ -45,12 +45,6 @@ export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 export type UpdateExpenseInput = z.infer<typeof updateExpenseSchema>;
 export type ExpenseSearchParams = z.input<typeof expenseSearchSchema>;
 
-// Form input type — matches what react-hook-form fields produce (date as string or Date)
-export type ExpenseFormInput = {
-  categoryId: string;
-  amount: number;
-  description?: string;
-  date: Date | string;
-  receiptUrl?: string;
-  isRecurring: boolean;
-};
+// Form input type — the schema's INPUT type (pre-coercion), so it matches what zodResolver infers
+// and the resolver needs no cast. (date is `unknown` and isRecurring optional at the input stage.)
+export type ExpenseFormInput = z.input<typeof createExpenseSchema>;

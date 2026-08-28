@@ -201,7 +201,7 @@ export function calculateRecurringDates(config: RecurringDateConfig): Date[] {
   // Use max(startDate, now) as horizon base so future-dated series still generate dates
   const horizonBase = isAfter(startDate, now) ? startDate : now;
 
-  let shouldContinue = (currentDate: Date, count: number): boolean => {
+  const shouldContinue = (currentDate: Date, count: number): boolean => {
     if (dates.length >= maxDates) return false;
 
     switch (endType) {

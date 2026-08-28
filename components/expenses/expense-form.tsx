@@ -51,9 +51,8 @@ export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }:
     setValue,
     watch,
     formState: { errors },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } = useForm<ExpenseFormInput, unknown, CreateExpenseInput>({
-    resolver: zodResolver(createExpenseSchema) as any,
+    resolver: zodResolver(createExpenseSchema),
     defaultValues: {
       categoryId: expense?.categoryId || "",
       amount: expense ? Number(expense.amount) : undefined,

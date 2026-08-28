@@ -142,6 +142,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
     setValue,
     formState: { errors, isDirty },
   } = useForm<SettingsFormData>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- zodResolver's generics don't line up with RHF's Resolver type
     resolver: zodResolver(settingsSchema) as any,
     defaultValues: {
       salonName: settings.salonName,
@@ -210,7 +211,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       } else {
         toast.error(result.error);
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred");
     } finally {
       setIsSubmitting(false);
@@ -322,7 +323,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
             Business Hours
           </CardTitle>
           <CardDescription>
-            Set your salon's operating hours. These hours are used for appointment scheduling.
+            Set your salon&apos;s operating hours. These hours are used for appointment scheduling.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -813,7 +814,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
 
       {!canManage && (
         <p className="text-sm text-muted-foreground text-center">
-          You don't have permission to edit settings. Contact your administrator to make changes.
+          You don&apos;t have permission to edit settings. Contact your administrator to make changes.
         </p>
       )}
     </form>

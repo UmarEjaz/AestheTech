@@ -53,8 +53,8 @@ export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: 
     setValue,
     watch,
     formState: { errors },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } = useForm<SalaryConfigFormInput, unknown, SalaryConfigInput>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- zodResolver's generics don't line up with RHF's Resolver type
     resolver: zodResolver(salaryConfigSchema) as any,
     defaultValues: {
       userId: config?.userId || "",

@@ -19,7 +19,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      {/* suppressHydrationWarning: browser extensions (e.g. ColorZilla adds cz-shortcut-listen)
+          inject attributes on <body> before React hydrates, which would otherwise warn. */}
+      <body className={inter.className} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

@@ -43,13 +43,17 @@ export const appointmentServiceSchema = z.object({
   staffId: z.string().min(1, "Staff member is required"),
 });
 
+// Ordered service→staff assignments (1–10), shared by appointmentSchema.services and the slots +
+// custom-time validators so the bound and messages stay in sync.
+const assignmentsSchema = z
+  .array(appointmentServiceSchema)
+  .min(1, "At least one service is required")
+  .max(10, "At most 10 services");
+
 export const appointmentSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
   // One or more services; services[0] is the primary (its staff becomes the appointment's staff).
-  services: z
-    .array(appointmentServiceSchema)
-    .min(1, "At least one service is required")
-    .max(10, "At most 10 services"),
+  services: assignmentsSchema,
   startTime: z.coerce.date({ message: "Start time is required" }),
   notes: z.string().trim().max(500, "Notes must be at most 500 characters").optional().or(z.literal("")),
 });
@@ -68,13 +72,39 @@ export const rescheduleSchema = z.object({
 // Available-slots request. Carries the ordered service→staff assignments so slots can be
 // validated per-provider-per-segment (each provider free only for the slice they'd actually work).
 export const availableSlotsSchema = z.object({
-  assignments: z
-    .array(z.object({ serviceId: z.string().min(1), staffId: z.string().min(1) }))
-    .min(1, "At least one service is required")
-    .max(10, "At most 10 services"),
+  assignments: assignmentsSchema,
   date: z.coerce.date({ message: "Date is required" }),
   excludeAppointmentId: z.string().min(1).optional(),
 });
+
+// Validate a single typed custom start time (business hours, past, provider conflict).
+export const validateCustomTimeSchema = z.object({
+  assignments: assignmentsSchema,
+  startTime: z.coerce.date({ message: "Start time is required" }),
+  excludeAppointmentId: z.string().min(1).optional(),
+});
+
+// Calendar range query (server action reads external input, so validate it too).
+export const calendarQuerySchema = z
+  .object({
+    startDate: z.coerce.date({ message: "Start date is required" }),
+    endDate: z.coerce.date({ message: "End date is required" }),
+    staffId: z.string().min(1, "Staff id is required").optional(),
+    staffIds: z
+      .array(z.string().min(1, "Staff id is required"))
+      .max(200, "Too many staff filters selected")
+      .optional(),
+  })
+  .refine((v) => v.endDate >= v.startDate, {
+    message: "End date must not be before the start date",
+    path: ["endDate"],
+  })
+  // A calendar view never spans more than ~2 months (month grid + overflow weeks), so reject a
+  // wider window that could pull an unbounded result set.
+  .refine((v) => v.endDate.getTime() - v.startDate.getTime() <= 70 * 24 * 60 * 60 * 1000, {
+    message: "Date range is too large",
+    path: ["endDate"],
+  });
 
 // Deposits are real prepayments, so exclude LOYALTY_POINTS (which would record cash value
 // without redeeming any points). Mirrors the selectable methods offered in the deposit UI.

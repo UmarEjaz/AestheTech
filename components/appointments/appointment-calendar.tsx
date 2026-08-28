@@ -2,13 +2,15 @@
 
 import {
   useState,
+  useEffect,
   useCallback,
   useRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { z } from "zod";
+import { Check, ChevronLeft, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -16,26 +18,54 @@ import interactionPlugin, { DateClickArg } from "@fullcalendar/interaction";
 import luxonPlugin from "@fullcalendar/luxon3";
 import { TZDate } from "@date-fns/tz";
 import { addMinutes, addDays } from "date-fns";
-import { formatInTz } from "@/lib/utils/timezone";
+import { formatInTz, formatTimeRangeInTz } from "@/lib/utils/timezone";
 import { EventClickArg, DatesSetArg, EventDropArg } from "@fullcalendar/core";
-import { AppointmentStatus } from "@prisma/client";
 import { AppointmentListItem, getAppointmentsForCalendar, rescheduleAppointment } from "@/lib/actions/appointment";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AppointmentDetailModal } from "./appointment-detail-modal";
+import { StaffLaneGrid } from "./staff-lane-grid";
+import { CalendarEmptyState } from "./calendar-empty-state";
+import {
+  STATUS_COLORS,
+  STATUS_LABELS,
+  STATUS_ORDER,
+  DRAGGABLE_STATUSES,
+} from "./appointment-visuals";
 
-const CALENDAR_VIEWS = [
-  { key: "dayGridMonth", label: "month" },
-  { key: "timeGridWeek", label: "week" },
-  { key: "timeGridDay", label: "day" },
+// Time span, shared by both view types. For the normal calendar each span maps to a FullCalendar
+// view; the Staff (lane) view uses only week/day (month has no lane form).
+// Order: day → week → month. Month is last so hiding it in the Staff view (lanes have no month)
+// only trims the END of the left-aligned group — no layout shift for the other controls.
+const SPANS = [
+  { key: "day", label: "day", fcView: "timeGridDay" },
+  { key: "week", label: "week", fcView: "timeGridWeek" },
+  { key: "month", label: "month", fcView: "dayGridMonth" },
 ] as const;
+type SpanKey = (typeof SPANS)[number]["key"];
+
+// Non-interactive checked indicator for the staff-filter rows (the row button owns the interaction;
+// its state is exposed via aria-pressed, so this is purely visual and hidden from assistive tech).
+function StaffCheckIndicator({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
+        checked ? "border-primary bg-primary text-primary-foreground" : "border-input"
+      }`}
+    >
+      {checked && <Check className="h-3 w-3" />}
+    </span>
+  );
+}
+
+// Validate the view preference restored from localStorage (external/user-writable data). Unknown
+// values fall back to the calendar/week defaults.
+const viewPrefSchema = z.object({
+  viewType: z.enum(["calendar", "staff"]).catch("calendar"),
+  span: z.enum(SPANS.map((s) => s.key) as [SpanKey, ...SpanKey[]]).catch("week"),
+});
 
 interface AppointmentCalendarProps {
   initialAppointments: AppointmentListItem[];
@@ -49,29 +79,6 @@ interface AppointmentCalendarProps {
   timezone: string;
   currencyCode: string;
 }
-
-const STATUS_COLORS: Record<AppointmentStatus, { bg: string; border: string; text: string }> = {
-  SCHEDULED: { bg: "bg-blue-100 dark:bg-blue-900/30", border: "border-blue-500", text: "text-blue-800 dark:text-blue-200" },
-  CONFIRMED: { bg: "bg-violet-100 dark:bg-violet-900/30", border: "border-violet-500", text: "text-violet-800 dark:text-violet-200" },
-  IN_PROGRESS: { bg: "bg-amber-100 dark:bg-amber-900/30", border: "border-amber-500", text: "text-amber-800 dark:text-amber-200" },
-  COMPLETED: { bg: "bg-green-100 dark:bg-green-900/30", border: "border-green-500", text: "text-green-800 dark:text-green-200" },
-  CANCELLED: { bg: "bg-red-100 dark:bg-red-900/30", border: "border-red-400", text: "text-red-600 dark:text-red-400" },
-  NO_SHOW: { bg: "bg-orange-100 dark:bg-orange-900/30", border: "border-orange-400", text: "text-orange-600 dark:text-orange-400" },
-};
-
-// Human labels for the status color legend shown under the calendar.
-const STATUS_LABELS: Record<AppointmentStatus, string> = {
-  SCHEDULED: "Scheduled",
-  CONFIRMED: "Confirmed",
-  IN_PROGRESS: "In progress",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
-  NO_SHOW: "No-show",
-};
-const STATUS_ORDER: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"];
-
-// Statuses that allow dragging (defined outside component to avoid recreation on each render)
-const DRAGGABLE_STATUSES: AppointmentStatus[] = ["SCHEDULED", "CONFIRMED"];
 
 export function AppointmentCalendar({
   initialAppointments,
@@ -88,11 +95,14 @@ export function AppointmentCalendar({
   const router = useRouter();
   const calendarRef = useRef<FullCalendar>(null);
   const [appointments, setAppointments] = useState<AppointmentListItem[]>(initialAppointments);
-  // "all" = no staff filter; otherwise a staff user id.
-  const [staffFilter, setStaffFilter] = useState<string>("all");
+  // Which providers to show. Empty = all staff. (Multi-select: view several providers at once.)
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  // Controlled so the dropdown stays open while toggling several staff (closes on outside click).
+  const [staffFilterOpen, setStaffFilterOpen] = useState(false);
   // Driven by datesSet so our custom toolbar stays in sync with the calendar.
   const [viewTitle, setViewTitle] = useState("");
-  const [currentView, setCurrentView] = useState("timeGridWeek");
+  const [viewType, setViewType] = useState<"calendar" | "staff">("calendar");
+  const [span, setSpan] = useState<SpanKey>("week");
 
   const calendarApi = () => calendarRef.current?.getApi();
   // Date nav, staff filter, and modal refreshes all fetch concurrently. Stamp each fetch with a
@@ -105,8 +115,267 @@ export function AppointmentCalendar({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentViewDates, setCurrentViewDates] = useState<{ start: Date; end: Date } | null>(null);
 
+  // ── Per-staff lane view (custom-rendered, not a FullCalendar view) ──────────────
+  const isLaneView = viewType === "staff";
+  // FullCalendar is only CSS-hidden (not unmounted) while in Staff view, so it can return mis-sized.
+  // Nudge it to recalculate whenever we switch back to the Calendar view.
+  useEffect(() => {
+    if (!isLaneView) calendarApi()?.updateSize();
+    // calendarApi reads a ref; only the view toggle should re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLaneView]);
+  // Staff view supports only day/week spans (month has no lane form).
+  const laneSpan: "day" | "week" = span === "week" ? "week" : "day";
+  const [laneDate, setLaneDate] = useState<Date>(() => new Date());
+  const [laneAppointments, setLaneAppointments] = useState<AppointmentListItem[]>([]);
+  const [laneRefreshKey, setLaneRefreshKey] = useState(0);
+  const [laneLoading, setLaneLoading] = useState(false);
+  const laneSeqRef = useRef(0);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+
+  // The Sunday–Saturday salon-tz week containing laneDate (used for week span fetch + title).
+  const laneWeek = (() => {
+    const anchor = new TZDate(laneDate.getTime(), timezone);
+    const start = new TZDate(addDays(anchor, -anchor.getDay()).getTime(), timezone);
+    start.setHours(0, 0, 0, 0);
+    const end = new TZDate(addDays(start, 6).getTime(), timezone);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  })();
+
+  const laneTitle = laneSpan === "week"
+    ? `${formatInTz(laneWeek.start, "MMM d", timezone)} – ${formatInTz(laneWeek.end, "MMM d, yyyy", timezone)}`
+    : formatInTz(laneDate, "EEE, MMM d, yyyy", timezone);
+  const laneStep = laneSpan === "week" ? 7 : 1;
+  // Step laneDate by whole SALON-timezone days. Browser-local addDays could repeat or skip a day
+  // across a salon daylight-saving transition, since the grid derives its day keys in the salon tz.
+  const stepLaneDate = (days: number) =>
+    setLaneDate((d) => {
+      const z = new TZDate(d.getTime(), timezone);
+      // Normalize to midday in the salon tz before stepping so a DST changeover can't skip/repeat a
+      // day (matches how StaffLaneGrid derives its dayKeys).
+      const t = new TZDate(z.getFullYear(), z.getMonth(), z.getDate(), 12, 0, 0, 0, timezone);
+      t.setDate(t.getDate() + days);
+      return new Date(t.getTime());
+    });
+
+  // Fetch the lane view's appointments (one day, or the whole week) — kept in its own state so
+  // switching between the FullCalendar views and the lane view never clobbers the other's data.
+  useEffect(() => {
+    if (!isLaneView) return;
+    let rangeStart: Date;
+    let rangeEnd: Date;
+    if (laneSpan === "week") {
+      rangeStart = new Date(laneWeek.start.getTime());
+      rangeEnd = new Date(laneWeek.end.getTime());
+    } else {
+      const dayStart = new TZDate(laneDate.getTime(), timezone);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new TZDate(laneDate.getTime(), timezone);
+      dayEnd.setHours(23, 59, 59, 999);
+      rangeStart = new Date(dayStart.getTime());
+      rangeEnd = new Date(dayEnd.getTime());
+    }
+    const seq = ++laneSeqRef.current;
+    setLaneLoading(true);
+    // Only fetch the selected providers' appointments (empty = all) so the payload matches the lanes
+    // actually shown when the staff filter narrows the view.
+    getAppointmentsForCalendar({
+      startDate: rangeStart,
+      endDate: rangeEnd,
+      staffIds: selectedStaffIds,
+    })
+      .then((result) => {
+        if (seq !== laneSeqRef.current) return;
+        setLaneLoading(false);
+        if (result.success) setLaneAppointments(result.data);
+        else toast.error(result.error || "Couldn't load appointments for the lane view.");
+      })
+      .catch(() => {
+        // Transport / server-action rejection (not a handled ActionResult) — never leave the
+        // spinner stuck, and tell the user something went wrong.
+        if (seq !== laneSeqRef.current) return;
+        setLaneLoading(false);
+        toast.error("Couldn't load appointments for the lane view.");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLaneView, span, laneDate, timezone, laneRefreshKey, selectedStaffIds]);
+
+  // Remember the chosen view type + span across refreshes (a reload shouldn't snap back to the
+  // Calendar/Week default). Restore on mount and sync FullCalendar to the saved span.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("apptViewPref");
+      if (!raw) {
+        // First visit on a phone: a 7-column Week grid is too cramped to tap accurately, so start on
+        // Day. (A saved preference, if any, always wins — handled below.)
+        const smallScreen =
+          typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
+        if (smallScreen) {
+          setSpan("day");
+          calendarApi()?.changeView(SPANS.find((s) => s.key === "day")?.fcView ?? "timeGridDay");
+        }
+        return;
+      }
+      // localStorage is external/user-writable, so validate through a Zod schema (unknown values
+      // fall back to calendar/week).
+      const parsed = viewPrefSchema.safeParse(JSON.parse(raw));
+      const viewType = parsed.success ? parsed.data.viewType : "calendar";
+      let span: SpanKey = parsed.success ? parsed.data.span : "week";
+      // Month is hidden in Staff view, so a restored "staff + month" would leave no span selected —
+      // clamp it to "day" (matches the view-toggle click handler).
+      if (viewType === "staff" && span === "month") span = "day";
+      setSpan(span);
+      if (viewType === "staff") setViewType("staff");
+      else calendarApi()?.changeView(SPANS.find((s) => s.key === span)?.fcView ?? "timeGridWeek");
+    } catch {
+      /* ignore malformed / unavailable storage */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Skip the first run: on mount the restore effect above sets state, but this effect fires with the
+  // still-default values first — writing them would clobber the saved preference before restore lands.
+  const skipFirstPersist = useRef(true);
+  useEffect(() => {
+    if (skipFirstPersist.current) {
+      skipFirstPersist.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem("apptViewPref", JSON.stringify({ viewType, span }));
+    } catch {
+      /* ignore unavailable storage */
+    }
+  }, [viewType, span]);
+
+  const openAppointment = (id: string) => {
+    setSelectedAppointmentId(id);
+    setIsModalOpen(true);
+  };
+  const bookInLane = (staffId: string, startISO: string) => {
+    router.push(
+      `/dashboard/appointments/new?startTime=${encodeURIComponent(startISO)}&staffId=${staffId}`
+    );
+  };
+  // Shared by the "Today" toolbar button and the empty-state card's "Jump to today".
+  const goToToday = () => {
+    if (isLaneView) setLaneDate(new Date());
+    else calendarApi()?.today();
+  };
+  const goBookNew = () => router.push("/dashboard/appointments/new");
+  // Whether the visible period already includes today — if so, the empty state hides "Jump to today".
+  const viewingToday = (() => {
+    const now = Date.now();
+    if (isLaneView) {
+      if (laneSpan === "week") return now >= laneWeek.start.getTime() && now <= laneWeek.end.getTime();
+      return (
+        formatInTz(laneDate, "yyyy-MM-dd", timezone) ===
+        formatInTz(new Date(), "yyyy-MM-dd", timezone)
+      );
+    }
+    return currentViewDates
+      ? now >= currentViewDates.start.getTime() && now < currentViewDates.end.getTime()
+      : false;
+  })();
+  // Refresh appointments (called when modal makes changes). Declared before the drag/undo handlers
+  // below so they can call it without reading a not-yet-initialized const.
+  const refreshAppointments = useCallback(async () => {
+    if (!currentViewDates) return;
+
+    const seq = ++fetchSeqRef.current;
+    setCalendarLoading(true);
+    try {
+      const result = await getAppointmentsForCalendar({
+        startDate: currentViewDates.start,
+        endDate: currentViewDates.end,
+        staffIds: selectedStaffIds,
+      });
+      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+      if (result.success) {
+        setAppointments(result.data);
+      } else {
+        toast.error(result.error || "Couldn't refresh the calendar.");
+      }
+    } catch {
+      if (seq !== fetchSeqRef.current) return;
+      toast.error("Couldn't refresh the calendar.");
+    } finally {
+      if (seq === fetchSeqRef.current) setCalendarLoading(false);
+    }
+  }, [currentViewDates, selectedStaffIds]);
+
+  // Undo a reschedule back to its previous slot. If it fails, re-offer a one-click "Retry" so a
+  // transient error doesn't strand the appointment at the dragged-to spot with no easy way back.
+  const attemptUndo = async (apptId: string, prevStart: Date, prevStaffId: string) => {
+    const retryAction = {
+      label: "Retry",
+      onClick: () => attemptUndo(apptId, prevStart, prevStaffId),
+    };
+    try {
+      const r = await rescheduleAppointment(apptId, { startTime: prevStart, staffId: prevStaffId });
+      if (!r.success) {
+        toast.error(r.error || "Couldn't undo the reschedule.", { action: retryAction });
+      }
+    } catch {
+      toast.error("Couldn't undo the reschedule.", { action: retryAction });
+    } finally {
+      // Refresh the FullCalendar copy too (not just the lanes) so neither view goes stale.
+      await refreshAppointments();
+      setLaneRefreshKey((k) => k + 1);
+    }
+  };
+
+  // Drag-drop in a lane: reschedule to the drop time and (if the lane changed) reassign the primary
+  // provider. rescheduleAppointment conflict-checks + is serializable; on any failure we refetch so
+  // the block snaps back to the truth.
+  const rescheduleInLane = async (apptId: string, staffId: string, startISO: string) => {
+    // Remember where it was so we can offer an Undo.
+    const before = [...laneAppointments, ...appointments].find((a) => a.id === apptId);
+    const prevStart = before ? new Date(before.startTime) : null;
+    const prevStaffId = before?.services[0]?.staff.id;
+    try {
+      const result = await rescheduleAppointment(apptId, {
+        startTime: new Date(startISO),
+        staffId,
+      });
+      if (result.success) {
+        const a = result.data;
+        const name = `${a.client.firstName}${a.client.lastName ? ` ${a.client.lastName}` : ""}`;
+        const date = formatInTz(a.startTime, "MMM d", timezone);
+        // Keep the time range on one line so it never breaks mid-range.
+        const time = `${formatInTz(a.startTime, "h:mm", timezone)}–${formatInTz(a.endTime, "h:mm a", timezone)}`;
+        toast.success(
+          <span>
+            {name} rescheduled to {date}, <span className="whitespace-nowrap">{time}</span>
+          </span>,
+          {
+          action:
+            prevStart && prevStaffId
+              ? {
+                  label: "Undo",
+                  onClick: () => attemptUndo(apptId, prevStart, prevStaffId),
+                }
+              : undefined,
+        });
+      } else toast.error(result.error || "Couldn't reschedule this appointment.");
+    } catch {
+      // Transport / server-action rejection — show an error; the finally refetch snaps the block back.
+      toast.error("Couldn't reschedule this appointment.");
+    } finally {
+      // Refresh the FullCalendar copy too (not just the lanes) so neither view goes stale.
+      await refreshAppointments();
+      setLaneRefreshKey((k) => k + 1);
+    }
+  };
+
+  // Search both view sources, but the ACTIVE view's data first — otherwise the drawer can show a
+  // stale copy (e.g. after a lane reschedule the FullCalendar `appointments` still holds the old
+  // time, so searching it first would show the pre-reschedule schedule).
   const selectedAppointment =
-    appointments.find((apt) => apt.id === selectedAppointmentId) ?? null;
+    (isLaneView
+      ? [...laneAppointments, ...appointments]
+      : [...appointments, ...laneAppointments]
+    ).find((apt) => apt.id === selectedAppointmentId) ?? null;
 
   // Convert appointments to FullCalendar events
   const events = appointments.map((apt) => {
@@ -143,68 +412,97 @@ export function AppointmentCalendar({
     async (arg: DatesSetArg) => {
       setCurrentViewDates({ start: arg.start, end: arg.end });
       setViewTitle(arg.view.title);
-      setCurrentView(arg.view.type);
 
       const seq = ++fetchSeqRef.current;
-      const result = await getAppointmentsForCalendar({
-        startDate: arg.start,
-        endDate: arg.end,
-        staffId: staffFilter === "all" ? undefined : staffFilter,
-      });
-
-      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-      if (result.success) {
-        setAppointments(result.data);
-      } else {
-        toast.error(result.error || "Couldn't refresh the calendar.");
+      setCalendarLoading(true);
+      try {
+        const result = await getAppointmentsForCalendar({
+          startDate: arg.start,
+          endDate: arg.end,
+          staffIds: selectedStaffIds,
+        });
+        if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+        if (result.success) {
+          setAppointments(result.data);
+        } else {
+          toast.error(result.error || "Couldn't refresh the calendar.");
+        }
+      } catch {
+        // Transport / server-action rejection — warn (the spinner is cleared in finally).
+        if (seq !== fetchSeqRef.current) return;
+        toast.error("Couldn't refresh the calendar.");
+      } finally {
+        // Clear the spinner once, only if this fetch is still the current one.
+        if (seq === fetchSeqRef.current) setCalendarLoading(false);
       }
     },
-    [staffFilter]
+    [selectedStaffIds]
   );
 
-  // Refresh appointments (called when modal makes changes)
-  const refreshAppointments = useCallback(async () => {
-    if (!currentViewDates) return;
+  // The staff selection whose data is actually on screen (empty = all). On a failed load we roll back
+  // to THIS — not to whatever `selectedStaffIds` was captured at call time, which can be stale under
+  // rapid toggles. Kept in a ref so the callback doesn't need to re-create when the selection changes.
+  const lastConfirmedStaffIdsRef = useRef<string[]>([]);
+  // Mirror the live selection in a ref so two very fast toggles in the same render pass each start
+  // from the latest value, not the same stale render snapshot (the second would otherwise discard the
+  // first). applyStaffSelection sets this synchronously for the rapid-toggle case; the effect keeps it
+  // in sync after commit (never during render, which a discarded render could otherwise poison).
+  const selectedStaffIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    selectedStaffIdsRef.current = selectedStaffIds;
+  }, [selectedStaffIds]);
 
-    const seq = ++fetchSeqRef.current;
-    const result = await getAppointmentsForCalendar({
-      startDate: currentViewDates.start,
-      endDate: currentViewDates.end,
-      staffId: staffFilter === "all" ? undefined : staffFilter,
-    });
-
-    if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-    if (result.success) {
-      setAppointments(result.data);
-    } else {
-      toast.error(result.error || "Couldn't refresh the calendar.");
-    }
-  }, [currentViewDates, staffFilter]);
-
-  // Change the staff filter and immediately refetch for the current view range.
-  const handleStaffFilterChange = useCallback(
-    async (value: string) => {
-      const previous = staffFilter;
-      setStaffFilter(value);
-      if (!currentViewDates) return;
+  // Apply a new staff selection (empty = all) and immediately refetch for the current view range.
+  const applyStaffSelection = useCallback(
+    async (nextIds: string[]) => {
+      selectedStaffIdsRef.current = nextIds; // sync immediately so a follow-up toggle sees this pick
+      setSelectedStaffIds(nextIds);
+      if (!currentViewDates) {
+        // No view range yet (the calendar's first datesSet will fetch with this selection), so there
+        // is no on-screen data to contradict — treat the new selection as the confirmed one.
+        lastConfirmedStaffIdsRef.current = nextIds;
+        return;
+      }
       const seq = ++fetchSeqRef.current;
-      const result = await getAppointmentsForCalendar({
-        startDate: currentViewDates.start,
-        endDate: currentViewDates.end,
-        staffId: value === "all" ? undefined : value,
-      });
-      if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
-      if (result.success) {
-        setAppointments(result.data);
-      } else {
-        // Revert the dropdown to the last working filter so it matches the data still on screen, and
-        // the user can re-select the staff (a real change) to retry instead of being stuck.
-        setStaffFilter(previous);
-        toast.error(result.error || "Couldn't load appointments for that staff filter.");
+      setCalendarLoading(true);
+      try {
+        const result = await getAppointmentsForCalendar({
+          startDate: currentViewDates.start,
+          endDate: currentViewDates.end,
+          staffIds: nextIds,
+        });
+        if (seq !== fetchSeqRef.current) return; // a newer fetch superseded this one
+        if (result.success) {
+          setAppointments(result.data);
+          lastConfirmedStaffIdsRef.current = nextIds; // this selection now matches the shown data
+        } else {
+          // Revert to the selection whose data is still on screen so the dropdown matches it.
+          setSelectedStaffIds(lastConfirmedStaffIdsRef.current);
+          toast.error(result.error || "Couldn't load appointments for that staff filter.");
+        }
+      } catch {
+        if (seq !== fetchSeqRef.current) return;
+        setSelectedStaffIds(lastConfirmedStaffIdsRef.current);
+        toast.error("Couldn't load appointments for that staff filter.");
+      } finally {
+        if (seq === fetchSeqRef.current) setCalendarLoading(false);
       }
     },
-    [staffFilter, currentViewDates]
+    [currentViewDates]
   );
+  const toggleStaff = (id: string) => {
+    const cur = selectedStaffIdsRef.current; // latest applied selection, not the render snapshot
+    return applyStaffSelection(cur.includes(id) ? cur.filter((s) => s !== id) : [...cur, id]);
+  };
+  const staffFilterLabel =
+    selectedStaffIds.length === 0
+      ? "All staff"
+      : selectedStaffIds.length === 1
+        ? (() => {
+            const m = staff.find((s) => s.id === selectedStaffIds[0]);
+            return m ? `${m.firstName} ${m.lastName}` : "1 selected";
+          })()
+        : `${selectedStaffIds.length} staff`;
 
   // Handle event click
   const handleEventClick = (arg: EventClickArg) => {
@@ -365,6 +663,12 @@ export function AppointmentCalendar({
     setSelectedAppointmentId(null);
   };
 
+  // Refresh BOTH view sources after a modal mutation, so whichever view is active shows fresh data.
+  const handleDataChange = useCallback(async () => {
+    await refreshAppointments();
+    setLaneRefreshKey((k) => k + 1);
+  }, [refreshAppointments]);
+
   return (
     <div
       ref={containerRef}
@@ -374,6 +678,12 @@ export function AppointmentCalendar({
       aria-label="Appointment calendar. Press arrow keys to move between time slots, Enter to book an appointment."
       onKeyDown={handleCalendarKeyDown}
       onDoubleClick={handleCalendarDoubleClick}
+      // This tall role=application container is focusable; a plain click focuses it and the browser
+      // scrolls it into view, shifting the page mid-double-click (second click lands on the wrong
+      // slot). Pre-focus without scrolling so the browser's default scroll-on-focus is a no-op.
+      onMouseDown={(e) => {
+        if (canCreate) e.currentTarget.focus({ preventScroll: true });
+      }}
     >
       <style jsx global>{`
         .appointment-calendar .fc {
@@ -402,9 +712,14 @@ export function AppointmentCalendar({
           font-weight: 500;
         }
 
-        .appointment-calendar .fc-daygrid-day-number,
-        .appointment-calendar .fc-timegrid-slot-label-cushion {
+        .appointment-calendar .fc-daygrid-day-number {
           color: hsl(var(--foreground));
+        }
+
+        /* Time rail: light + small (matches the Staff view) so it reads as a ruler, not content. */
+        .appointment-calendar .fc-timegrid-slot-label-cushion {
+          color: hsl(var(--muted-foreground));
+          font-size: 0.75rem;
         }
 
         .appointment-calendar .fc-event {
@@ -412,6 +727,11 @@ export function AppointmentCalendar({
           padding: 2px 4px;
           font-size: 0.75rem;
           border-radius: 4px;
+          /* Match the Staff lanes: keep only the colored left accent bar (drop FullCalendar's
+             default full 1px border) plus a subtle shadow. Tints come from STATUS_COLORS on both. */
+          border-width: 0;
+          border-left-width: 4px;
+          box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.06);
         }
 
         .appointment-calendar .fc-event.fc-event-draggable {
@@ -425,6 +745,14 @@ export function AppointmentCalendar({
         .appointment-calendar .fc-timegrid-event {
           border-radius: 4px;
           padding: 2px 4px;
+        }
+
+        /* Full-width appointments: FullCalendar reserves a right margin on the events container for a
+           possible "+N more" link, leaving a gap even for a single event. Remove it so events fill
+           the column; when appointments DO overlap, eventMaxStack still shows one + the "+N" pill,
+           which now overlays the top-right corner (z-index above the event). */
+        .appointment-calendar .fc-timegrid-col-events {
+          margin-inline-end: 0 !important;
         }
 
         /* Taller half-hour rows so short (20-min) events stay proportional but still
@@ -539,69 +867,152 @@ export function AppointmentCalendar({
         }
       `}</style>
 
-      {/* Toolbar: staff filter (left) · ‹ title › (center of the card) · today + views (right).
+      {/* Toolbar: view toggles (left) · ‹ date › (center) · staff filter + Today (right).
           A 3-column grid centers the date on the card itself, not between the side controls. */}
       <div className="mb-4 flex flex-col gap-3 sm:grid sm:grid-cols-3 sm:items-center">
-        {/* Left: staff filter */}
-        <div className="flex items-center gap-2 sm:justify-self-start">
-          {staff.length > 0 && (
-            <>
-              <span className="hidden text-sm font-medium text-foreground sm:inline">Staff</span>
-              <Select value={staffFilter} onValueChange={handleStaffFilterChange}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All staff</SelectItem>
-                  {staff.map((member) => (
-                    <SelectItem key={member.id} value={member.id}>
-                      {member.firstName} {member.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </>
-          )}
-        </div>
-
-        {/* Center: date flanked by prev/next so the arrows read as "move the date". */}
-        <div className="order-first flex items-center justify-center gap-2 sm:order-none sm:justify-self-center">
-          <Button size="icon" className="h-8 w-8" onClick={() => calendarApi()?.prev()} aria-label="Previous">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="min-w-[9.5rem] text-center text-lg font-semibold">{viewTitle}</span>
-          <Button size="icon" className="h-8 w-8" onClick={() => calendarApi()?.next()} aria-label="Next">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {/* Right: today + view switcher */}
-        <div className="flex items-center gap-3 sm:justify-self-end">
-          <Button variant="secondary" onClick={() => calendarApi()?.today()}>
-            today
-          </Button>
-          <div className="inline-flex overflow-hidden rounded-md border">
-            {CALENDAR_VIEWS.map((v) => (
+        {/* Left: view type + span. Calendar|Staff stays at the far left, so hiding Month in Staff
+            only trims the right end of this group — nothing else moves. */}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-self-start">
+          {/* View TYPE: normal calendar vs per-staff lanes */}
+          <div className="inline-flex overflow-hidden rounded-md border" role="group" aria-label="View type">
+            {(["calendar", "staff"] as const).map((t) => (
               <button
-                key={v.key}
+                key={t}
                 type="button"
+                aria-pressed={viewType === t}
                 onClick={() => {
-                  calendarApi()?.changeView(v.key);
-                  setCurrentView(v.key);
+                  if (t === "calendar") {
+                    // Restore the FullCalendar view for the current span, and carry the Staff date
+                    // over so the calendar stays on the date the user was looking at.
+                    const fc = SPANS.find((s) => s.key === span)?.fcView ?? "timeGridWeek";
+                    const api = calendarApi();
+                    api?.changeView(fc);
+                    api?.gotoDate(laneDate);
+                  } else {
+                    // Entering Staff: start from the date the calendar is currently showing.
+                    const current = calendarApi()?.getDate();
+                    if (current) setLaneDate(current);
+                    // Lanes have no month form — fall back to day.
+                    if (span === "month") setSpan("day");
+                  }
+                  setViewType(t);
                 }}
                 className={`px-3 py-1.5 text-sm capitalize transition-colors ${
-                  currentView === v.key
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background hover:bg-muted"
+                  viewType === t ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"
                 }`}
               >
-                {v.label}
+                {t}
+              </button>
+            ))}
+          </div>
+          {/* SPAN: shared by both. Month (last) is hidden in Staff view — trims from the end only. */}
+          <div className="inline-flex overflow-hidden rounded-md border" role="group" aria-label="Time span">
+            {SPANS.filter((s) => !(isLaneView && s.key === "month")).map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                aria-pressed={span === s.key}
+                onClick={() => {
+                  setSpan(s.key);
+                  if (!isLaneView) calendarApi()?.changeView(s.fcView);
+                }}
+                className={`px-3 py-1.5 text-sm capitalize transition-colors ${
+                  span === s.key ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"
+                }`}
+              >
+                {s.label}
               </button>
             ))}
           </div>
         </div>
+
+        {/* Center: date flanked by prev/next so the arrows read as "move the date". */}
+        <div className="order-first flex items-center justify-center gap-2 sm:order-none sm:justify-self-center">
+          <Button
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => (isLaneView ? stepLaneDate(-laneStep) : calendarApi()?.prev())}
+            aria-label="Previous"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="min-w-[9.5rem] text-center text-lg font-semibold">
+            {isLaneView ? laneTitle : viewTitle}
+          </span>
+          <Button
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => (isLaneView ? stepLaneDate(laneStep) : calendarApi()?.next())}
+            aria-label="Next"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          {/* Today sits with the date navigation (it's a "jump to today" action). */}
+          <Button variant="secondary" className="ml-1" onClick={goToToday}>
+            Today
+          </Button>
+        </div>
+
+        {/* Right: staff filter. In Calendar view it filters events; in Staff view it narrows which
+            provider lanes are shown (handy when a salon has many staff). */}
+        <div className="flex items-center gap-3 sm:justify-self-end">
+          {staff.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="hidden text-sm font-medium text-foreground sm:inline">Staff</span>
+              <Popover open={staffFilterOpen} onOpenChange={setStaffFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-[170px] justify-between font-normal"
+                    aria-label="Filter by staff"
+                  >
+                    <span className="truncate">{staffFilterLabel}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[220px] p-1">
+                  {/* Each row is a single toggle button; its checked state is a non-interactive
+                      indicator + aria-pressed (a nested Checkbox would be a button inside a button). */}
+                  <button
+                    type="button"
+                    aria-pressed={selectedStaffIds.length === 0}
+                    onClick={() => applyStaffSelection([])}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+                  >
+                    <StaffCheckIndicator checked={selectedStaffIds.length === 0} />
+                    All staff
+                  </button>
+                  <div className="my-1 h-px bg-border" />
+                  {staff.map((member) => (
+                    <button
+                      key={member.id}
+                      type="button"
+                      aria-pressed={selectedStaffIds.includes(member.id)}
+                      onClick={() => toggleStaff(member.id)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+                    >
+                      <StaffCheckIndicator checked={selectedStaffIds.includes(member.id)} />
+                      <span className="truncate">
+                        {member.firstName} {member.lastName}
+                      </span>
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
+        </div>
       </div>
 
+      <div className={isLaneView ? "hidden" : "relative"}>
+      {!isLaneView && calendarLoading && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-background/40">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      )}
+      {!isLaneView && !calendarLoading && events.length === 0 && (
+        <CalendarEmptyState span={span} onBook={goBookNew} onToday={viewingToday ? undefined : goToToday} />
+      )}
       <FullCalendar
         ref={calendarRef}
         timeZone={timezone}
@@ -610,9 +1021,15 @@ export function AppointmentCalendar({
         headerToolbar={false}
         views={{
           timeGridWeek: { dayHeaderFormat: { weekday: "short", day: "numeric" } },
+          // Day view has one wide column, so a fuller "Friday, Jul 31" header reads well there.
           timeGridDay: { dayHeaderFormat: { weekday: "long", month: "short", day: "numeric" } },
         }}
         eventMinHeight={24}
+        // We render our own focusable button inside each event (see eventContent below), so turn OFF
+        // FullCalendar's own event interactivity — otherwise, because we pass an eventClick handler,
+        // FC also makes the event element focusable (tabindex + role=button), nesting two interactive
+        // controls. Mouse clicks still open details (eventClick fires regardless of this flag).
+        eventInteractive={false}
         events={events}
         eventContent={(arg) => {
           const apt = arg.event.extendedProps.appointment as AppointmentListItem;
@@ -624,12 +1041,30 @@ export function AppointmentCalendar({
           const durationMin =
             (new Date(apt.endTime).getTime() - new Date(apt.startTime).getTime()) / 60000;
           const expanded = durationMin >= 45;
+          // Compact "10–10:30 AM" range (drops :00 on whole hours, shares the meridiem).
+          const timeText = formatTimeRangeInTz(apt.startTime, apt.endTime, timezone);
+          const serviceNames = apt.services.map((s) => s.service.name).join(", ");
+          // This inner button is the ONE focusable control for the event (FC's own interactivity is
+          // disabled via eventInteractive={false} above), so keyboard/screen-reader users can open
+          // its details (parity with the Staff lanes).
+          const openOnKey = (e: ReactKeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openAppointment(apt.id);
+            }
+          };
           return (
-            <div className="h-full overflow-hidden leading-tight px-0.5">
+            <div
+              className="h-full overflow-hidden leading-tight px-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              role="button"
+              tabIndex={0}
+              aria-label={`${name}${walkIn}, ${timeText}${serviceNames ? `, ${serviceNames}` : ""}, ${STATUS_LABELS[apt.status]}. Press Enter to open.`}
+              onKeyDown={openOnKey}
+            >
               <div className="truncate font-semibold">{recurring}{name}{walkIn}</div>
               {expanded ? (
                 <>
-                  <div className="truncate text-[0.7rem] opacity-90">{arg.timeText}</div>
+                  <div className="truncate text-[0.7rem] opacity-90">{timeText}</div>
                   {apt.services.map((s, i) => (
                     <div key={i} className="truncate text-[0.7rem] opacity-90">
                       {s.service.name}
@@ -638,7 +1073,7 @@ export function AppointmentCalendar({
                 </>
               ) : (
                 <div className="break-words text-[0.7rem] opacity-90">
-                  {arg.timeText}
+                  {timeText}
                   {apt.services.length > 0
                     ? ` · ${apt.services.map((s) => s.service.name).join(", ")}`
                     : ""}
@@ -655,6 +1090,12 @@ export function AppointmentCalendar({
         slotMinTime={businessHoursStart}
         slotMaxTime={businessHoursEnd}
         slotDuration="00:30:00"
+        // Rows are drawn every 30 min, but a drag snaps to 5-min steps so an appointment can be
+        // rescheduled to an off-grid minute (e.g. 9:20) — matching the custom-time booking field.
+        snapDuration="00:05:00"
+        // Full "9 AM" / "1:30 PM" hour labels on the left rail (FullCalendar's default is "9am").
+        slotLabelFormat={{ hour: "numeric", minute: "2-digit", omitZeroMinute: true, meridiem: "lowercase" }}
+        slotLabelContent={(arg) => arg.text.replace(/\s*(am|pm)$/i, (_m, mer) => ` ${mer.toUpperCase()}`)}
         allDaySlot={false}
         nowIndicator={true}
         height="auto"
@@ -667,6 +1108,27 @@ export function AppointmentCalendar({
         dayMaxEvents={3}
         weekends={true}
       />
+      </div>
+
+      {isLaneView && (
+        <StaffLaneGrid
+          appointments={laneAppointments}
+          staff={selectedStaffIds.length === 0 ? staff : staff.filter((s) => selectedStaffIds.includes(s.id))}
+          date={laneDate}
+          span={laneSpan}
+          businessHoursStart={businessHoursStart}
+          businessHoursEnd={businessHoursEnd}
+          timezone={timezone}
+          canCreate={canCreate}
+          canDrag={canUpdate}
+          loading={laneLoading}
+          onSelectAppointment={openAppointment}
+          onBookSlot={bookInLane}
+          onReschedule={rescheduleInLane}
+          onEmptyBook={goBookNew}
+          onEmptyToday={viewingToday ? undefined : goToToday}
+        />
+      )}
 
       {/* Status color legend */}
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t pt-3 text-xs text-muted-foreground">
@@ -685,7 +1147,7 @@ export function AppointmentCalendar({
           appointment={selectedAppointment}
           isOpen={isModalOpen}
           onClose={handleModalClose}
-          onDataChange={refreshAppointments}
+          onDataChange={handleDataChange}
           canUpdate={canUpdate}
           canCancel={canCancel}
           canDelete={canDelete}

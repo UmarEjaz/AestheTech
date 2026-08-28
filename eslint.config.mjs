@@ -10,7 +10,9 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
-  ...compat.extends("next/core-web-vitals"),
+  // Next 15 splits the TypeScript rules out of core-web-vitals into `next/typescript`; include both so
+  // the `@typescript-eslint/*` rules referenced by inline eslint-disable comments stay defined.
+  ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
     ignores: ["node_modules/**", ".next/**"],
   },

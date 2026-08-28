@@ -132,7 +132,7 @@ export function RefundDialog({
       } else {
         toast.error(result.error);
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred. Please try again.");
     } finally {
       setIsSubmitting(false);

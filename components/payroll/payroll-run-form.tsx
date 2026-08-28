@@ -48,8 +48,8 @@ export function PayrollRunForm() {
     handleSubmit,
     setValue,
     formState: { errors },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } = useForm<PayrollRunFormInput, unknown, CreatePayrollRunInput>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- zodResolver's generics don't line up with RHF's Resolver type
     resolver: zodResolver(createPayrollRunSchema) as any,
     defaultValues: {
       periodStart: new Date(defaultStart + "T00:00:00"),

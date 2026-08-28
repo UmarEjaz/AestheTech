@@ -7,10 +7,19 @@ import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
 import { getActiveServices } from "@/lib/actions/service";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
 
 interface PageProps {
-  searchParams: Promise<{ startTime?: string }>;
+  searchParams: Promise<{ startTime?: string; staffId?: string }>;
 }
+
+// Validate the URL query (external input) before use. startTime must be a real date — anything that
+// isn't (gibberish, an array) is dropped to `undefined` so a bad value can't reach the form. staffId
+// is an optional string whose membership is checked below as the authorization gate.
+const newApptParamsSchema = z.object({
+  startTime: z.coerce.date().optional().catch(undefined),
+  staffId: z.string().optional(),
+});
 
 export default async function NewAppointmentPage({ searchParams }: PageProps) {
   const session = await auth();
@@ -19,7 +28,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
     redirect("/login");
   }
 
-  const params = await searchParams;
+  const params = newApptParamsSchema.safeParse(await searchParams).data ?? {};
   if (!session.user.salonRole && !session.user.isSuperAdmin) {
     redirectAccessDenied();
   }
@@ -73,7 +82,10 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
   const timezone = settingsRow?.timezone || "UTC";
 
   // Parse initial date from URL if provided
-  const initialDate = params.startTime ? new Date(params.startTime) : undefined;
+  const initialDate = params.startTime; // already a validated Date | undefined from the schema
+  // Pre-select a provider when booking from a staff lane (only if they're a valid provider here).
+  const initialStaffId =
+    params.staffId && staff.some((m) => m.id === params.staffId) ? params.staffId : undefined;
 
   return (
     // The form renders its own header (title/subtitle react to the Walk-in ⇄ Appointment toggle).
@@ -89,6 +101,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps) {
         services={services}
         staff={staff}
         initialDate={initialDate}
+        initialStaffId={initialStaffId}
         defaultBookingMode={defaultBookingMode}
         timezone={timezone}
         canTakeDeposit={canTakeDeposit}
