@@ -1,5 +1,6 @@
 # Dependencies
-node_modules/
+# No trailing slash: also ignores a `node_modules` symlink (e.g. in a git worktree), not just a directory.
+node_modules
 /.pnp
 .pnp.js
 

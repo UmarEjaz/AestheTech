@@ -19,14 +19,20 @@ export default defineConfig({
     exclude: ["node_modules", ".next", "e2e"],
     setupFiles: ["./vitest.setup.ts"],
     coverage: {
-      // Measure coverage (npm run test:coverage) but DON'T enforce a global threshold yet — app-wide
-      // coverage is still low, so a hard gate would fail the build. Raise it as coverage grows.
       provider: "v8",
       reporter: ["text", "html"],
       include: ["lib/**/*.ts", "components/**/*.{ts,tsx}"],
       // Keep Vitest's built-in excludes (configs, dist, etc.) and drop all test/type-decl files —
       // both .test.ts and .test.tsx — so test code isn't measured as source.
       exclude: [...coverageConfigDefaults.exclude, "**/*.test.ts", "**/*.test.tsx", "**/*.d.ts"],
+      // Coverage floor, set just under today's measured numbers (stmts 6.72 / branch 4.52 /
+      // funcs 6.17 / lines 6.64). This is a RATCHET: raise these as PRs add tests, NEVER lower them.
+      thresholds: {
+        statements: 6.7,
+        branches: 4.5,
+        functions: 6.1,
+        lines: 6.6,
+      },
     },
   },
 });

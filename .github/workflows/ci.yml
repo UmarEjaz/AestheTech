@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: nothing here needs to write to the repo.
+permissions:
+  contents: read
+
+# Cancel a superseded run on the same PR instead of queueing it; never cancel a run on main.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history (and origin/main) so the changed-line lint gate can diff against it.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm ci` already runs `prisma generate` via postinstall; kept explicit so a postinstall change
+      # can't silently drop it, and so the step is visible in the log.
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
+      - name: TypeScript
+        run: npm run type-check
+
+      # Whole-repo gate (eslint . --max-warnings 0). On a push to main the changed-line step below is a
+      # no-op (merge-base == HEAD), so this is what actually guards main.
+      - name: Lint (whole repo)
+        run: npm run lint
+
+      - name: Lint (changed lines, incl. return-type ratchet)
+        run: npm run lint:changed
+
+      - name: Unit tests (with coverage floor)
+        run: npm run test:coverage

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Pre-commit changed-line lint gate. Install once with `npm run hooks:install`.
+# Emergency escape: SKIP_LINT=1 git commit ...
+set -euo pipefail
+
+if [ "${SKIP_LINT:-}" = "1" ]; then
+  echo "pre-commit: lint skipped (SKIP_LINT=1)"
+  exit 0
+fi
+
+# GUI git clients (VS Code, Fork, Tower) with nvm/fnm often have no `node` on PATH. Fail with a clear
+# message rather than a bare "command not found".
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: 'node' is not on PATH; commit from a shell where it is, or set SKIP_LINT=1." >&2
+  exit 1
+fi
+
+exec node scripts/lint-changed.mjs --staged

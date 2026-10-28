@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Image,
 } from "@react-pdf/renderer";
+import type { ReactElement } from "react";
 import { formatInTz } from "@/lib/utils/timezone";
 import { formatCurrency } from "@/lib/utils/currency";
 
@@ -230,7 +231,7 @@ interface InvoicePDFProps {
   data: InvoicePDFData;
 }
 
-export function InvoicePDF({ data }: InvoicePDFProps) {
+export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
   const formattedDate = formatInTz(data.createdAt, "MMMM d, yyyy", data.timezone);
   const formattedTime = formatInTz(data.createdAt, "h:mm a", data.timezone);
 
@@ -241,6 +242,7 @@ export function InvoicePDF({ data }: InvoicePDFProps) {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             {data.salonLogo && (
+              // eslint-disable-next-line jsx-a11y/alt-text -- this is @react-pdf/renderer's <Image>, which renders into a PDF (not the DOM) and has no `alt` prop.
               <Image style={styles.salonLogo} src={data.salonLogo} />
             )}
             <Text style={styles.salonName}>{data.salonName}</Text>
