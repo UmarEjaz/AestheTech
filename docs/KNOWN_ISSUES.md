@@ -64,10 +64,11 @@ list query.
 
 **Rule** (see `CLAUDE.md` § Gates before every commit): new files stay under **500 lines**, new
 components under **200**. A file already over its limit must not grow — any PR that touches one either
-splits it or says why not. This is the list of current offenders to burn down over time; measured off
-`main` on 2026-10-28.
+splits it or says why not. This is the list of current offenders to burn down over time; measured on
+the `chore/working-rules` branch on 2026-10-29.
 
 ### Non-component files over 500 lines
+
 | Lines | File |
 |------:|------|
 | 1703 | `lib/actions/recurring-series.ts` |
@@ -85,6 +86,7 @@ splits it or says why not. This is the list of current offenders to burn down ov
 |  517 | `lib/actions/salon.ts` |
 
 ### Components over 200 lines
+
 | Lines | File |
 |------:|------|
 | 2295 | `components/appointments/appointment-form.tsx` |
@@ -102,7 +104,7 @@ splits it or says why not. This is the list of current offenders to burn down ov
 |  466 | `app/dashboard/sales/[id]/page.tsx` |
 |  439 | `app/dashboard/clients/[id]/page.tsx` |
 |  430 | `components/clients/client-form.tsx` |
-|  424 | `components/invoices/invoice-pdf.tsx` |
+|  426 | `components/invoices/invoice-pdf.tsx` |
 |  414 | `components/categories/category-manager.tsx` |
 |  413 | `components/dashboard/dashboard-widgets.tsx` |
 |  406 | `components/sales/sales-table.tsx` |
@@ -148,7 +150,7 @@ adding `@/lib/prisma` next to a tolerated enum import), is a new key and fails. 
 
 The 25 entries live in `BASELINE` in `lib/server-client-boundary.test.ts`; the test fails if any of
 them is fixed but still listed, so the list can't silently regrow. (Nothing reachable from a client
-component imports the Prisma **client** itself, `server-only`, or a `node:` builtin — those are already
+component imports the Prisma **client** itself, `server-only`, or a Node builtin (`node:fs` or bare `fs`) — those are already
 clean and always forbidden.)
 
 ---
@@ -156,7 +158,7 @@ clean and always forbidden.)
 ## Return-type backlog (ratcheted, not a sweep)
 
 `@typescript-eslint/explicit-function-return-type` is OFF in the whole-repo ESLint config because
-**497** existing functions lack a return type (measured 2026-10-28 on this branch, the way the gate
+**489** existing functions lack a return type (measured 2026-10-29 on this branch, the way the gate
 measures it — see the command below). It is enforced by `scripts/lint-changed.mjs` instead: required
 on every changed line (so this number never grows) and on every function of a touched file under
 `--whole-file` (so it shrinks per PR). This number only goes down; re-measure with:
@@ -186,8 +188,8 @@ file and delete that file's entry from this list. (The changed-line gate already
 untyped function in the meantime.) This is the only whole-file exception taken on this branch.
 
 Related, for the record: `components/invoices/invoice-pdf.tsx` (already over the 200-line component
-limit) grew by **2 lines** on this branch — a type-only `ReactElement` import and a one-line a11y
-suppression, both needed to make the lint gate green. Acknowledged here per the "a touched over-limit
-file must not grow" rule; no behavioural change.
+limit) grew by **3 lines** on this branch — a type-only `ReactElement` import, a one-line a11y
+suppression (both needed to make the lint gate green) and a one-line doc comment on `InvoicePDF`.
+Acknowledged here per the "a touched over-limit file must not grow" rule; no behavioural change.
 
 ---

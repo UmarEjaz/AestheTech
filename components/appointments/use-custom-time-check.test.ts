@@ -13,7 +13,7 @@ import { validateCustomTime } from "@/lib/actions/appointment";
 const mockValidate = vi.mocked(validateCustomTime);
 
 // A promise we resolve by hand, so we can hold one server answer "in flight" while triggering another.
-function deferred<T>() {
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((r) => {
     resolve = r;
@@ -22,7 +22,7 @@ function deferred<T>() {
 }
 
 // Flush pending microtasks (the awaited validateCustomTime continuations) inside act.
-async function flush() {
+async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
@@ -51,6 +51,8 @@ function makeParams(
 describe("useCustomTimeCheck", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    // Pin the fake clock too (useFakeTimers alone starts from the real time of day).
+    vi.setSystemTime(new Date("2026-08-17T06:00:00Z"));
     mockValidate.mockReset();
   });
   afterEach(() => {

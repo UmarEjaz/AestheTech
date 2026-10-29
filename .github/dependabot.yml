@@ -1,0 +1,12 @@
+# Keeps the commit-SHA pins in .github/workflows/*.yml fresh. GitHub Actions only (not npm): one
+# grouped PR per month, and only when at least one action has a newer version. Review and merge it
+# like any other PR; never re-pin to a moving tag by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]

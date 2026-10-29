@@ -25,13 +25,17 @@ export default defineConfig({
       // Keep Vitest's built-in excludes (configs, dist, etc.) and drop all test/type-decl files —
       // both .test.ts and .test.tsx — so test code isn't measured as source.
       exclude: [...coverageConfigDefaults.exclude, "**/*.test.ts", "**/*.test.tsx", "**/*.d.ts"],
-      // Coverage floor, set just under today's measured numbers (stmts 6.72 / branch 4.52 /
-      // funcs 6.17 / lines 6.64). This is a RATCHET: raise these as PRs add tests, NEVER lower them.
+      // Coverage floor = today's measured numbers exactly. This is a RATCHET: `autoUpdate` makes a
+      // coverage run rewrite these values upward whenever coverage improves (commit that change with
+      // the PR — CI fails if the rewritten file isn't committed), and the run fails if coverage drops
+      // below them. Per metric: a failing run still bumps the metrics that improved. NEVER lower them
+      // by hand.
       thresholds: {
-        statements: 6.7,
-        branches: 4.5,
-        functions: 6.1,
-        lines: 6.6,
+        autoUpdate: true,
+        statements: 6.72,
+        branches: 4.58,
+        functions: 6.17,
+        lines: 6.64,
       },
     },
   },

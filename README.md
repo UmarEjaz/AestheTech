@@ -27,7 +27,7 @@ A comprehensive salon management system designed to automate and streamline salo
 
 ### Prerequisites
 
-- Node.js 18+ (latest LTS recommended)
+- Node.js 24 (pinned in `.nvmrc`; run `nvm use` if you use nvm)
 - PostgreSQL 14+
 - npm or yarn
 
@@ -64,12 +64,15 @@ npm run db:seed
 ```
 
 5. **Install the git hooks (one-time)**
+
 ```bash
 npm run hooks:install
 ```
+
 This points git at `.githooks/` (it sets `core.hooksPath`, so any hooks you had in `.git/hooks/` stop running), and the pre-commit hook then runs the changed-line lint gate. Set `SKIP_LINT=1` to bypass it in an emergency.
 
 6. **Run the development server**
+
 ```bash
 npm run dev
 ```
@@ -88,7 +91,7 @@ Open [http://localhost:3001](http://localhost:3001) to view the application.
 - `npm run type-check` - Run TypeScript compiler check
 - `npm test` - Run Vitest unit/component tests
 - `npm run test:watch` - Run tests in watch mode
-- `npm run test:coverage` - Generate test coverage report
+- `npm run test:coverage` - Generate test coverage report; when coverage improved it also raises the floor in `vitest.config.mts` (commit that change)
 - `npm run test:e2e` - Run Playwright end-to-end tests
 - `npm run hooks:install` - Point git at `.githooks/` (one-time, per clone)
 
@@ -108,7 +111,7 @@ AestheTech/
 ├── scripts/                # Utility scripts
 │   └── testing/            # Test automation scripts
 ├── public/                 # Static assets
-├── CLAUDE.md               # AI development context
+├── CLAUDE.md               # Working rules and quality gates
 └── START_HERE.md           # Getting started guide
 ```
 
@@ -119,7 +122,7 @@ Comprehensive documentation is available in the `/docs` directory:
 - **[PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)** - Complete project scope, features, and requirements
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, database design, and technical decisions
 - **[TASK_LIST.md](docs/TASK_LIST.md)** - Development task list with progress tracking
-- **[CLAUDE.md](CLAUDE.md)** - AI-assisted development context and guidelines
+- **[CLAUDE.md](CLAUDE.md)** - Working rules, quality gates and development guidelines
 - **[START_HERE.md](START_HERE.md)** - Initial setup guide and first steps
 
 ## Testing
@@ -203,7 +206,7 @@ See `/docs/ARCHITECTURE.md` for detailed deployment instructions.
 
 ## Contributing
 
-This project is developed with AI assistance (Claude Code). See `CLAUDE.md` for AI development guidelines.
+See `CLAUDE.md` for the working rules and the gates every PR must pass before it is merged.
 
 ## Security
 

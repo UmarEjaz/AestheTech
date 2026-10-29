@@ -6,7 +6,8 @@ import { isBuiltin } from "node:module";
 /**
  * Architectural guard: nothing a `"use client"` component imports — directly or transitively through
  * our own modules — may pull in server-only code. We walk the real import graph from every client
- * entry file and fail if any edge references the Prisma client, `server-only`, or a Node builtin.
+ * entry file and fail if any edge references the Prisma client (`@prisma/client*`, `.prisma/client*`
+ * or our `@/lib/prisma` singleton), `server-only`, or a Node builtin (`node:`-prefixed or bare).
  * Shared constants and Zod schemas used by the browser must live in browser-safe modules.
  */
 
@@ -59,6 +60,7 @@ function isTypeOnlyClause(clause: string): boolean {
   return false;
 }
 
+/** Recursively list every source file under `dir`, skipping node_modules, .next and `.d.ts` files. */
 function walk(dir: string, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -88,9 +90,19 @@ function resolveLocal(spec: string, fromFile: string): string | null {
   return null;
 }
 
-/** Is this specifier server-only code that must never reach the browser? */
+/**
+ * Is this specifier server-only code that must never reach the browser? Returns the key to report, or
+ * null. The Prisma client is matched by package root AND any subpath (`@prisma/client/edge`,
+ * `@prisma/client/runtime/library`, ...), and likewise the generated `.prisma/client` copy, so a leak
+ * can't dodge the guard by importing through a subpath; the exact specifier is the reported key so
+ * each distinct one is its own baseline entry. `@prisma/client/index-browser` is deliberately NOT
+ * exempt — the baseline treats enum imports from Prisma as a leak regardless of entry point.
+ * If the Prisma generator ever gets a custom `output` (required by Prisma 7's `prisma-client`
+ * generator), client imports move to that path — add it here or the guard goes blind.
+ */
 function forbiddenReason(spec: string): string | null {
-  if (spec === "@prisma/client") return "@prisma/client";
+  if (spec === "@prisma/client" || spec.startsWith("@prisma/client/")) return spec;
+  if (spec === ".prisma/client" || spec.startsWith(".prisma/client/")) return spec;
   if (spec === "server-only") return "server-only";
   if (spec === "@/lib/prisma") return "@/lib/prisma";
   if (spec.startsWith("node:") || isBuiltin(spec)) return `node builtin "${spec}"`;
@@ -98,6 +110,7 @@ function forbiddenReason(spec: string): string | null {
 }
 
 const importCache = new Map<string, ImportRef[]>();
+/** Every import specifier in `file` (static, side-effect, dynamic, require), cached per file. */
 function importsOf(file: string): ImportRef[] {
   const cached = importCache.get(file);
   if (cached) return cached;
@@ -116,6 +129,7 @@ function importsOf(file: string): ImportRef[] {
 }
 
 const useServerCache = new Map<string, boolean>();
+/** Does `file` open with a module-level `"use server"` directive? Cached per file; unreadable = false. */
 function isUseServer(file: string): boolean {
   const cached = useServerCache.get(file);
   if (cached !== undefined) return cached;
@@ -162,8 +176,8 @@ function collectLeaks(entry: string, into: Map<string, string>): void {
   }
 }
 
+/** Repo-relative path in forward-slash form, so BASELINE keys match on Windows too (CI is POSIX, but keep it portable). */
 function rel(file: string): string {
-  // Forward-slash form so BASELINE keys match on Windows too (CI is POSIX, but keep it portable).
   return relative(ROOT, file).split(sep).join("/");
 }
 
@@ -206,6 +220,31 @@ const BASELINE = new Set<string>([
   "lib/validations/invoice.ts :: @prisma/client",
   "lib/validations/payroll.ts :: @prisma/client",
 ]);
+
+describe("forbiddenReason — what counts as a server-only import", () => {
+  it("catches the Prisma client by package root and by any subpath", () => {
+    expect(forbiddenReason("@prisma/client")).toBe("@prisma/client");
+    expect(forbiddenReason("@prisma/client/edge")).toBe("@prisma/client/edge");
+    expect(forbiddenReason("@prisma/client/runtime/library")).toBe("@prisma/client/runtime/library");
+    expect(forbiddenReason("@prisma/client/index-browser")).toBe("@prisma/client/index-browser");
+    expect(forbiddenReason(".prisma/client")).toBe(".prisma/client");
+    expect(forbiddenReason(".prisma/client/default")).toBe(".prisma/client/default");
+  });
+
+  it("catches server-only, the Prisma singleton and node builtins", () => {
+    expect(forbiddenReason("server-only")).toBe("server-only");
+    expect(forbiddenReason("@/lib/prisma")).toBe("@/lib/prisma");
+    expect(forbiddenReason("node:fs")).toBe('node builtin "node:fs"');
+    expect(forbiddenReason("fs")).toBe('node builtin "fs"');
+  });
+
+  it("does not flag look-alike or unrelated specifiers", () => {
+    expect(forbiddenReason("@prisma/clientele")).toBeNull();
+    expect(forbiddenReason("@/lib/prisma-helpers")).toBeNull();
+    expect(forbiddenReason("react")).toBeNull();
+    expect(forbiddenReason("zod")).toBeNull();
+  });
+});
 
 describe("server/client import boundary", () => {
   const allFiles = SOURCE_DIRS.flatMap((d) => walk(join(ROOT, d)));

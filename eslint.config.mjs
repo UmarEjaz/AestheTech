@@ -43,7 +43,7 @@ const eslintConfig = [
         },
       ],
       // NOTE: `@typescript-eslint/explicit-function-return-type` is deliberately NOT enabled here.
-      // ~497 existing functions lack a return type (see docs/KNOWN_ISSUES.md), so a repo-wide error
+      // ~500 existing functions lack a return type (see docs/KNOWN_ISSUES.md), so a repo-wide error
       // would fail the gate on day one. It is instead ratcheted in scripts/lint-changed.mjs: required
       // on every changed line (so the backlog never grows) and on every function of a touched file
       // (so the backlog shrinks per PR).

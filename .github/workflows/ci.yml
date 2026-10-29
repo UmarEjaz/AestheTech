@@ -19,16 +19,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # Pinned to a full commit SHA (not a moving tag) so CI always runs the reviewed code;
+        # Dependabot (.github/dependabot.yml) bumps these.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history (and origin/main) so the changed-line lint gate can diff against it.
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          # Reads .nvmrc so CI runs the same Node major as local, and the coverage numbers (zero-slack
+          # floor) match.
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -52,3 +56,13 @@ jobs:
 
       - name: Unit tests (with coverage floor)
         run: npm run test:coverage
+
+      # `autoUpdate` rewrites vitest.config.mts in THIS checkout when coverage rose above the committed
+      # floor, then exits 0 — so without this step a PR that adds tests but forgets to commit the raised
+      # floor would pass green. A dirty config here means exactly that; fail and say what to do.
+      - name: Coverage floor was committed
+        run: |
+          git diff --exit-code -- vitest.config.mts || {
+            echo "::error::Coverage rose above the committed floor. Run 'npm run test:coverage' locally and commit vitest.config.mts (if a local run doesn't change it, copy the values from the diff above)."
+            exit 1
+          }

@@ -5,7 +5,7 @@
  * Lints only the JS/TS files a change touches, so a messy legacy file doesn't block a one-line edit,
  * while still holding new code to the full standard. On top of the repo ESLint config it overlays
  * `@typescript-eslint/explicit-function-return-type` (deliberately OFF repo-wide — see
- * eslint.config.mjs / docs/KNOWN_ISSUES.md), which is how the ~497-function return-type backlog is
+ * eslint.config.mjs / docs/KNOWN_ISSUES.md), which is how the ~500-function return-type backlog is
  * ratcheted down without a codebase-wide sweep.
  *
  * Modes:

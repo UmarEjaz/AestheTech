@@ -359,7 +359,7 @@ AestheTech is a comprehensive Salon Management Application designed to revolutio
 
 ### Constraints
 - Budget: Development timeline of 8-12 weeks
-- Team: AI-assisted development (Claude Code)
+- Team: solo developer
 - Technology: Must use specified tech stack
 - Compliance: Must handle personal data securely (privacy regulations)
 

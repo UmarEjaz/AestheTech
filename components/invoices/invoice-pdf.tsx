@@ -231,6 +231,7 @@ interface InvoicePDFProps {
   data: InvoicePDFData;
 }
 
+/** Printable invoice document, rendered to PDF by @react-pdf/renderer. */
 export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
   const formattedDate = formatInTz(data.createdAt, "MMMM d, yyyy", data.timezone);
   const formattedTime = formatInTz(data.createdAt, "h:mm a", data.timezone);
