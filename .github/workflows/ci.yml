@@ -66,3 +66,12 @@ jobs:
             echo "::error::Coverage rose above the committed floor. Run 'npm run test:coverage' locally and commit vitest.config.mts (if a local run doesn't change it, copy the values from the diff above)."
             exit 1
           }
+
+      # The step above catches a floor that should have gone UP. This one catches a floor that was
+      # lowered by hand to match reduced coverage: every threshold must be >= the same file on the base
+      # (the PR's target branch; on a push to main, the tip of main before the push — exact even for
+      # multi-commit rebase merges, unlike HEAD~1).
+      - name: Coverage floor never decreases
+        run: node scripts/check-coverage-floor.mjs "$BASE_REF"
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
