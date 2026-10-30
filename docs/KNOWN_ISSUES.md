@@ -140,18 +140,23 @@ lib modules (`lib/validations/invoice.ts`, `lib/validations/payroll.ts`, `lib/co
 `lib/utils/loyalty.ts`, `lib/utils/recurring.ts`). The architectural guard in
 `lib/server-client-boundary.test.ts` blocks any **new** server-code leak into the browser, but tolerates
 these 25 known edges via a `BASELINE` so the gate is green today. Entries are keyed by the **importing
-file**, so each one pins exactly one edge: a new file, or a new forbidden target in a listed file (e.g.
-adding `@/lib/prisma` next to a tolerated enum import), is a new key and fails. The backlog only shrinks:
+file**, the forbidden target **and the exact runtime names taken from it**, e.g.
+`components/sales/checkout-form.tsx :: @prisma/client { PaymentMethod }`, so each one pins exactly one
+edge as it is today: a new file, a new forbidden target in a listed file (e.g. adding `@/lib/prisma`
+next to a tolerated enum import), or a listed file taking **one more name** from Prisma (another enum,
+or `PrismaClient` itself) is a new key and fails. The backlog only shrinks:
 
 - When a PR touches one of these files, change it to import the enum/type from a browser-safe module
   (a `@/lib/constants/*` string-union, or `import type` where only a type is needed) instead of
-  `@prisma/client`, then delete its entry from `BASELINE` in the test.
-- Never add a `BASELINE` entry to make a new leak pass.
+  `@prisma/client`, then delete its entry (or the cleared name) from `BASELINE` in the test.
+- An entry may only ever lose names. Never add an entry or a name to make a new leak pass; a new enum
+  needed in browser code goes into a browser-safe constants module instead.
 
 The 25 entries live in `BASELINE` in `lib/server-client-boundary.test.ts`; the test fails if any of
-them is fixed but still listed, so the list can't silently regrow. (Nothing reachable from a client
-component imports the Prisma **client** itself, `server-only`, or a Node builtin (`node:fs` or bare `fs`) — those are already
-clean and always forbidden.)
+them no longer matches (fixed, or its names changed) but is still listed, so the list can't silently
+regrow or drift. (Nothing reachable from a client component imports the Prisma **client** itself,
+`server-only`, or a Node builtin (`node:fs` or bare `fs`) — those are already clean and always
+forbidden.)
 
 ---
 

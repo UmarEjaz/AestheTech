@@ -33,6 +33,13 @@ const SCRIPT_KINDS: Record<string, ts.ScriptKind> = {
 interface ImportRef {
   spec: string;
   typeOnly: boolean;
+  /**
+   * The runtime names taken from the module, as the module exports them (`import { A as B }` records
+   * `A`): named bindings; `default`; or `*` when the whole module is pulled in (namespace import,
+   * side-effect import, `export *`, `import {} from` / `export {} from`, `import x = require()`,
+   * dynamic import, `require`). Empty for a type-only import.
+   */
+  names: string[];
 }
 
 /** Parse source text into a TypeScript syntax tree (script kind from the extension; TSX by default). */
@@ -56,49 +63,71 @@ function hasModuleDirective(sf: ts.SourceFile, name: string): boolean {
   return false;
 }
 
-/** `import ... from "x"`: type-only when the whole clause is `import type` or every named binding is `type`. */
-function importClauseIsTypeOnly(clause: ts.ImportClause | undefined): boolean {
-  if (!clause) return false; // `import "x"` side-effect import — the module runs
-  if (clause.isTypeOnly) return true;
-  if (clause.name) return false; // a default import is a value
+/**
+ * `import ... from "x"`: the runtime names it binds. Empty (= type-only, erased at build) when the
+ * whole clause is `import type` or every named binding is `type`. `import {} from "x"` binds nothing
+ * but still evaluates the module, so it counts as `*`.
+ */
+function importClauseNames(clause: ts.ImportClause | undefined): string[] {
+  if (!clause) return ["*"]; // `import "x"` side-effect import — the module runs
+  if (clause.isTypeOnly) return [];
+  const names: string[] = [];
+  if (clause.name) names.push("default");
   const nb = clause.namedBindings;
-  if (nb && ts.isNamedImports(nb)) return nb.elements.length > 0 && nb.elements.every((e) => e.isTypeOnly);
-  return false; // namespace import, or `import {} from "x"` (the module still evaluates)
-}
-
-/** `export ... from "x"`: type-only when `export type` or every named export is `type`. */
-function exportIsTypeOnly(node: ts.ExportDeclaration): boolean {
-  if (node.isTypeOnly) return true;
-  const c = node.exportClause;
-  if (c && ts.isNamedExports(c)) return c.elements.length > 0 && c.elements.every((e) => e.isTypeOnly);
-  return false; // `export * from`, `export * as ns from`
+  if (nb && ts.isNamedImports(nb)) {
+    if (nb.elements.length === 0 && !clause.name) return ["*"];
+    for (const e of nb.elements) if (!e.isTypeOnly) names.push((e.propertyName ?? e.name).text);
+  } else if (nb) {
+    names.push("*"); // `import * as ns`
+  }
+  return names;
 }
 
 /**
- * Every module specifier a file references, from the syntax tree: static `import`/`export ... from`,
- * `import x = require("...")`, and — anywhere in the file, including inside functions — dynamic
- * `import("...")` and CommonJS `require("...")` with a literal argument. Type-position imports
- * (`typeof import("x")`, `import("x").T`) are type nodes, not calls, so they are naturally skipped.
+ * `export ... from "x"`: the runtime names re-exported. Empty when `export type` or every name is
+ * `type`; `export {} from "x"` binds nothing but still evaluates the module, so it counts as `*`.
+ */
+function exportNames(node: ts.ExportDeclaration): string[] {
+  if (node.isTypeOnly) return [];
+  const c = node.exportClause;
+  if (c && ts.isNamedExports(c)) {
+    if (c.elements.length === 0) return ["*"];
+    return c.elements.filter((e) => !e.isTypeOnly).map((e) => (e.propertyName ?? e.name).text);
+  }
+  return ["*"]; // `export * from`, `export * as ns from`
+}
+
+/** Build an ImportRef; a reference with no runtime names is type-only. */
+function ref(spec: string, names: string[]): ImportRef {
+  return { spec, typeOnly: names.length === 0, names };
+}
+
+/**
+ * Every module specifier a file references, from the syntax tree, with the runtime names it takes:
+ * static `import`/`export ... from`, `import x = require("...")`, and — anywhere in the file, including
+ * inside functions — dynamic `import("...")` and CommonJS `require("...")` with a literal argument.
+ * Type-position imports (`typeof import("x")`, `import("x").T`) are type nodes, not calls, so they
+ * are naturally skipped.
  */
 function extractImports(sf: ts.SourceFile): ImportRef[] {
   const refs: ImportRef[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node)) {
       if (ts.isStringLiteral(node.moduleSpecifier)) {
-        refs.push({ spec: node.moduleSpecifier.text, typeOnly: importClauseIsTypeOnly(node.importClause) });
+        refs.push(ref(node.moduleSpecifier.text, importClauseNames(node.importClause)));
       }
       return;
     }
     if (ts.isExportDeclaration(node)) {
       if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-        refs.push({ spec: node.moduleSpecifier.text, typeOnly: exportIsTypeOnly(node) });
+        refs.push(ref(node.moduleSpecifier.text, exportNames(node)));
       }
       return;
     }
     if (ts.isImportEqualsDeclaration(node)) {
-      const ref = node.moduleReference;
-      if (ts.isExternalModuleReference(ref) && ts.isStringLiteral(ref.expression)) {
-        refs.push({ spec: ref.expression.text, typeOnly: node.isTypeOnly });
+      const mr = node.moduleReference;
+      if (ts.isExternalModuleReference(mr) && ts.isStringLiteral(mr.expression)) {
+        refs.push(ref(mr.expression.text, node.isTypeOnly ? [] : ["*"]));
       }
       return;
     }
@@ -106,7 +135,7 @@ function extractImports(sf: ts.SourceFile): ImportRef[] {
       const callee = node.expression;
       const isDynamicImport = callee.kind === ts.SyntaxKind.ImportKeyword;
       const isRequire = ts.isIdentifier(callee) && callee.text === "require";
-      if (isDynamicImport || isRequire) refs.push({ spec: node.arguments[0].text, typeOnly: false });
+      if (isDynamicImport || isRequire) refs.push(ref(node.arguments[0].text, ["*"]));
     }
     ts.forEachChild(node, visit);
   };
@@ -196,11 +225,32 @@ function isUseServer(file: string): boolean {
 }
 
 /**
+ * The forbidden edges of ONE file, merged per target: `<forbidden target> { <sorted runtime names> }`.
+ * Several import statements from the same forbidden module collapse into one edge with the union of
+ * their names, so a key describes everything the file takes from that module.
+ */
+function forbiddenEdgesOf(file: string): string[] {
+  const namesByTarget = new Map<string, Set<string>>();
+  for (const r of importsOf(file)) {
+    if (r.typeOnly) continue;
+    const reason = forbiddenReason(r.spec);
+    if (!reason) continue;
+    const set = namesByTarget.get(reason) ?? new Set<string>();
+    for (const n of r.names) set.add(n);
+    namesByTarget.set(reason, set);
+  }
+  // `*` means "everything", so it subsumes any named bindings from the same module.
+  return [...namesByTarget].map(([reason, set]) => `${reason} { ${set.has("*") ? "*" : [...set].sort().join(", ")} }`);
+}
+
+/**
  * BFS the WHOLE import graph from a client entry and record EVERY forbidden edge into `into`, keyed
- * by the file that does the importing (`<importing file> :: <forbidden target>`). Keying by the
- * importer — not the entry — means a baseline entry pins exactly one edge, so a second leak from the
- * same file (e.g. a new `@/lib/prisma` import next to a tolerated enum import) is a NEW key and fails.
- * We never return early: one baselined edge must not hide any other.
+ * by the file that does the importing AND the exact runtime names it takes
+ * (`<importing file> :: <forbidden target> { <names> }`). Keying by the importer — not the entry —
+ * means a baseline entry pins exactly one edge, so a second leak from the same file (e.g. a new
+ * `@/lib/prisma` import next to a tolerated enum import) is a NEW key and fails. Keying by the names
+ * means a tolerated enum import can't quietly grow: adding `PrismaClient` (or one more enum) to it
+ * changes the key and fails too. We never return early: one baselined edge must not hide any other.
  *
  * Type-only imports are skipped (erased at build), and `"use server"` modules are a boundary —
  * Next.js compiles them to client-side RPC proxies, so their server bodies never reach the browser.
@@ -211,14 +261,12 @@ function collectLeaks(entry: string, into: Map<string, string>): void {
   // Cursor over a growing array = BFS without O(n) shifts.
   for (let i = 0; i < queue.length; i++) {
     const { file, trail } = queue[i];
+    for (const edge of forbiddenEdgesOf(file)) {
+      const key = `${rel(file)} :: ${edge}`;
+      if (!into.has(key)) into.set(key, [...trail, edge].join(" -> "));
+    }
     for (const { spec, typeOnly } of importsOf(file)) {
-      if (typeOnly) continue;
-      const reason = forbiddenReason(spec);
-      if (reason) {
-        const key = `${rel(file)} :: ${reason}`;
-        if (!into.has(key)) into.set(key, [...trail, reason].join(" -> "));
-        continue;
-      }
+      if (typeOnly || forbiddenReason(spec)) continue; // forbidden edges were recorded above
       const next = resolveLocal(spec, file);
       if (next && !visited.has(next)) {
         visited.add(next);
@@ -235,43 +283,46 @@ function rel(file: string): string {
 }
 
 /**
- * Known, pre-existing leaks, keyed by the IMPORTING file (`<file> :: <forbidden target>`). Today every
- * entry is a module that imports Prisma ENUMS as values from `@prisma/client` and is reachable from a
- * `"use client"` component — client components themselves plus a few shared lib modules (validation
- * schemas, constants, utils). These are tolerated so the gate is green today, but the backlog only
- * shrinks: the test fails on any NEW edge (a new file, or a new forbidden target in a listed file,
- * e.g. `@/lib/prisma`), and fails if a listed entry is fixed but still listed here.
+ * Known, pre-existing leaks, keyed by the IMPORTING file, the forbidden target and the EXACT runtime
+ * names taken from it (`<file> :: <target> { <names> }`). Today every entry is a module that imports
+ * Prisma ENUMS as values from `@prisma/client` and is reachable from a `"use client"` component —
+ * client components themselves plus a few shared lib modules (validation schemas, constants, utils).
+ * These are tolerated so the gate is green today, but the backlog only shrinks: the test fails on any
+ * NEW key (a new file; a new forbidden target in a listed file, e.g. `@/lib/prisma`; or a listed file
+ * taking one more name from Prisma — another enum or `PrismaClient` itself), and fails if a listed
+ * entry no longer matches (fixed, or its names changed) but is still listed here.
  *
- * To clear an entry: import the enum/type from a browser-safe module (a `@/lib/constants/*` union or
- * `import type`) instead of `@prisma/client`, then delete its line below. Never add a line to make a
- * new leak pass. See docs/KNOWN_ISSUES.md ("Prisma imports in client components").
+ * An entry may only ever LOSE names. To clear a name or an entry: import the enum/type from a
+ * browser-safe module (a `@/lib/constants/*` union or `import type`) instead of `@prisma/client`, then
+ * edit or delete its line below. Never add a line or a name to make a new leak pass. See
+ * docs/KNOWN_ISSUES.md ("Prisma imports in client components").
  */
 const BASELINE = new Set<string>([
-  "app/dashboard/payroll/[id]/payroll-run-actions.tsx :: @prisma/client",
-  "components/appointments/appointment-detail-modal.tsx :: @prisma/client",
-  "components/appointments/appointment-form.tsx :: @prisma/client",
-  "components/appointments/end-condition-selector.tsx :: @prisma/client",
-  "components/appointments/pattern-selector.tsx :: @prisma/client",
-  "components/appointments/recurring-series-badge.tsx :: @prisma/client",
-  "components/appointments/series-management-panel.tsx :: @prisma/client",
-  "components/clients/client-card.tsx :: @prisma/client",
-  "components/clients/loyalty-dashboard.tsx :: @prisma/client",
-  "components/clients/recurring-series-card.tsx :: @prisma/client",
-  "components/invoices/invoice-actions.tsx :: @prisma/client",
-  "components/payroll/payroll-entry-table.tsx :: @prisma/client",
-  "components/payroll/payroll-run-list.tsx :: @prisma/client",
-  "components/payroll/payroll-search.tsx :: @prisma/client",
-  "components/payroll/salary-config-form.tsx :: @prisma/client",
-  "components/sales/checkout-form.tsx :: @prisma/client",
-  "components/schedules/schedule-month-view.tsx :: @prisma/client",
-  "components/schedules/schedule-page-client.tsx :: @prisma/client",
-  "components/schedules/schedule-pdf.tsx :: @prisma/client",
-  "components/schedules/schedule-week-view.tsx :: @prisma/client",
-  "lib/constants/payment-methods.tsx :: @prisma/client",
-  "lib/utils/loyalty.ts :: @prisma/client",
-  "lib/utils/recurring.ts :: @prisma/client",
-  "lib/validations/invoice.ts :: @prisma/client",
-  "lib/validations/payroll.ts :: @prisma/client",
+  "app/dashboard/payroll/[id]/payroll-run-actions.tsx :: @prisma/client { PayrollRunStatus }",
+  "components/appointments/appointment-detail-modal.tsx :: @prisma/client { AppointmentStatus, PaymentMethod }",
+  "components/appointments/appointment-form.tsx :: @prisma/client { PaymentMethod, RecurrenceEndType, RecurrencePattern }",
+  "components/appointments/end-condition-selector.tsx :: @prisma/client { RecurrenceEndType }",
+  "components/appointments/pattern-selector.tsx :: @prisma/client { RecurrencePattern }",
+  "components/appointments/recurring-series-badge.tsx :: @prisma/client { RecurrencePattern }",
+  "components/appointments/series-management-panel.tsx :: @prisma/client { RecurrenceEndType, RecurrencePattern }",
+  "components/clients/client-card.tsx :: @prisma/client { LoyaltyTier }",
+  "components/clients/loyalty-dashboard.tsx :: @prisma/client { LoyaltyTier, LoyaltyTransactionType }",
+  "components/clients/recurring-series-card.tsx :: @prisma/client { AppointmentStatus, RecurrenceEndType, RecurrencePattern }",
+  "components/invoices/invoice-actions.tsx :: @prisma/client { PaymentMethod }",
+  "components/payroll/payroll-entry-table.tsx :: @prisma/client { PayrollEntryStatus, PayrollRunStatus }",
+  "components/payroll/payroll-run-list.tsx :: @prisma/client { PayrollRunStatus }",
+  "components/payroll/payroll-search.tsx :: @prisma/client { PayrollRunStatus }",
+  "components/payroll/salary-config-form.tsx :: @prisma/client { PayType }",
+  "components/sales/checkout-form.tsx :: @prisma/client { PaymentMethod }",
+  "components/schedules/schedule-month-view.tsx :: @prisma/client { ShiftType }",
+  "components/schedules/schedule-page-client.tsx :: @prisma/client { ShiftType }",
+  "components/schedules/schedule-pdf.tsx :: @prisma/client { ShiftType }",
+  "components/schedules/schedule-week-view.tsx :: @prisma/client { ShiftType }",
+  "lib/constants/payment-methods.tsx :: @prisma/client { PaymentMethod }",
+  "lib/utils/loyalty.ts :: @prisma/client { LoyaltyTier, LoyaltyTransactionType }",
+  "lib/utils/recurring.ts :: @prisma/client { RecurrenceEndType, RecurrencePattern }",
+  "lib/validations/invoice.ts :: @prisma/client { InvoiceStatus, PaymentMethod }",
+  "lib/validations/payroll.ts :: @prisma/client { PayType, PayrollRunStatus }",
 ]);
 
 const directive = (src: string, name: string): boolean => hasModuleDirective(parse(src), name);
@@ -301,16 +352,16 @@ describe("hasModuleDirective — what counts as a module-level directive", () =>
   });
 });
 
-describe("extractImports — what counts as a runtime import", () => {
+describe("extractImports — what counts as a runtime import, and which names it takes", () => {
   it("sees a value import that shares its line with the directive, and several imports on one line", () => {
     expect(imports('"use client"; import { PrismaClient } from "@prisma/client";')).toEqual([
-      { spec: "@prisma/client", typeOnly: false },
+      { spec: "@prisma/client", typeOnly: false, names: ["PrismaClient"] },
     ]);
     expect(imports('import a from "a"; import b from "b";').map((r) => r.spec)).toEqual(["a", "b"]);
   });
 
   it("is not confused by an earlier type alias, comments, or strings that look like imports", () => {
-    expect(imports('export type Foo = { a: 1 };\nimport y from "y";')).toEqual([{ spec: "y", typeOnly: false }]);
+    expect(imports('export type Foo = { a: 1 };\nimport y from "y";')).toEqual([{ spec: "y", typeOnly: false, names: ["default"] }]);
     expect(imports('// import x from "nope"\n/* import y from "nope2" */\nconst s = \'import z from "nope3"\';')).toEqual([]);
   });
 
@@ -323,29 +374,45 @@ describe("extractImports — what counts as a runtime import", () => {
       'type T = typeof import("f");',
       'let g: import("g").G;',
     ].join("\n");
-    expect(imports(src)).toEqual([
-      { spec: "a", typeOnly: true },
-      { spec: "b", typeOnly: true },
-      { spec: "d", typeOnly: true },
-      { spec: "e", typeOnly: true },
-    ]);
+    expect(imports(src)).toEqual(
+      ["a", "b", "d", "e"].map((spec) => ({ spec, typeOnly: true, names: [] })),
+    );
   });
 
-  it("treats every other import shape as a runtime import", () => {
+  it("treats every other import shape as a runtime import, recording the names it takes", () => {
     const src = [
       'import { type A, B } from "mixed";',
       'import * as ns from "ns";',
       'import {} from "empty";',
       'import "side";',
       'export * from "star";',
-      'export { x } from "reexport";',
+      'export { x, y as z } from "reexport";',
+      'export {} from "emptyre";',
       'import eq = require("eq");',
       'function later() { return import("dynamic"); }',
       'const r = require("cjs");',
     ].join("\n");
-    expect(imports(src)).toEqual(
-      ["mixed", "ns", "empty", "side", "star", "reexport", "eq", "dynamic", "cjs"].map((spec) => ({ spec, typeOnly: false })),
-    );
+    expect(imports(src)).toEqual([
+      { spec: "mixed", typeOnly: false, names: ["B"] },
+      { spec: "ns", typeOnly: false, names: ["*"] },
+      { spec: "empty", typeOnly: false, names: ["*"] },
+      { spec: "side", typeOnly: false, names: ["*"] },
+      { spec: "star", typeOnly: false, names: ["*"] },
+      { spec: "reexport", typeOnly: false, names: ["x", "y"] },
+      { spec: "emptyre", typeOnly: false, names: ["*"] },
+      { spec: "eq", typeOnly: false, names: ["*"] },
+      { spec: "dynamic", typeOnly: false, names: ["*"] },
+      { spec: "cjs", typeOnly: false, names: ["*"] },
+    ]);
+  });
+
+  it("records the module's own export name, not a local alias, and a default alongside named imports", () => {
+    expect(imports('import { PaymentMethod as PM, ShiftType } from "@prisma/client";')).toEqual([
+      { spec: "@prisma/client", typeOnly: false, names: ["PaymentMethod", "ShiftType"] },
+    ]);
+    expect(imports('import React, { useState } from "react";')).toEqual([
+      { spec: "react", typeOnly: false, names: ["default", "useState"] },
+    ]);
   });
 });
 
@@ -389,9 +456,31 @@ describe("collectLeaks on a fixture — a leak reached through a local helper", 
 
     const leaks = new Map<string, string>();
     collectLeaks(entry, leaks);
-    const keys = [...leaks.keys()];
-    expect(keys).toHaveLength(1);
-    expect(keys[0].endsWith("helper.ts :: @prisma/client")).toBe(true);
+    expect([...leaks.keys()]).toEqual([`${rel(helper)} :: @prisma/client { PrismaClient }`]);
+  });
+
+  it("pins a tolerated enum import to its exact names, so adding PrismaClient to it is a new key", () => {
+    const enumOnly = join(dir, "enum-only.tsx");
+    writeFileSync(enumOnly, ['"use client";', 'import { PaymentMethod } from "@prisma/client";', "export const a = PaymentMethod;", ""].join("\n"));
+    const grown = join(dir, "grown.tsx");
+    writeFileSync(
+      grown,
+      [
+        '"use client";',
+        'import { PaymentMethod } from "@prisma/client";',
+        'import { PrismaClient } from "@prisma/client";',
+        "export const b = [PaymentMethod, PrismaClient];",
+        "",
+      ].join("\n"),
+    );
+    const leaks = new Map<string, string>();
+    collectLeaks(enumOnly, leaks);
+    collectLeaks(grown, leaks);
+    expect([...leaks.keys()]).toEqual([
+      `${rel(enumOnly)} :: @prisma/client { PaymentMethod }`,
+      // Two import statements from the same module merge into one edge listing every name taken.
+      `${rel(grown)} :: @prisma/client { PaymentMethod, PrismaClient }`,
+    ]);
   });
 });
 
@@ -417,11 +506,18 @@ describe("server/client import boundary", () => {
     ).toEqual([]);
   });
 
-  it("baseline only shrinks — remove any entry that no longer leaks", () => {
-    const resolved = [...BASELINE].filter((key) => !leaks.has(key));
+  it("baseline may tolerate enums only — never the Prisma client itself or a whole-module import", () => {
+    // Mechanical half of the "entries may only lose names" rule: editing BASELINE to admit
+    // `PrismaClient`, the `Prisma` namespace or `*` can never make the gate green.
+    const forbiddenNames = /\{[^}]*\b(PrismaClient|Prisma|\*)\b[^}]*\}|\{ \* \}/;
+    expect([...BASELINE].filter((key) => forbiddenNames.test(key))).toEqual([]);
+  });
+
+  it("baseline only shrinks — edit or remove any entry that no longer matches", () => {
+    const stale = [...BASELINE].filter((key) => !leaks.has(key));
     expect(
-      resolved,
-      "These baseline entries are fixed. Delete them from BASELINE in this file so the backlog can't silently regrow:",
+      stale,
+      "These BASELINE entries no longer match what the file imports today. Fixed file: delete the entry. Fewer Prisma names than listed: shrink the entry to the names that remain. If the other test reports the SAME file with MORE names (or `*`), revert that import instead — an entry may only ever lose names:",
     ).toEqual([]);
   });
 });

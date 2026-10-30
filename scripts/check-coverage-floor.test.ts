@@ -21,6 +21,10 @@ function runScript(args: string[]): { status: number | null; out: string } {
       cwd: ROOT,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      // execFileSync blocks the worker, so Vitest's own timeout can't interrupt a hung child; kill it
+      // ourselves first so a hang is a normal test failure instead of a stalled CI job.
+      timeout: E2E_TIMEOUT - 5_000,
+      killSignal: "SIGKILL",
     });
     return { status: 0, out };
   } catch (err) {
