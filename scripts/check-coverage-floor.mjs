@@ -69,8 +69,11 @@ export function stripComments(text) {
  */
 function thresholdsBlock(text) {
   const src = stripComments(text);
+  // Exactly one block: a duplicated `thresholds:` key would let a later, lower block win at runtime
+  // (JS keeps the last duplicate) while we read the first — ambiguous, so fail closed.
+  const occurrences = src.match(/\bthresholds\s*:\s*\{/g) ?? [];
+  if (occurrences.length !== 1) return null;
   const start = src.search(/\bthresholds\s*:\s*\{/);
-  if (start === -1) return null;
   let depth = 0;
   let inner = "";
   for (let i = src.indexOf("{", start); i < src.length; i++) {
@@ -91,15 +94,23 @@ function thresholdsBlock(text) {
 
 /**
  * Pull the four numeric thresholds out of the `thresholds: { ... }` block. Returns null when the block or
- * any metric is missing, so a reformatted config fails closed instead of reading as "no floor".
+ * any metric is missing, so a reformatted config fails closed instead of reading as "no floor". Each value
+ * must be a bare number followed by a comma or the end of the block: an expression like `80 - 20` (which
+ * Vitest would evaluate to 60) is rejected rather than read as 80. Each metric must appear exactly once:
+ * JS keeps the LAST duplicate key, so `statements: 80, ..., statements: 5` would enforce 5 while a
+ * first-match read says 80 — ambiguous, so it fails closed.
  */
 export function parseThresholds(text) {
   const block = thresholdsBlock(text);
   if (block === null) return null;
   const out = {};
   for (const metric of METRICS) {
-    const m = block.match(new RegExp(`\\b${metric}\\s*:\\s*(\\d+(?:\\.\\d+)?)`));
-    if (!m) return null;
+    // Count the KEY, not just well-formed values: `statements: 80 - 20, statements: 80` has one bad and
+    // one good value, and must still be rejected as a duplicate.
+    const keys = block.match(new RegExp(`\\b${metric}\\s*:`, "g")) ?? [];
+    if (keys.length !== 1) return null; // 0 = missing; 2+ = duplicate key (JS keeps the last one)
+    const m = block.match(new RegExp(`\\b${metric}\\s*:\\s*(\\d+(?:\\.\\d+)?)(?=\\s*(?:,|$))`));
+    if (!m) return null; // present but not a bare number (expression, identifier, string, ...)
     out[metric] = Number(m[1]);
   }
   return out;

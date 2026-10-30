@@ -38,14 +38,14 @@ function stripComments(src: string): string {
 /**
  * True only when `name` ("use client" / "use server") is the module's FIRST statement — a
  * module-level directive. A `"use server"` inside a function body is an inline server action, not a
- * whole-module boundary, and must not be mistaken for one.
+ * whole-module boundary, and must not be mistaken for one. Matched as a statement, not a whole line:
+ * Next.js accepts `"use client"; import "./x";` on one line, so we must too, or that file would be
+ * skipped by the guard entirely.
  */
 function isModuleDirective(src: string, name: string): boolean {
-  const firstCode = stripComments(src)
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l.length > 0);
-  return new RegExp(`^["']${name}["'];?$`).test(firstCode ?? "");
+  const code = stripComments(src).trimStart();
+  // `[^\S\r\n]*` = any whitespace except CR/LF (so space, tab, form feed, NBSP may sit before the `;`).
+  return new RegExp(`^["']${name}["'][^\\S\\r\\n]*(?:;|\\r?\\n|$)`).test(code);
 }
 
 /** A clause is type-only if it's `type ...` or every named specifier is `type`-prefixed (all erased). */
@@ -220,6 +220,27 @@ const BASELINE = new Set<string>([
   "lib/validations/invoice.ts :: @prisma/client",
   "lib/validations/payroll.ts :: @prisma/client",
 ]);
+
+describe("isModuleDirective — what counts as a module-level directive", () => {
+  it("accepts the directive on its own line, with or without a semicolon", () => {
+    expect(isModuleDirective('"use client";\nimport x from "./x";', "use client")).toBe(true);
+    expect(isModuleDirective("'use client'\nimport x from './x';", "use client")).toBe(true);
+  });
+
+  it("accepts the directive when an import follows on the same line (Next.js does)", () => {
+    expect(isModuleDirective('"use client"; import "./safe";', "use client")).toBe(true);
+  });
+
+  it("ignores leading comments and blank lines before the directive", () => {
+    expect(isModuleDirective('// header\n/* block */\n\n"use client";\n', "use client")).toBe(true);
+  });
+
+  it("rejects a directive that is not the first statement, is only inside a function body, or is the wrong directive", () => {
+    expect(isModuleDirective('import x from "./x";\n"use client";', "use client")).toBe(false);
+    expect(isModuleDirective('export async function act() {\n  "use server";\n}', "use server")).toBe(false);
+    expect(isModuleDirective('"use client"', "use server")).toBe(false);
+  });
+});
 
 describe("forbiddenReason — what counts as a server-only import", () => {
   it("catches the Prisma client by package root and by any subpath", () => {

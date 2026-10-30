@@ -56,6 +56,28 @@ describe("check-coverage-floor", () => {
     expect(stripComments('a = "abc\\')).toBe('a = "abc\\'); // unterminated string ending in a backslash
   });
 
+  it("rejects a duplicated thresholds block (JS keeps the last one, so which floor applies is ambiguous)", () => {
+    const twoBlocks = `coverage: {
+      thresholds: { statements: 80, branches: 80, functions: 80, lines: 80 },
+      thresholds: { statements: 5, branches: 5, functions: 5, lines: 5 },
+    }`;
+    expect(parseThresholds(twoBlocks)).toBeNull();
+    expect(baseThresholds(twoBlocks)).toBeNull();
+  });
+
+  it("rejects an expression or a duplicated metric key; accepts bare numbers with or without a trailing comma", () => {
+    // Vitest evaluates `80 - 20` as 60; reading it as 80 would let a lowered floor through.
+    expect(parseThresholds("thresholds: { statements: 80 - 20, branches: 4, functions: 6, lines: 6 }")).toBeNull();
+    expect(parseThresholds("thresholds: { statements: 80 * 0.5, branches: 4, functions: 6, lines: 6 }")).toBeNull();
+    // A duplicated key is ambiguous (JS keeps the last one) → fail closed, even if one copy is a bare number.
+    expect(parseThresholds("thresholds: { statements: 80, branches: 2, functions: 3, lines: 4, statements: 5 }")).toBeNull();
+    expect(parseThresholds("thresholds: { statements: 80 - 20, statements: 80, branches: 2, functions: 3, lines: 4 }")).toBeNull();
+    // Bare numbers pass whether or not the last entry has a trailing comma.
+    const simple = { statements: 1, branches: 2, functions: 3, lines: 4 };
+    expect(parseThresholds("thresholds: { statements: 1, branches: 2, functions: 3, lines: 4 }")).toEqual(simple);
+    expect(parseThresholds("thresholds: {\n  statements: 1,\n  branches: 2,\n  functions: 3,\n  lines: 4,\n}")).toEqual(simple);
+  });
+
   it("survives braces inside string keys and rejects an empty block", () => {
     const text = `thresholds: { "lib/{a,b}/**": { statements: 1, branches: 1, functions: 1, lines: 1 }, statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 }`;
     expect(parseThresholds(text)).toEqual({ statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 });
