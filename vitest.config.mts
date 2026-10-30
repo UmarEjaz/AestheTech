@@ -1,6 +1,7 @@
-import { defineConfig, coverageConfigDefaults } from "vitest/config";
+import { defineConfig, configDefaults, coverageConfigDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import { GENERATED_DIRS } from "./scripts/generated-dirs.mjs";
 
 export default defineConfig({
   plugins: [react()],
@@ -15,8 +16,9 @@ export default defineConfig({
     // docblock at the top of the file.
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
-    // e2e/ holds Playwright specs (run via `npm run test:e2e`), not Vitest.
-    exclude: ["node_modules", ".next", "e2e"],
+    // Vitest's own defaults (node_modules and .git at any depth), the root-level generated-output list
+    // shared with ESLint and the boundary test, and e2e/ (Playwright specs, run via `npm run test:e2e`).
+    exclude: [...configDefaults.exclude, ...GENERATED_DIRS.map((dir) => `${dir}/**`), "e2e/**"],
     setupFiles: ["./vitest.setup.ts"],
     coverage: {
       provider: "v8",

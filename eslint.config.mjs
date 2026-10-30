@@ -1,6 +1,7 @@
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
+import { GENERATED_DIRS } from "./scripts/generated-dirs.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -10,14 +11,11 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
-  // Generated / build output and tool reports: never lint these.
+  // Generated / build output and tool reports: never lint these. The folder list is shared with
+  // vitest.config.mts and the server/client boundary test (scripts/generated-dirs.mjs) so the three can't drift apart.
   {
     ignores: [
-      "node_modules/**",
-      ".next/**",
-      "coverage/**",
-      "test-results/**",
-      "playwright-report/**",
+      ...GENERATED_DIRS.map((dir) => `${dir}/**`),
       "next-env.d.ts",
       // Temp config copies scripts/check-coverage-floor.mjs (and its tests) write beside vitest.config.mts;
       // deleted immediately, but one left by a killed run must not fail `eslint .` (also gitignored).

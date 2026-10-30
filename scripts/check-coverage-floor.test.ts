@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -7,15 +7,24 @@ import { normalizeThresholds, findDecreases, CONFIG_PATH, METRICS, ROOT } from "
 
 const SCRIPT = join(ROOT, "scripts", "check-coverage-floor.mjs");
 const realConfig = (): string => readFileSync(join(ROOT, CONFIG_PATH), "utf8");
-// Each end-to-end case spawns the script, which loads two configs through Vite — about a second here,
-// several on a small CI runner. Keep it well clear of Vitest's default 5s.
+// Each end-to-end case spawns the script ONCE, which loads two configs through Vite — about a second here,
+// several on a small CI runner. Keep it well clear of Vitest's default 5s. One spawn per test is the
+// invariant (enforced in runScript): the per-run kill timer (E2E_TIMEOUT - 5s) must fit inside the test's
+// own budget, so a hung child can never make a single test outlive its timeout.
 const E2E_TIMEOUT = 60_000;
+let spawnsInThisTest = 0;
+beforeEach((): void => {
+  spawnsInThisTest = 0;
+});
 
 /**
  * Run the real script end to end (it loads configs through Vitest, so we exercise it as a child process).
  * `status` is null when the child died from a signal rather than exiting.
  */
 function runScript(args: string[]): { status: number | null; out: string } {
+  if (++spawnsInThisTest > 1) {
+    throw new Error("one spawn per test: the kill timer (E2E_TIMEOUT - 5s) only fits one inside the test budget");
+  }
   try {
     const out = execFileSync(process.execPath, [SCRIPT, ...args], {
       cwd: ROOT,
@@ -153,10 +162,13 @@ describe("check-coverage-floor end to end (configs loaded through Vitest, not pa
     expect(r.out).toContain("failed to load through Vitest");
   });
 
-  it("fails closed on a missing base ref and prints usage without one", { timeout: E2E_TIMEOUT }, () => {
+  it("fails closed on a missing base ref", { timeout: E2E_TIMEOUT }, () => {
     const missing = runScript(["no-such-ref"]);
     expect(missing.status).toBe(1);
     expect(missing.out).toContain("could not read vitest.config.mts at no-such-ref");
+  });
+
+  it("prints usage and fails without a base ref", { timeout: E2E_TIMEOUT }, () => {
     const noArgs = runScript([]);
     expect(noArgs.status).toBe(1);
     expect(noArgs.out).toContain("usage:");

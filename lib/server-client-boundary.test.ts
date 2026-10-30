@@ -1,9 +1,20 @@
-import { describe, it, expect, afterAll } from "vitest";
-import { readFileSync, existsSync, statSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import {
+  readFileSync,
+  existsSync,
+  statSync,
+  readdirSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { join, dirname, relative, resolve, sep, extname } from "node:path";
 import { isBuiltin } from "node:module";
 import { tmpdir } from "node:os";
 import ts from "typescript";
+import { GENERATED_DIRS } from "../scripts/generated-dirs.mjs";
 
 /**
  * Architectural guard: nothing a `"use client"` component imports — directly or transitively through
@@ -18,7 +29,15 @@ import ts from "typescript";
  */
 
 const ROOT = process.cwd();
-const SOURCE_DIRS = ["app", "components", "lib"];
+// Client entries are discovered across the WHOLE repo, so a new top-level folder is covered the day it
+// appears. The generated-output folders (one list shared with `eslint.config.mjs` and `vitest.config.mts`)
+// are skipped with the same meaning ESLint gives its ignore list: at the repo ROOT only, so a source
+// folder that happens to be called `build` or `out` deeper down is still scanned. Independently of
+// ESLint, the walk also skips `node_modules` at any depth, every dot-folder (`.git`, `.vscode`, …), and
+// symbolic links, which are never followed whether they point at a file or a folder (so a symlinked
+// source folder is NOT scanned: keep source as real folders).
+const SKIP_DIRS = new Set(GENERATED_DIRS);
+// Only these are source files; `.mjs`/`.mts` here are configs and CLI scripts, never browser code.
 const SOURCE_EXT = [".ts", ".tsx", ".js", ".jsx"];
 const RESOLVE_ORDER = [".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
 // One parser mode per extension in SOURCE_EXT (a `.ts` file must NOT be parsed as TSX: `<T>` generics
@@ -143,14 +162,19 @@ function extractImports(sf: ts.SourceFile): ImportRef[] {
   return refs;
 }
 
-/** Recursively list every source file under `dir`, skipping node_modules, .next and `.d.ts` files. */
-function walk(dir: string, out: string[] = []): string[] {
+/**
+ * Recursively list every source file under `dir`, skipping SKIP_DIRS at the walk root, `node_modules` and
+ * dot-folders at any depth, symlinks (file or folder) and `.d.ts` files. See the note above SKIP_DIRS.
+ */
+function walk(dir: string, out: string[] = [], root: string = dir): string[] {
   if (!existsSync(dir)) return out;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === ".next") continue;
-      walk(full, out);
+      const generated = entry.name === "node_modules" || (dir === root && SKIP_DIRS.has(entry.name));
+      if (generated || entry.name.startsWith(".")) continue;
+      walk(full, out, root);
     } else if (SOURCE_EXT.some((e) => entry.name.endsWith(e)) && !entry.name.endsWith(".d.ts")) {
       out.push(full);
     }
@@ -442,8 +466,15 @@ describe("forbiddenReason — what counts as a server-only import", () => {
 });
 
 describe("collectLeaks on a fixture — a leak reached through a local helper", () => {
-  const dir = mkdtempSync(join(tmpdir(), "boundary-fixture-"));
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  // Created in a hook, not the describe body: a filtered run (`-t`) skips a suite's hooks together, so
+  // creation and cleanup are always paired and nothing is left in the temp folder.
+  let dir: string;
+  beforeAll((): void => {
+    dir = mkdtempSync(join(tmpdir(), "boundary-fixture-"));
+  });
+  afterAll((): void => {
+    if (dir) rmSync(dir, { recursive: true, force: true }); // unset only if beforeAll threw; don't mask that error
+  });
 
   it("catches a Prisma import that shares its line with the directive, reached through a local helper", () => {
     const helper = join(dir, "helper.ts");
@@ -484,8 +515,69 @@ describe("collectLeaks on a fixture — a leak reached through a local helper", 
   });
 });
 
+describe("walk — discovery covers any folder, skipping only generated output, dot-folders and symlinks", () => {
+  // A fresh folder per test (not per suite): each test asserts on the exact contents, so they must not share.
+  let dir: string;
+  beforeEach((): void => {
+    dir = mkdtempSync(join(tmpdir(), "boundary-walk-"));
+  });
+  afterEach((): void => {
+    if (dir) rmSync(dir, { recursive: true, force: true }); // unset only if beforeEach threw; don't mask that error
+  });
+
+  it("GENERATED_DIRS entries are unique bare folder names (consumers append `/**`; walk matches one path segment)", () => {
+    expect(GENERATED_DIRS).toEqual([...new Set(GENERATED_DIRS)]);
+    for (const d of GENERATED_DIRS) expect(d).toMatch(/^[^\\/*?[\]{}]+$/);
+  });
+
+  /** Write an empty module at `relPath` inside the fixture, creating parent folders. */
+  const touch = (relPath: string): string => {
+    const full = join(dir, relPath);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, "export {};\n");
+    return full;
+  };
+  const found = (): string[] => walk(dir).map((f) => relative(dir, f)).sort();
+
+  it("finds source files in a brand-new top-level folder and in nested folders, but not in skipped ones", () => {
+    const keep = [
+      join("features", "widget.tsx"),
+      join("hooks", "deep", "use-thing.ts"),
+      "root-level.js",
+      ".hidden-root-file.js", // only dot-FOLDERS are skipped; a dot-file with a source extension is scanned
+      join("e2e", "spec.ts"),
+      // the generated-output names only count at the repo root, exactly like ESLint's `<dir>/**` ignores
+      join("components", "build", "widget.tsx"),
+      join("app", "out", "page.tsx"),
+    ];
+    const drop = [
+      // every shared generated-output folder at the root (`.next` and `node_modules` are also caught by the
+      // dot-folder / any-depth rules; the rest prove the root list)
+      ...GENERATED_DIRS.map((d) => join(d, "nested", "generated.ts")),
+      join("e2e", "node_modules", "pkg", "index.ts"), // node_modules is skipped at ANY depth
+      join(".git", "hooks", "h.ts"),
+      join("features", "types.d.ts"),
+      join("features", "styles.css"),
+      ".coverage-floor-tmp.vitest.config.mts", // `.mts` is not a source extension (temp copy of the Vitest config)
+    ];
+    for (const relPath of [...keep, ...drop]) touch(relPath);
+    expect(found()).toEqual([...keep].sort());
+  });
+
+  // Symlink creation needs a privilege on Windows; CI and development run on POSIX.
+  it.skipIf(process.platform === "win32")("never follows a symlink, whether it points at a file or a folder", () => {
+    const realDir = join(dir, "shared-real");
+    const realFile = touch(join("shared-real", "thing.tsx"));
+    symlinkSync(realDir, join(dir, "components-link"), "dir");
+    symlinkSync(realFile, join(dir, "thing-link.tsx"), "file");
+    const results = found();
+    expect(results).toContain(join("shared-real", "thing.tsx"));
+    expect(results.some((f) => f.startsWith("components-link") || f === "thing-link.tsx")).toBe(false);
+  });
+});
+
 describe("server/client import boundary", () => {
-  const allFiles = SOURCE_DIRS.flatMap((d) => walk(join(ROOT, d)));
+  const allFiles = walk(ROOT);
   const clientEntries = allFiles.filter((f) => {
     const sf = sourceOf(f);
     return sf !== null && hasModuleDirective(sf, "use client");
