@@ -19,6 +19,9 @@ const eslintConfig = [
       "test-results/**",
       "playwright-report/**",
       "next-env.d.ts",
+      // Temp config copies scripts/check-coverage-floor.mjs (and its tests) write beside vitest.config.mts;
+      // deleted immediately, but one left by a killed run must not fail `eslint .` (also gitignored).
+      ".coverage-floor-*",
     ],
   },
   // Next 15 splits the TypeScript rules out of core-web-vitals into `next/typescript`; include both so

@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
-import { join, dirname, relative, resolve, sep } from "node:path";
+import { describe, it, expect, afterAll } from "vitest";
+import { readFileSync, existsSync, statSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join, dirname, relative, resolve, sep, extname } from "node:path";
 import { isBuiltin } from "node:module";
+import { tmpdir } from "node:os";
+import ts from "typescript";
 
 /**
  * Architectural guard: nothing a `"use client"` component imports — directly or transitively through
@@ -9,55 +11,107 @@ import { isBuiltin } from "node:module";
  * entry file and fail if any edge references the Prisma client (`@prisma/client*`, `.prisma/client*`
  * or our `@/lib/prisma` singleton), `server-only`, or a Node builtin (`node:`-prefixed or bare).
  * Shared constants and Zod schemas used by the browser must live in browser-safe modules.
+ *
+ * Files are parsed with the TypeScript compiler, not pattern-matched: directives and imports are read
+ * from the syntax tree, so comments, strings, line layout (`"use client"; import ...` on one line),
+ * type-only forms and dynamic/CommonJS imports are all handled the way the language defines them.
  */
 
 const ROOT = process.cwd();
 const SOURCE_DIRS = ["app", "components", "lib"];
 const SOURCE_EXT = [".ts", ".tsx", ".js", ".jsx"];
 const RESOLVE_ORDER = [".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
-
-// `import|export <clause> from '...'` (clause lets us drop type-only imports), bare side-effect
-// `import '...'`, dynamic `import('...')`, and CommonJS `require('...')` / `import x = require('...')`.
-// FROM_RE is anchored to the start of a line and the clause may not cross a `;`, so an unrelated
-// `export type Foo = ...;` can't lazily swallow a later real import and mislabel it type-only.
-const FROM_RE = /^[ \t]*(?:import|export)\b([^;]*?)\bfrom\s*["']([^"']+)["']/gm;
-const SIDE_EFFECT_RE = /\bimport\s*["']([^"']+)["']/g;
-const DYNAMIC_RE = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
-const REQUIRE_RE = /\brequire\(\s*["']([^"']+)["']\s*\)/g;
+// One parser mode per extension in SOURCE_EXT (a `.ts` file must NOT be parsed as TSX: `<T>` generics
+// would be read as JSX).
+const SCRIPT_KINDS: Record<string, ts.ScriptKind> = {
+  ".ts": ts.ScriptKind.TS,
+  ".tsx": ts.ScriptKind.TSX,
+  ".js": ts.ScriptKind.JS,
+  ".jsx": ts.ScriptKind.JSX,
+};
 
 interface ImportRef {
   spec: string;
   typeOnly: boolean;
 }
 
-/** Remove block and line comments so a commented-out or trailing-comment import isn't matched. */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+/** Parse source text into a TypeScript syntax tree (script kind from the extension; TSX by default). */
+function parse(src: string, fileName = "module.tsx"): ts.SourceFile {
+  const kind = SCRIPT_KINDS[extname(fileName)] ?? ts.ScriptKind.TSX;
+  return ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, false, kind);
 }
 
 /**
- * True only when `name` ("use client" / "use server") is the module's FIRST statement — a
- * module-level directive. A `"use server"` inside a function body is an inline server action, not a
- * whole-module boundary, and must not be mistaken for one. Matched as a statement, not a whole line:
- * Next.js accepts `"use client"; import "./x";` on one line, so we must too, or that file would be
- * skipped by the guard entirely.
+ * True when `name` ("use client" / "use server") is a module-level directive: a string-literal
+ * expression statement in the file's directive prologue (the run of such statements at the very top,
+ * so `"use strict"; "use client";` counts). A `"use server"` inside a function body is an inline server
+ * action, not a whole-module boundary, and is correctly not seen here because it is not a top-level
+ * statement. Comments, blank lines and how statements share a line are irrelevant to the syntax tree.
  */
-function isModuleDirective(src: string, name: string): boolean {
-  const code = stripComments(src).trimStart();
-  // `[^\S\r\n]*` = any whitespace except CR/LF (so space, tab, form feed, NBSP may sit before the `;`).
-  return new RegExp(`^["']${name}["'][^\\S\\r\\n]*(?:;|\\r?\\n|$)`).test(code);
-}
-
-/** A clause is type-only if it's `type ...` or every named specifier is `type`-prefixed (all erased). */
-function isTypeOnlyClause(clause: string): boolean {
-  const t = clause.trim();
-  if (/^type\b/.test(t)) return true;
-  const braces = t.match(/^\{([^}]*)\}$/);
-  if (braces) {
-    const names = braces[1].split(",").map((s) => s.trim()).filter(Boolean);
-    return names.length > 0 && names.every((n) => /^type\s/.test(n));
+function hasModuleDirective(sf: ts.SourceFile, name: string): boolean {
+  for (const st of sf.statements) {
+    if (!ts.isExpressionStatement(st) || !ts.isStringLiteral(st.expression)) return false; // prologue over
+    if (st.expression.text === name) return true;
   }
   return false;
+}
+
+/** `import ... from "x"`: type-only when the whole clause is `import type` or every named binding is `type`. */
+function importClauseIsTypeOnly(clause: ts.ImportClause | undefined): boolean {
+  if (!clause) return false; // `import "x"` side-effect import — the module runs
+  if (clause.isTypeOnly) return true;
+  if (clause.name) return false; // a default import is a value
+  const nb = clause.namedBindings;
+  if (nb && ts.isNamedImports(nb)) return nb.elements.length > 0 && nb.elements.every((e) => e.isTypeOnly);
+  return false; // namespace import, or `import {} from "x"` (the module still evaluates)
+}
+
+/** `export ... from "x"`: type-only when `export type` or every named export is `type`. */
+function exportIsTypeOnly(node: ts.ExportDeclaration): boolean {
+  if (node.isTypeOnly) return true;
+  const c = node.exportClause;
+  if (c && ts.isNamedExports(c)) return c.elements.length > 0 && c.elements.every((e) => e.isTypeOnly);
+  return false; // `export * from`, `export * as ns from`
+}
+
+/**
+ * Every module specifier a file references, from the syntax tree: static `import`/`export ... from`,
+ * `import x = require("...")`, and — anywhere in the file, including inside functions — dynamic
+ * `import("...")` and CommonJS `require("...")` with a literal argument. Type-position imports
+ * (`typeof import("x")`, `import("x").T`) are type nodes, not calls, so they are naturally skipped.
+ */
+function extractImports(sf: ts.SourceFile): ImportRef[] {
+  const refs: ImportRef[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) {
+      if (ts.isStringLiteral(node.moduleSpecifier)) {
+        refs.push({ spec: node.moduleSpecifier.text, typeOnly: importClauseIsTypeOnly(node.importClause) });
+      }
+      return;
+    }
+    if (ts.isExportDeclaration(node)) {
+      if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+        refs.push({ spec: node.moduleSpecifier.text, typeOnly: exportIsTypeOnly(node) });
+      }
+      return;
+    }
+    if (ts.isImportEqualsDeclaration(node)) {
+      const ref = node.moduleReference;
+      if (ts.isExternalModuleReference(ref) && ts.isStringLiteral(ref.expression)) {
+        refs.push({ spec: ref.expression.text, typeOnly: node.isTypeOnly });
+      }
+      return;
+    }
+    if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteralLike(node.arguments[0])) {
+      const callee = node.expression;
+      const isDynamicImport = callee.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(callee) && callee.text === "require";
+      if (isDynamicImport || isRequire) refs.push({ spec: node.arguments[0].text, typeOnly: false });
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sf, visit);
+  return refs;
 }
 
 /** Recursively list every source file under `dir`, skipping node_modules, .next and `.d.ts` files. */
@@ -109,38 +163,36 @@ function forbiddenReason(spec: string): string | null {
   return null;
 }
 
+const sourceCache = new Map<string, ts.SourceFile | null>();
+/** The parsed syntax tree of `file`, cached; null when the file can't be read. */
+function sourceOf(file: string): ts.SourceFile | null {
+  const hit = sourceCache.get(file);
+  if (hit !== undefined) return hit;
+  let sf: ts.SourceFile | null = null;
+  try {
+    sf = parse(readFileSync(file, "utf8"), file);
+  } catch {
+    sf = null;
+  }
+  sourceCache.set(file, sf);
+  return sf;
+}
+
 const importCache = new Map<string, ImportRef[]>();
-/** Every import specifier in `file` (static, side-effect, dynamic, require), cached per file. */
+/** Every import specifier in `file`, cached per file; an unreadable file has no imports. */
 function importsOf(file: string): ImportRef[] {
   const cached = importCache.get(file);
   if (cached) return cached;
-  const refs: ImportRef[] = [];
-  try {
-    const src = stripComments(readFileSync(file, "utf8"));
-    for (const m of src.matchAll(FROM_RE)) refs.push({ spec: m[2], typeOnly: isTypeOnlyClause(m[1]) });
-    for (const m of src.matchAll(SIDE_EFFECT_RE)) refs.push({ spec: m[1], typeOnly: false });
-    for (const m of src.matchAll(DYNAMIC_RE)) refs.push({ spec: m[1], typeOnly: false });
-    for (const m of src.matchAll(REQUIRE_RE)) refs.push({ spec: m[1], typeOnly: false });
-  } catch {
-    // unreadable — treat as no imports
-  }
+  const sf = sourceOf(file);
+  const refs = sf ? extractImports(sf) : [];
   importCache.set(file, refs);
   return refs;
 }
 
-const useServerCache = new Map<string, boolean>();
-/** Does `file` open with a module-level `"use server"` directive? Cached per file; unreadable = false. */
+/** Does `file` open with a module-level `"use server"` directive? Unreadable = false. */
 function isUseServer(file: string): boolean {
-  const cached = useServerCache.get(file);
-  if (cached !== undefined) return cached;
-  let result = false;
-  try {
-    result = isModuleDirective(readFileSync(file, "utf8"), "use server");
-  } catch {
-    result = false;
-  }
-  useServerCache.set(file, result);
-  return result;
+  const sf = sourceOf(file);
+  return sf ? hasModuleDirective(sf, "use server") : false;
 }
 
 /**
@@ -156,8 +208,9 @@ function isUseServer(file: string): boolean {
 function collectLeaks(entry: string, into: Map<string, string>): void {
   const visited = new Set<string>([entry]);
   const queue: Array<{ file: string; trail: string[] }> = [{ file: entry, trail: [rel(entry)] }];
-  while (queue.length) {
-    const { file, trail } = queue.shift()!;
+  // Cursor over a growing array = BFS without O(n) shifts.
+  for (let i = 0; i < queue.length; i++) {
+    const { file, trail } = queue[i];
     for (const { spec, typeOnly } of importsOf(file)) {
       if (typeOnly) continue;
       const reason = forbiddenReason(spec);
@@ -221,24 +274,78 @@ const BASELINE = new Set<string>([
   "lib/validations/payroll.ts :: @prisma/client",
 ]);
 
-describe("isModuleDirective — what counts as a module-level directive", () => {
+const directive = (src: string, name: string): boolean => hasModuleDirective(parse(src), name);
+const imports = (src: string): ImportRef[] => extractImports(parse(src));
+
+describe("hasModuleDirective — what counts as a module-level directive", () => {
   it("accepts the directive on its own line, with or without a semicolon", () => {
-    expect(isModuleDirective('"use client";\nimport x from "./x";', "use client")).toBe(true);
-    expect(isModuleDirective("'use client'\nimport x from './x';", "use client")).toBe(true);
+    expect(directive('"use client";\nimport x from "./x";', "use client")).toBe(true);
+    expect(directive("'use client'\nimport x from './x';", "use client")).toBe(true);
   });
 
   it("accepts the directive when an import follows on the same line (Next.js does)", () => {
-    expect(isModuleDirective('"use client"; import "./safe";', "use client")).toBe(true);
+    expect(directive('"use client"; import "./safe";', "use client")).toBe(true);
   });
 
-  it("ignores leading comments and blank lines before the directive", () => {
-    expect(isModuleDirective('// header\n/* block */\n\n"use client";\n', "use client")).toBe(true);
+  it("ignores leading comments and blank lines, and allows other directives before it", () => {
+    expect(directive('// header\n/* block */\n\n"use client";\n', "use client")).toBe(true);
+    expect(directive('"use strict";\n"use client";\n', "use client")).toBe(true);
   });
 
-  it("rejects a directive that is not the first statement, is only inside a function body, or is the wrong directive", () => {
-    expect(isModuleDirective('import x from "./x";\n"use client";', "use client")).toBe(false);
-    expect(isModuleDirective('export async function act() {\n  "use server";\n}', "use server")).toBe(false);
-    expect(isModuleDirective('"use client"', "use server")).toBe(false);
+  it("rejects a directive that is not in the prologue, is only inside a function body, or is the wrong directive", () => {
+    expect(directive('import x from "./x";\n"use client";', "use client")).toBe(false);
+    expect(directive('export async function act() {\n  "use server";\n}', "use server")).toBe(false);
+    expect(directive('"use client"', "use server")).toBe(false);
+    expect(directive('"use client".length;', "use client")).toBe(false); // an expression, not a directive
+    expect(directive('const s = "use client";', "use client")).toBe(false);
+  });
+});
+
+describe("extractImports — what counts as a runtime import", () => {
+  it("sees a value import that shares its line with the directive, and several imports on one line", () => {
+    expect(imports('"use client"; import { PrismaClient } from "@prisma/client";')).toEqual([
+      { spec: "@prisma/client", typeOnly: false },
+    ]);
+    expect(imports('import a from "a"; import b from "b";').map((r) => r.spec)).toEqual(["a", "b"]);
+  });
+
+  it("is not confused by an earlier type alias, comments, or strings that look like imports", () => {
+    expect(imports('export type Foo = { a: 1 };\nimport y from "y";')).toEqual([{ spec: "y", typeOnly: false }]);
+    expect(imports('// import x from "nope"\n/* import y from "nope2" */\nconst s = \'import z from "nope3"\';')).toEqual([]);
+  });
+
+  it("marks type-only forms as erased and skips type-position imports entirely", () => {
+    const src = [
+      'import type { A } from "a";',
+      'import { type B, type C } from "b";',
+      'export type { D } from "d";',
+      'export { type E } from "e";',
+      'type T = typeof import("f");',
+      'let g: import("g").G;',
+    ].join("\n");
+    expect(imports(src)).toEqual([
+      { spec: "a", typeOnly: true },
+      { spec: "b", typeOnly: true },
+      { spec: "d", typeOnly: true },
+      { spec: "e", typeOnly: true },
+    ]);
+  });
+
+  it("treats every other import shape as a runtime import", () => {
+    const src = [
+      'import { type A, B } from "mixed";',
+      'import * as ns from "ns";',
+      'import {} from "empty";',
+      'import "side";',
+      'export * from "star";',
+      'export { x } from "reexport";',
+      'import eq = require("eq");',
+      'function later() { return import("dynamic"); }',
+      'const r = require("cjs");',
+    ].join("\n");
+    expect(imports(src)).toEqual(
+      ["mixed", "ns", "empty", "side", "star", "reexport", "eq", "dynamic", "cjs"].map((spec) => ({ spec, typeOnly: false })),
+    );
   });
 });
 
@@ -267,9 +374,33 @@ describe("forbiddenReason — what counts as a server-only import", () => {
   });
 });
 
+describe("collectLeaks on a fixture — a leak reached through a local helper", () => {
+  const dir = mkdtempSync(join(tmpdir(), "boundary-fixture-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("catches a Prisma import that shares its line with the directive, reached through a local helper", () => {
+    const helper = join(dir, "helper.ts");
+    writeFileSync(helper, '"use client"; import { PrismaClient } from "@prisma/client"; export const p = PrismaClient;\n');
+    const entry = join(dir, "entry.tsx");
+    writeFileSync(entry, '"use client";\nimport { p } from "./helper";\nexport const E = (): typeof p => p;\n');
+    const sf = sourceOf(entry);
+    expect(sf).not.toBeNull();
+    expect(sf !== null && hasModuleDirective(sf, "use client")).toBe(true);
+
+    const leaks = new Map<string, string>();
+    collectLeaks(entry, leaks);
+    const keys = [...leaks.keys()];
+    expect(keys).toHaveLength(1);
+    expect(keys[0].endsWith("helper.ts :: @prisma/client")).toBe(true);
+  });
+});
+
 describe("server/client import boundary", () => {
   const allFiles = SOURCE_DIRS.flatMap((d) => walk(join(ROOT, d)));
-  const clientEntries = allFiles.filter((f) => isModuleDirective(readFileSync(f, "utf8"), "use client"));
+  const clientEntries = allFiles.filter((f) => {
+    const sf = sourceOf(f);
+    return sf !== null && hasModuleDirective(sf, "use client");
+  });
   // key -> first trail seen; deduped across entries (a shared helper reached from many components is one edge)
   const leaks = new Map<string, string>();
   for (const entry of clientEntries) collectLeaks(entry, leaks);

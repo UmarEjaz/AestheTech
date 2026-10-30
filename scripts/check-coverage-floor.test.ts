@@ -1,154 +1,160 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { describe, it, expect, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  parseThresholds,
-  baseThresholds,
-  findDecreases,
-  stripComments,
-  CONFIG_PATH,
-  ROOT,
-} from "./check-coverage-floor.mjs";
+import { normalizeThresholds, findDecreases, CONFIG_PATH, METRICS, ROOT } from "./check-coverage-floor.mjs";
 
+const SCRIPT = join(ROOT, "scripts", "check-coverage-floor.mjs");
 const realConfig = (): string => readFileSync(join(ROOT, CONFIG_PATH), "utf8");
+// Each end-to-end case spawns the script, which loads two configs through Vite — about a second here,
+// several on a small CI runner. Keep it well clear of Vitest's default 5s.
+const E2E_TIMEOUT = 60_000;
 
-const sample = (s: number, b: number, f: number, l: number): string => `
-export default defineConfig({
-  test: {
-    coverage: {
-      thresholds: {
-        autoUpdate: true,
-        statements: ${s},
-        branches: ${b},
-        functions: ${f},
-        lines: ${l},
-      },
-    },
-  },
+/**
+ * Run the real script end to end (it loads configs through Vitest, so we exercise it as a child process).
+ * `status` is null when the child died from a signal rather than exiting.
+ */
+function runScript(args: string[]): { status: number | null; out: string } {
+  try {
+    const out = execFileSync(process.execPath, [SCRIPT, ...args], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { status: 0, out };
+  } catch (err) {
+    const e = err as { status: number | null; stdout?: string; stderr?: string };
+    return { status: e.status, out: `${e.stdout ?? ""}\n${e.stderr ?? ""}` };
+  }
+}
+
+describe("normalizeThresholds", () => {
+  it("accepts four plain numbers and ignores autoUpdate/perFile/per-glob entries", () => {
+    const raw = { autoUpdate: true, perFile: false, "lib/**": { lines: 90 }, statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 };
+    expect(normalizeThresholds(raw, { strict: true })).toEqual({
+      floor: { statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 },
+    });
+  });
+
+  it("treats a base with no thresholds (or a missing metric) as a zero floor, but requires all four on the head", () => {
+    const zero = { statements: 0, branches: 0, functions: 0, lines: 0 };
+    expect(normalizeThresholds(undefined, { strict: false })).toEqual({ floor: zero });
+    expect(normalizeThresholds({ statements: 5 }, { strict: false })).toEqual({ floor: { ...zero, statements: 5 } });
+    expect(normalizeThresholds(undefined, { strict: true })).toEqual({ error: "no coverage.thresholds block" });
+    expect(normalizeThresholds({ statements: 1, branches: 2, functions: 3 }, { strict: true })).toEqual({
+      error: "coverage.thresholds.lines is missing",
+    });
+  });
+
+  it("mirrors Vitest's `100: true` shorthand, which overrides every metric", () => {
+    const all100 = { statements: 100, branches: 100, functions: 100, lines: 100 };
+    expect(normalizeThresholds({ 100: true }, { strict: true })).toEqual({ floor: all100 });
+    expect(normalizeThresholds({ 100: true, lines: 5 }, { strict: true })).toEqual({ floor: all100 });
+  });
+
+  it("fails closed on non-numeric, non-finite or negative values", () => {
+    expect(normalizeThresholds({ statements: "80", branches: 1, functions: 1, lines: 1 }, { strict: true })).toHaveProperty("error");
+    expect(normalizeThresholds({ statements: NaN, branches: 1, functions: 1, lines: 1 }, { strict: true })).toHaveProperty("error");
+    expect(normalizeThresholds({ statements: -5, branches: 1, functions: 1, lines: 1 }, { strict: false })).toHaveProperty("error");
+    expect(normalizeThresholds(80, { strict: false })).toHaveProperty("error");
+  });
 });
-`;
 
-describe("check-coverage-floor", () => {
-  it("parses the four thresholds out of the config text", () => {
-    expect(parseThresholds(sample(6.72, 4.58, 6.17, 6.64))).toEqual({
-      statements: 6.72,
-      branches: 4.58,
-      functions: 6.17,
-      lines: 6.64,
-    });
-  });
-
-  it("parses the real vitest.config.mts (so a reformat can't silently break the guard)", () => {
-    const real = parseThresholds(realConfig());
-    expect(real).not.toBeNull();
-    for (const v of Object.values(real!)) expect(v).toBeGreaterThan(0);
-  });
-
-  it("is not fooled by `/*` inside the config's own glob strings", () => {
-    // The real config has `"**/*.test.ts"`-style globs. A naive comment stripper would treat their `/*`
-    // as a comment opener; with a later real block comment it would swallow the thresholds block.
-    const withComment = realConfig().replace(/\}\);\s*$/, "});\n/* reporters: default */\n");
-    expect(parseThresholds(withComment)).toEqual(parseThresholds(realConfig()));
-    expect(baseThresholds(withComment)).toEqual(parseThresholds(realConfig()));
-    expect(stripComments('exclude: ["**/*.test.ts", "**/*.d.ts"], // trailing')).toBe('exclude: ["**/*.test.ts", "**/*.d.ts"], ');
-    expect(stripComments("a /* x */ b // y\nc")).toBe("a  b \nc");
-    expect(stripComments(`"it's" + 'say "hi"' + "esc\\"aped"`)).toBe(`"it's" + 'say "hi"' + "esc\\"aped"`);
-    expect(stripComments('a = "abc\\')).toBe('a = "abc\\'); // unterminated string ending in a backslash
-  });
-
-  it("rejects a duplicated thresholds block (JS keeps the last one, so which floor applies is ambiguous)", () => {
-    const twoBlocks = `coverage: {
-      thresholds: { statements: 80, branches: 80, functions: 80, lines: 80 },
-      thresholds: { statements: 5, branches: 5, functions: 5, lines: 5 },
-    }`;
-    expect(parseThresholds(twoBlocks)).toBeNull();
-    expect(baseThresholds(twoBlocks)).toBeNull();
-  });
-
-  it("rejects an expression or a duplicated metric key; accepts bare numbers with or without a trailing comma", () => {
-    // Vitest evaluates `80 - 20` as 60; reading it as 80 would let a lowered floor through.
-    expect(parseThresholds("thresholds: { statements: 80 - 20, branches: 4, functions: 6, lines: 6 }")).toBeNull();
-    expect(parseThresholds("thresholds: { statements: 80 * 0.5, branches: 4, functions: 6, lines: 6 }")).toBeNull();
-    // A duplicated key is ambiguous (JS keeps the last one) → fail closed, even if one copy is a bare number.
-    expect(parseThresholds("thresholds: { statements: 80, branches: 2, functions: 3, lines: 4, statements: 5 }")).toBeNull();
-    expect(parseThresholds("thresholds: { statements: 80 - 20, statements: 80, branches: 2, functions: 3, lines: 4 }")).toBeNull();
-    // Bare numbers pass whether or not the last entry has a trailing comma.
-    const simple = { statements: 1, branches: 2, functions: 3, lines: 4 };
-    expect(parseThresholds("thresholds: { statements: 1, branches: 2, functions: 3, lines: 4 }")).toEqual(simple);
-    expect(parseThresholds("thresholds: {\n  statements: 1,\n  branches: 2,\n  functions: 3,\n  lines: 4,\n}")).toEqual(simple);
-  });
-
-  it("survives braces inside string keys and rejects an empty block", () => {
-    const text = `thresholds: { "lib/{a,b}/**": { statements: 1, branches: 1, functions: 1, lines: 1 }, statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 }`;
-    expect(parseThresholds(text)).toEqual({ statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 });
-    expect(parseThresholds("thresholds: {}")).toBeNull();
-  });
-
-  it("fails closed when the block or a metric is missing", () => {
-    expect(parseThresholds("export default {}")).toBeNull();
-    expect(parseThresholds("thresholds: { statements: 1, branches: 2, functions: 3 }")).toBeNull();
-    expect(parseThresholds("thresholds: { statements: 1, branches: 2, functions: 3, lines: 4 ")).toBeNull(); // unbalanced
-  });
-
-  it("ignores a nested per-glob object, even when it comes first and has all four metrics", () => {
-    const text = `
-      thresholds: {
-        "lib/**": { statements: 80, branches: 80, functions: 80, lines: 80 },
-        autoUpdate: true,
-        statements: 6.72,
-        branches: 4.58,
-        functions: 6.17,
-        lines: 6.64,
-      },`;
-    expect(parseThresholds(text)).toEqual({ statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 });
-    // A glob-only block has no global floor → fail closed, not "80".
-    expect(parseThresholds(`thresholds: { "lib/**": { statements: 80, branches: 80, functions: 80, lines: 80 } }`)).toBeNull();
-  });
-
-  it("ignores comments inside and above the block", () => {
-    const text = `
-      // thresholds: { statements: 1, branches: 1, functions: 1, lines: 1 },
-      thresholds: {
-        // statements: 50 was the old value
-        /* lines: 99 */
-        statements: 6.72,
-        branches: 4.58,
-        functions: 6.17,
-        lines: 6.64,
-      },`;
-    expect(parseThresholds(text)).toEqual({ statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 });
-    // A commented-out block on the base is still "no floor yet".
-    expect(baseThresholds("// thresholds: { statements: 1, branches: 1, functions: 1, lines: 1 }")).toEqual({
-      statements: 0,
-      branches: 0,
-      functions: 0,
-      lines: 0,
-    });
-  });
-
-  it("treats a base config with no thresholds block as a zero floor, but a broken block as an error", () => {
-    expect(baseThresholds("export default defineConfig({ test: { coverage: { provider: 'v8' } } })")).toEqual({
-      statements: 0,
-      branches: 0,
-      functions: 0,
-      lines: 0,
-    });
-    expect(baseThresholds("thresholds: { statements: 1 }")).toBeNull();
-    expect(baseThresholds(sample(6.72, 4.58, 6.17, 6.64))).toEqual(parseThresholds(sample(6.72, 4.58, 6.17, 6.64)));
-  });
-
+describe("findDecreases", () => {
+  const base = { statements: 6.72, branches: 4.58, functions: 6.17, lines: 6.64 };
   it("reports only the metrics that went down", () => {
-    const base = parseThresholds(sample(6.72, 4.58, 6.17, 6.64))!;
-    const head = parseThresholds(sample(6.72, 4.5, 6.2, 6.63))!;
-    expect(findDecreases(base, head)).toEqual([
+    expect(findDecreases(base, { statements: 6.72, branches: 4.5, functions: 6.2, lines: 6.63 })).toEqual([
       { metric: "branches", base: 4.58, head: 4.5 },
       { metric: "lines", base: 6.64, head: 6.63 },
     ]);
   });
-
   it("allows unchanged and increased thresholds", () => {
-    const base = parseThresholds(sample(6.72, 4.58, 6.17, 6.64))!;
     expect(findDecreases(base, base)).toEqual([]);
-    expect(findDecreases(base, parseThresholds(sample(7, 5, 7, 7))!)).toEqual([]);
+    expect(findDecreases(base, { statements: 7, branches: 5, functions: 7, lines: 7 })).toEqual([]);
+  });
+});
+
+describe("check-coverage-floor end to end (configs loaded through Vitest, not pattern-matched)", () => {
+  const tmpFiles: string[] = [];
+  afterEach(() => {
+    for (const f of tmpFiles.splice(0)) rmSync(f, { force: true });
+  });
+
+  /**
+   * A variant of the real config (same imports/plugins, written next to it) with the thresholds block
+   * replaced. Metrics NOT under test are set to 100 by the caller so they can never read as a decrease,
+   * whatever the committed floor is when this runs.
+   */
+  const variant = (thresholdsSource: string): string => {
+    const original = realConfig();
+    const text = original.replace(/thresholds:\s*\{[\s\S]*?\n\s*\},/, `thresholds: ${thresholdsSource},`);
+    if (text === original) throw new Error("test setup: could not find the thresholds block to replace");
+    const path = join(ROOT, `.coverage-floor-test-${randomUUID()}.vitest.config.mts`);
+    tmpFiles.push(path);
+    writeFileSync(path, text);
+    return path;
+  };
+
+  it("passes when the head floor equals the committed one", { timeout: E2E_TIMEOUT }, () => {
+    const r = runScript(["HEAD"]);
+    expect(r.out).toContain("no threshold is lower than on HEAD");
+    expect(r.status).toBe(0);
+  });
+
+  it("fails on a floor lowered through an arithmetic expression", { timeout: E2E_TIMEOUT }, () => {
+    // Text-matching would read 80 here; Vitest evaluates 80 - 79 = 1.
+    const r = runScript(["HEAD", variant("{ statements: 80 - 79, branches: 100, functions: 100, lines: 100 }")]);
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/statements [\d.]+ -> 1\b/);
+    expect(r.out).toContain("1 threshold(s) are lower");
+  });
+
+  it("fails on statements and lines floors lowered through a spread that overrides the literals", { timeout: E2E_TIMEOUT }, () => {
+    const r = runScript([
+      "HEAD",
+      variant("{ statements: 100, branches: 100, functions: 100, lines: 100, ...{ statements: 1, lines: 1 } }"),
+    ]);
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/statements [\d.]+ -> 1\b/);
+    expect(r.out).toMatch(/lines [\d.]+ -> 1\b/);
+    expect(r.out).toContain("2 threshold(s) are lower");
+  });
+
+  it("fails on a floor lowered through a duplicated key (JS keeps the last one)", { timeout: E2E_TIMEOUT }, () => {
+    const r = runScript(["HEAD", variant("{ branches: 100, functions: 100, lines: 100, statements: 100, statements: 2 }")]);
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/statements [\d.]+ -> 2\b/);
+    expect(r.out).toContain("1 threshold(s) are lower");
+  });
+
+  it("honours Vitest's `100: true` shorthand end to end", { timeout: E2E_TIMEOUT }, () => {
+    const r = runScript(["HEAD", variant("{ 100: true }")]);
+    // Table rows are column-padded: "statements   6.72 ->    100  up".
+    for (const metric of METRICS) {
+      expect(r.out).toMatch(new RegExp(`${metric}\\s+[\\d.]+ ->\\s+100\\s+up`));
+    }
+    expect(r.status).toBe(0);
+  });
+
+  it("fails closed when the head config has no thresholds", { timeout: E2E_TIMEOUT }, () => {
+    const r = runScript(["HEAD", variant("undefined")]);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("no coverage.thresholds block");
+  });
+
+  it("fails closed when the head config does not load", { timeout: E2E_TIMEOUT }, () => {
+    const r = runScript(["HEAD", variant("{ statements: 1, branches: 1, functions: 1, lines: 1 ")]); // syntax error
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("failed to load through Vitest");
+  });
+
+  it("fails closed on a missing base ref and prints usage without one", { timeout: E2E_TIMEOUT }, () => {
+    const missing = runScript(["no-such-ref"]);
+    expect(missing.status).toBe(1);
+    expect(missing.out).toContain("could not read vitest.config.mts at no-such-ref");
+    const noArgs = runScript([]);
+    expect(noArgs.status).toBe(1);
+    expect(noArgs.out).toContain("usage:");
   });
 });

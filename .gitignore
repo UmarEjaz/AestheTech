@@ -7,6 +7,8 @@ node_modules
 # Testing
 /coverage
 *.test.js.snap
+# Temp config files scripts/check-coverage-floor.mjs (and its tests) write beside vitest.config.mts while loading a config through Vitest
+/.coverage-floor-*
 
 # Next.js
 /.next/
