@@ -72,3 +72,6 @@ TODO.local.md
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# Claude Code local settings (never commit)
+.claude/settings.local.json

@@ -149,6 +149,8 @@
 - [x] Auto-generate invoice on sale completion
 - [x] Calculate and apply loyalty points
 - [x] Send receipt via email (optional)
+- [x] Print / download the customer receipt (thermal 80/58mm slip or A5/A4 document) from the sale page, reached straight after checkout
+- [x] Per-payment receipts for deposits and partial payments (invoice page), with the balance as it stood at that payment
 - [x] Create sale history view
 - [x] Add sale search and filtering
 - [x] Test sales flow end-to-end
@@ -167,6 +169,7 @@
 - [x] Filter invoices by date, client, status
 - [x] Generate PDF invoice (use library like jsPDF or react-pdf)
 - [x] Email invoice to client
+- [x] Attach an A4 PDF to receipt and invoice emails; invoice PDF shows amount paid, refunds, balance due, loyalty and the derived Overdue status
 - [x] Display invoice history for clients
 - [x] Implement refund functionality
 - [x] Handle invoice cancellation
@@ -297,6 +300,7 @@
 ### Admin & Settings
 - [x] Create branch management page for owners
 - [x] Per-branch settings (hours, timezone, currency)
+- [x] Receipt settings (paper size, footer note) and a tax / VAT / GST registration number under Currency & Tax, all printed on receipts and invoices
 - [x] Staff assignment and transfer between branches
 - [x] Cross-branch reporting for owners
 

@@ -41,6 +41,7 @@ interface InvoiceEmailData {
 }
 
 import { formatCurrencyHtml } from "@/lib/utils/currency";
+import { formatInvoiceStatus } from "@/lib/utils/invoice-status";
 
 function escapeHtml(str: string): string {
   return str
@@ -168,11 +169,12 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
     PAID: "#16a34a",
     OVERDUE: "#dc2626",
     PENDING: "#d97706",
+    PARTIALLY_PAID: "#d97706",
     CANCELLED: "#6b7280",
     REFUNDED: "#2563eb",
   };
   const statusColor = statusColors[data.status] ?? "#d97706";
-  const statusLabel = data.status.charAt(0) + data.status.slice(1).toLowerCase();
+  const statusLabel = formatInvoiceStatus(data.status); // "PARTIALLY_PAID" → "Partially Paid", same as the subject line
 
   return `
 <!DOCTYPE html>

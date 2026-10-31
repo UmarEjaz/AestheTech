@@ -10,6 +10,17 @@ import { cleanup } from "@testing-library/react";
 if (typeof HTMLElement !== "undefined") {
   HTMLElement.prototype.setPointerCapture ??= () => {};
   HTMLElement.prototype.releasePointerCapture ??= () => {};
+  HTMLElement.prototype.scrollIntoView ??= () => {};
+}
+
+// jsdom lacks ResizeObserver, which Radix UI primitives (Select, etc.) touch on mount. Stub it so
+// component tests that render those primitives don't crash.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
 }
 
 afterEach(() => {

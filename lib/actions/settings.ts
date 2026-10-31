@@ -7,6 +7,7 @@ import { checkAuth, checkAuthBasic } from "@/lib/auth-helpers";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";
 import { BOOKING_MODES, type BookingMode } from "@/lib/constants/booking-modes";
+import { RECEIPT_SIZES, asReceiptSize, type ReceiptSize } from "@/lib/constants/receipt-sizes";
 
 // The DB stores defaultBookingMode as a plain String; normalize it to the typed union on read.
 function asBookingMode(value: string): BookingMode {
@@ -23,12 +24,16 @@ export interface SettingsData {
   timezone: string;
   currencyCode: string;
   taxRate: number;
+  taxNumber: string | null; // business tax/VAT/GST registration number for invoices & receipts
+  receiptFooter: string | null; // optional terms/footer note at the foot of receipts & invoices
   businessHoursStart: string;
   businessHoursEnd: string;
   appointmentInterval: number;
   allowOnlineBooking: boolean;
   // Which mode the "New booking" screen opens in by default (Walk-in here now / Appointment later).
   defaultBookingMode: BookingMode;
+  // Paper size for printed/downloaded customer receipts (thermal 80/58mm or A5/A4).
+  receiptSize: ReceiptSize;
   loyaltyProgramEnabled: boolean;
   loyaltyPointsPerDollar: number;
   goldThreshold: number;
@@ -70,11 +75,14 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
           timezone: "UTC",
           currencyCode: "USD",
           taxRate: 0,
+          taxNumber: null,
+          receiptFooter: null,
           businessHoursStart: "09:00",
           businessHoursEnd: "19:00",
           appointmentInterval: 30,
           allowOnlineBooking: true,
           defaultBookingMode: "APPOINTMENT",
+          receiptSize: "THERMAL_80",
           loyaltyProgramEnabled: true,
           loyaltyPointsPerDollar: 1,
           goldThreshold: 500,
@@ -97,6 +105,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
         data: {
           ...defaultSettings,
           defaultBookingMode: asBookingMode(defaultSettings.defaultBookingMode),
+          receiptSize: asReceiptSize(defaultSettings.receiptSize),
           taxRate: Number(defaultSettings.taxRate),
           memberMultiplier: Number(defaultSettings.memberMultiplier),
           goldMultiplier: Number(defaultSettings.goldMultiplier),
@@ -110,6 +119,7 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
       data: {
         ...settings,
         defaultBookingMode: asBookingMode(settings.defaultBookingMode),
+        receiptSize: asReceiptSize(settings.receiptSize),
         taxRate: Number(settings.taxRate),
         memberMultiplier: Number(settings.memberMultiplier),
         goldMultiplier: Number(settings.goldMultiplier),
@@ -122,10 +132,22 @@ export async function getSettings(): Promise<ActionResult<SettingsData>> {
   }
 }
 
+type DocumentFields = { taxNumber?: string | null; receiptFooter?: string | null };
+
+/** Trim the free-text document fields; a blank value becomes null so it never prints as an empty line. */
+function normalizeDocumentFields<T extends DocumentFields>(input: T): Omit<T, keyof DocumentFields> & DocumentFields {
+  return {
+    ...input,
+    ...(input.taxNumber != null ? { taxNumber: input.taxNumber.trim() || null } : {}),
+    ...(input.receiptFooter != null ? { receiptFooter: input.receiptFooter.trim() || null } : {}),
+  };
+}
+
 /** Updates salon settings with server-side validation for thresholds, multipliers, and loyalty fields. */
 export async function updateSettings(
-  data: Partial<Omit<SettingsData, "id">>
+  input: Partial<Omit<SettingsData, "id">>
 ): Promise<ActionResult<SettingsData>> {
+  const data = normalizeDocumentFields(input);
   const authResult = await checkAuth("settings:manage");
   if (!authResult) {
     return { success: false, error: "Unauthorized" };
@@ -156,6 +178,21 @@ export async function updateSettings(
       !BOOKING_MODES.includes(data.defaultBookingMode)
     ) {
       return { success: false, error: "Invalid default booking mode" };
+    }
+
+    // Validate the receipt paper size against the allowed-values source of truth.
+    if (data.receiptSize !== undefined && !RECEIPT_SIZES.includes(data.receiptSize)) {
+      return { success: false, error: "Invalid receipt size" };
+    }
+
+    // Cap the (already trimmed) free-text document fields server-side too, not just in the client zod:
+    // server actions are directly callable, and an unbounded string would persist and bloat every
+    // receipt/invoice render.
+    if (data.taxNumber != null && data.taxNumber.length > 50) {
+      return { success: false, error: "Tax number must be 50 characters or fewer" };
+    }
+    if (data.receiptFooter != null && data.receiptFooter.length > 300) {
+      return { success: false, error: "Footer note must be 300 characters or fewer" };
     }
 
     // Validate currency code if provided
@@ -264,6 +301,7 @@ export async function updateSettings(
       data: {
         ...updatedSettings,
         defaultBookingMode: asBookingMode(updatedSettings.defaultBookingMode),
+        receiptSize: asReceiptSize(updatedSettings.receiptSize),
         taxRate: Number(updatedSettings.taxRate),
         memberMultiplier: Number(updatedSettings.memberMultiplier),
         goldMultiplier: Number(updatedSettings.goldMultiplier),

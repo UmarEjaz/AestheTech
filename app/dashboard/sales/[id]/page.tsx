@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { auth } from "@/lib/auth";
 import { getEffectiveActor } from "@/lib/effective-actor";
 import { redirect, notFound } from "next/navigation";
@@ -30,16 +31,20 @@ import { hasPermission } from "@/lib/permissions";
 import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
-import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
 import { RefundDialog } from "@/components/sales/refund-dialog";
 import { EmailReceiptButton, EmailInvoiceButton } from "@/components/sales/email-receipt-button";
+import { PrintReceiptButton } from "@/components/sales/print-receipt-button";
+import { buildSaleInvoicePdfData, buildSaleReceiptData, NO_LOYALTY } from "@/components/sales/receipt-data";
+import { getSaleLoyaltySummary } from "@/lib/sale-loyalty-summary";
+import { effectiveInvoiceStatus } from "@/lib/utils/invoice-status";
+import { salonOverdueCutoff } from "@/lib/invoice-overdue";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 
 export default async function SaleDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
-}) {
+}): Promise<ReactElement> {
   const session = await auth();
 
   if (!session) {
@@ -79,55 +84,34 @@ export default async function SaleDetailPage({
     salonEmail: null,
     salonLogo: null,
     taxRate: 0,
+    taxNumber: null,
+    receiptFooter: null,
     timezone: "UTC",
+    receiptSize: "THERMAL_80" as const,
   };
   const tz = settings.timezone;
 
-  const getInitials = (firstName: string, lastName: string | null) => {
+  // Loyalty figures for the receipt (informational only — not part of the money totals). Only for a
+  // real client with the loyalty program on.
+  const loyaltyEnabled = settingsResult.success ? settingsResult.data.loyaltyProgramEnabled : false;
+  const loyalty =
+    loyaltyEnabled && !sale.client.isWalkIn ? await getSaleLoyaltySummary(sale.id, sale.client.id) : NO_LOYALTY;
+
+  // The status to SHOW is the derived one (OVERDUE once the due date has passed), as on the invoice
+  // page and in the emailed PDF, so every copy of this invoice agrees.
+  const invoiceStatus = sale.invoice
+    ? effectiveInvoiceStatus(sale.invoice.status, sale.invoice.dueDate, await salonOverdueCutoff(tz))
+    : null;
+
+  const getInitials = (firstName: string, lastName: string | null): string => {
     return `${firstName[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
   };
 
-  // Prepare invoice data for PDF
-  const invoiceData: InvoicePDFData | null = sale.invoice
-    ? {
-        invoiceNumber: sale.invoice.invoiceNumber,
-        status: sale.invoice.status,
-        createdAt: sale.createdAt.toISOString(),
-        salonName: settings.salonName,
-        salonAddress: settings.salonAddress,
-        salonPhone: settings.salonPhone,
-        salonEmail: settings.salonEmail,
-        salonLogo: settings.salonLogo,
-        currencyCode: settings.currencyCode,
-        taxRate: settings.taxRate,
-        timezone: tz,
-        client: {
-          firstName: sale.client.firstName,
-          lastName: sale.client.lastName,
-          email: sale.client.email,
-          phone: sale.client.phone,
-          isWalkIn: sale.client.isWalkIn,
-        },
-        items: sale.items.map((item) => ({
-          id: item.id,
-          service: item.service ? { name: item.service.name } : null,
-          staff: item.staff ? { firstName: item.staff.firstName, lastName: item.staff.lastName } : null,
-          product: item.product ? { name: item.product.name } : null,
-          price: Number(item.price),
-          quantity: item.quantity,
-          discount: Number(item.discount),
-          note: item.note ?? null,
-        })),
-        subtotal: Number(sale.totalAmount),
-        discount: Number(sale.discount),
-        tax: Number(sale.invoice.tax),
-        total: Number(sale.invoice.total),
-        loyaltyPointsEarned: 0,
-        loyaltyPointsRedeemed: 0,
-      }
-    : null;
+  // Invoice PDF + the compact proof-of-payment receipt (both only once the sale is invoiced).
+  const invoiceData = buildSaleInvoicePdfData(sale, settings, { loyalty, status: invoiceStatus ?? undefined });
+  const receiptData = buildSaleReceiptData(sale, settings, loyalty);
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string): ReactElement => {
     switch (status) {
       case "PAID":
         return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Paid</Badge>;
@@ -179,8 +163,9 @@ export default async function SaleDetailPage({
                 currencyCode={settings.currencyCode}
               />
             )}
-            {sale.invoice && invoiceData && (
+            {sale.invoice && invoiceData && receiptData && (
               <>
+                <PrintReceiptButton data={receiptData} />
                 <EmailReceiptButton
                   saleId={sale.id}
                   clientEmail={sale.client.email}
@@ -262,7 +247,7 @@ export default async function SaleDetailPage({
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Status</span>
-                    {getStatusBadge(sale.invoice.status)}
+                    {getStatusBadge(invoiceStatus ?? sale.invoice.status)}
                   </div>
                   {sale.invoice.payments && sale.invoice.payments.length > 0 && (
                     <>

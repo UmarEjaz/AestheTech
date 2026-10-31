@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CreditCard, XCircle, RotateCcw, MoreHorizontal } from "lucide-react";
@@ -42,14 +42,7 @@ import {
 import { addPaymentToInvoice, cancelInvoice } from "@/lib/actions/invoice";
 import { RefundDialog } from "@/components/sales/refund-dialog";
 import { formatCurrency } from "@/lib/utils/currency";
-import { PaymentMethod } from "@prisma/client";
-
-const PAYMENT_METHODS = [
-  { value: "CASH", label: "Cash" },
-  { value: "CARD", label: "Card" },
-  { value: "DIGITAL_WALLET", label: "Digital Wallet" },
-  { value: "OTHER", label: "Other" },
-] as const;
+import { PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS, type PaymentMethod } from "@/lib/constants/payment-methods";
 
 interface InvoiceActionsProps {
   invoiceId: string;
@@ -78,13 +71,13 @@ export function InvoiceActions({
   maxRefundable,
   currencyCode,
   amountDue,
-}: InvoiceActionsProps) {
+}: InvoiceActionsProps): ReactElement {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [payOpen, setPayOpen] = useState(false);
   const [payAmount, setPayAmount] = useState("");
-  const [payMethod, setPayMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
+  const [payMethod, setPayMethod] = useState<PaymentMethod>("CASH");
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
@@ -98,7 +91,7 @@ export function InvoiceActions({
   const showRefund = canRefund;
   const hasOverflow = showRefund || showCancel;
 
-  function addPayment() {
+  function addPayment(): void {
     const amount = Number(payAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error("Enter a valid payment amount");
@@ -122,7 +115,7 @@ export function InvoiceActions({
     });
   }
 
-  function cancel() {
+  function cancel(): void {
     startTransition(async () => {
       try {
         const res = await cancelInvoice(invoiceId);
@@ -224,8 +217,8 @@ export function InvoiceActions({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PAYMENT_METHODS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                  {SELECTABLE_PAYMENT_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
