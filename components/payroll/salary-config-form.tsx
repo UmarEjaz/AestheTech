@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { PayType } from "@prisma/client";
+import { type PayType, DEFAULT_PAY_TYPE, PAY_TYPE_LABELS, PAY_TYPES } from "@/lib/constants/pay-types";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,13 +36,13 @@ interface SalaryConfigFormProps {
   currencyCode?: string;
 }
 
-export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: SalaryConfigFormProps) {
+export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: SalaryConfigFormProps): ReactElement {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Use local date parts to avoid UTC timezone shift
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const toLocalDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const toLocalDateStr = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const dateValue = config?.effectiveDate
     ? toLocalDateStr(new Date(config.effectiveDate))
     : toLocalDateStr(new Date());
@@ -58,7 +58,7 @@ export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: 
     resolver: zodResolver(salaryConfigSchema) as any,
     defaultValues: {
       userId: config?.userId || "",
-      payType: (config?.payType as PayType) || PayType.MONTHLY,
+      payType: (config?.payType as PayType) || DEFAULT_PAY_TYPE,
       baseRate: config ? Number(config.baseRate) : undefined,
       effectiveDate: config?.effectiveDate ? new Date(config.effectiveDate) : new Date(),
       notes: config?.notes || "",
@@ -68,7 +68,7 @@ export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: 
   const userId = watch("userId");
   const payType = watch("payType");
 
-  const onSubmit = async (data: SalaryConfigInput) => {
+  const onSubmit = async (data: SalaryConfigInput): Promise<void> => {
     setIsSubmitting(true);
 
     try {
@@ -112,7 +112,7 @@ export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: 
                 onValueChange={(value) => setValue("userId", value, { shouldValidate: true })}
                 disabled={mode === "edit"}
               >
-                <SelectTrigger>
+                <SelectTrigger id="userId">
                   <SelectValue placeholder="Select staff member" />
                 </SelectTrigger>
                 <SelectContent>
@@ -133,12 +133,11 @@ export function SalaryConfigForm({ config, mode, staff, currencyCode = "USD" }: 
                 value={payType}
                 onValueChange={(value) => setValue("payType", value as PayType, { shouldValidate: true })}
               >
-                <SelectTrigger>
+                <SelectTrigger id="payType">
                   <SelectValue placeholder="Select pay type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={PayType.MONTHLY}>Monthly</SelectItem>
-                  <SelectItem value={PayType.HOURLY}>Hourly</SelectItem>
+                  {PAY_TYPES.map((t) => <SelectItem key={t} value={t}>{PAY_TYPE_LABELS[t]}</SelectItem>)}
                 </SelectContent>
               </Select>
               {errors.payType && (

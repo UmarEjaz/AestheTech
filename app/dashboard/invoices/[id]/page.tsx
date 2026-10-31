@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ReactElement } from "react";
 import { getInvoice } from "@/lib/actions/invoice";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
@@ -25,13 +26,15 @@ import { formatInTz } from "@/lib/utils/timezone";
 import { amountDue, formatInvoiceStatus } from "@/lib/utils/invoice-status";
 import { InvoiceActions } from "@/components/invoices/invoice-actions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
-import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
+import { buildInvoicePdfData, buildPaymentReceipts } from "@/components/invoices/invoice-pdf-data";
+import { getSaleLoyaltySummary } from "@/lib/sale-loyalty-summary";
+import { PaymentReceiptButton } from "@/components/sales/payment-receipt-button";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-function statusVariant(status: string) {
+function statusVariant(status: string): "success" | "warning" | "destructive" | "secondary" {
   switch (status) {
     case "PAID":
       return "success" as const;
@@ -45,7 +48,7 @@ function statusVariant(status: string) {
   }
 }
 
-export default async function InvoiceDetailPage({ params }: PageProps) {
+export default async function InvoiceDetailPage({ params }: PageProps): Promise<ReactElement> {
   const session = await auth();
   if (!session) {
     redirect("/login");
@@ -82,6 +85,9 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
         salonEmail: null,
         salonLogo: null,
         taxRate: 0,
+        taxNumber: null,
+        receiptFooter: null,
+        receiptSize: "THERMAL_80" as const,
       };
   const currency = settings.currencyCode;
   const tz = settings.timezone;
@@ -97,42 +103,16 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
   const canIssueRefund = canRefund && invoice.status === "PAID" && maxRefundable > 0;
   const totalPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
 
-  const pdfData: InvoicePDFData = {
-    invoiceNumber: invoice.invoiceNumber,
-    status: invoice.status,
-    createdAt: invoice.createdAt.toISOString(),
-    salonName: settings.salonName,
-    salonAddress: settings.salonAddress,
-    salonPhone: settings.salonPhone,
-    salonEmail: settings.salonEmail,
-    salonLogo: settings.salonLogo,
-    currencyCode: currency,
-    taxRate: settings.taxRate,
-    timezone: tz,
-    client: {
-      firstName: invoice.client.firstName,
-      lastName: invoice.client.lastName,
-      email: invoice.client.email,
-      phone: invoice.client.phone,
-      isWalkIn: invoice.client.isWalkIn,
-    },
-    items: invoice.sale.items.map((item) => ({
-      id: item.id,
-      service: item.service ? { name: item.service.name } : null,
-      staff: item.staff ? { firstName: item.staff.firstName, lastName: item.staff.lastName } : null,
-      product: item.product ? { name: item.product.name } : null,
-      price: Number(item.price),
-      quantity: item.quantity,
-      discount: Number(item.discount),
-      note: item.note ?? null,
-    })),
-    subtotal: Number(invoice.sale.totalAmount),
-    discount: Number(invoice.sale.discount),
-    tax: Number(invoice.tax),
-    total: Number(invoice.total),
-    loyaltyPointsEarned: 0,
-    loyaltyPointsRedeemed: 0,
-  };
+  // Loyalty figures for the PDF's "Points Earned" box (informational). Only for a real client with
+  // the loyalty program on.
+  const loyaltyEnabled = settingsResult.success ? settingsResult.data.loyaltyProgramEnabled : false;
+  const loyalty =
+    loyaltyEnabled && !invoice.client.isWalkIn
+      ? await getSaleLoyaltySummary(invoice.sale.id, invoice.client.id)
+      : undefined;
+  const pdfData = buildInvoicePdfData(invoice, settings, loyalty);
+  // One printable receipt per payment, each with the balance as it stood at that payment.
+  const paymentReceiptById = buildPaymentReceipts(invoice, settings);
 
   return (
     <>
@@ -268,14 +248,20 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
                   <p className="text-sm text-muted-foreground">No payments recorded.</p>
                 ) : (
                   <div className="space-y-2">
-                    {invoice.payments.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">
-                          {p.method.replace("_", " ")} · {formatInTz(p.paidAt, "dd MMM yyyy", tz)}
-                        </span>
-                        <span className="font-medium">{formatCurrency(Number(p.amount), currency)}</span>
-                      </div>
-                    ))}
+                    {invoice.payments.map((p) => {
+                      const receipt = paymentReceiptById.get(p.id);
+                      return (
+                        <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-muted-foreground">
+                            {p.method.replace("_", " ")} · {formatInTz(p.paidAt, "dd MMM yyyy", tz)}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="font-medium">{formatCurrency(Number(p.amount), currency)}</span>
+                            {receipt && <PaymentReceiptButton data={receipt} />}
+                          </div>
+                        </div>
+                      );
+                    })}
                     <Separator className="my-1" />
                     <div className="flex items-center justify-between text-sm font-semibold">
                       <span>Total paid</span>

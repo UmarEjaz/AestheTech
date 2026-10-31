@@ -15,19 +15,8 @@ import {
 } from "@/lib/validations/invoice";
 import { Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
 import { getSettings } from "./settings";
-import { formatInTz } from "@/lib/utils/timezone";
 import { calculateTier } from "@/lib/utils/loyalty";
-
-// The cutoff for "overdue". Due dates are date-only values stored at UTC midnight, so we compare
-// against the salon's CURRENT calendar date turned back into a UTC-midnight instant. Using an
-// absolute timezone boundary here (e.g. start-of-today in a UTC- zone = 04:00Z) would wrongly
-// flag an invoice due today (00:00Z) as overdue.
-async function salonOverdueCutoff(): Promise<Date> {
-  const s = await getSettings();
-  const tz = s.success ? s.data.timezone : "UTC";
-  const localDate = formatInTz(new Date(), "yyyy-MM-dd", tz);
-  return new Date(`${localDate}T00:00:00Z`);
-}
+import { salonOverdueCutoff } from "@/lib/invoice-overdue";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 import { invalidateDashboardCache } from "@/lib/redis";

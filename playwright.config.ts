@@ -33,7 +33,18 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Default: Playwright's own Chromium (`npx playwright install chromium`). Set PLAYWRIGHT_CHANNEL=chrome
+  // to drive the Google Chrome already installed on the machine instead — no browser download when
+  // running `npx playwright test` directly (`npm run test:e2e` still runs `playwright install chromium` first).
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
+      },
+    },
+  ],
   // Build once, then serve the production bundle — pre-compiled routes make the suite fast + stable
   // (no `next dev` on-demand compilation stalling navigations). Reuse an already-running server on
   // :3001 locally to skip the rebuild; CI always builds fresh. Either way it needs a seeded DB.
@@ -49,6 +60,9 @@ export default defineConfig({
     // and write to an unchecked database. process.env is Next's highest-priority source, so this wins.
     env: {
       AUTH_TRUST_HOST: "true",
+      // `.env` (loaded above) may carry NODE_ENV=development; a production build/start must not inherit
+      // it — Next then emits a non-standard build whose error pages fail to prerender.
+      NODE_ENV: "production",
       ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
     },
   },

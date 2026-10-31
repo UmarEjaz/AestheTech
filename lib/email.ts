@@ -16,9 +16,12 @@ interface SendEmailOptions {
   subject: string;
   html: string;
   salonName?: string;
+  // Optional file attachments (e.g. a receipt/invoice PDF). `content` is the raw file bytes.
+  attachments?: Array<{ filename: string; content: Buffer }>;
 }
 
-export async function sendEmail({ to, subject, html, salonName }: SendEmailOptions) {
+/** Sends one email through Resend and returns the provider's `{ id }` for the queued message. */
+export async function sendEmail({ to, subject, html, salonName, attachments }: SendEmailOptions): Promise<{ id: string } | null> {
   const fromName = salonName || "AestheTech";
   const from = `${fromName} <${FROM_EMAIL}>`;
 
@@ -27,6 +30,7 @@ export async function sendEmail({ to, subject, html, salonName }: SendEmailOptio
     to,
     subject,
     html,
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
   });
 
   if (error) {

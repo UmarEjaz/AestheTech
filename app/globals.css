@@ -144,3 +144,30 @@
     opacity: 1;
   }
 }
+
+/* The receipt print overlay (.receipt-print-root) is portaled to <body> by the print buttons only
+   while a receipt is printing, and removed once the print dialog closes. Keep it off-screen so it
+   never flashes as a white block in the app; it becomes visible only on paper. */
+.receipt-print-root {
+  display: none;
+}
+
+/* Receipt printing: ONLY while a receipt is printing (the print hook in receipt-print-overlay.tsx puts
+   `receipt-printing` on <body> for exactly that window), send just the receipt to paper and hide the
+   rest of the app. Scoping to the class means a normal Cmd/Ctrl+P on any other screen still prints
+   that page normally — without this guard the whole app printed blank. A plain class (not :has())
+   so browsers without :has() support print the receipt too. */
+@media print {
+  body.receipt-printing > *:not(.receipt-print-root) {
+    /* display:none (not visibility:hidden) also removes layout space — otherwise the hidden dashboard
+       still reserves full-page height and bleeds onto blank extra pages. */
+    display: none !important;
+  }
+  body.receipt-printing .receipt-print-root {
+    display: block;
+    position: static;
+  }
+}
+
+/* The page size itself (80mm / 58mm / A5 / A4) is injected per receipt by ReceiptPrintStyle, so no
+   global @page rule is set here — that would otherwise force every print in the app onto an 80mm sheet. */

@@ -1,194 +1,30 @@
-"use client";
-
+// No "use client": no browser-only APIs here, so this renders in the client download button (pdf())
+// and server-side for the email attachment (renderToBuffer()).
 import {
   Document,
   Page,
   Text,
   View,
-  StyleSheet,
   Image,
 } from "@react-pdf/renderer";
 import type { ReactElement } from "react";
 import { formatInTz } from "@/lib/utils/timezone";
 import { formatCurrency } from "@/lib/utils/currency";
+import { impliedLoyaltyValue } from "@/lib/utils/receipt-totals";
+import { formatInvoiceStatus } from "@/lib/utils/invoice-status";
+import { paymentStatus } from "@/components/sales/receipt-model";
+import { styles } from "./invoice-pdf-styles";
 
-// Define styles
-const styles = StyleSheet.create({
-  page: {
-    padding: 40,
-    fontSize: 10,
-    fontFamily: "Helvetica",
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 30,
-  },
-  headerLeft: {
-    flex: 1,
-  },
-  headerRight: {
-    flex: 1,
-    alignItems: "flex-end",
-  },
-  salonLogo: {
-    width: 60,
-    height: 60,
-    marginBottom: 8,
-  },
-  salonName: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#7c3aed",
-    marginBottom: 4,
-  },
-  salonContact: {
-    fontSize: 9,
-    color: "#6b7280",
-    marginTop: 2,
-  },
-  invoiceTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#374151",
-  },
-  invoiceNumber: {
-    fontSize: 12,
-    color: "#6b7280",
-    marginTop: 4,
-  },
-  invoiceStatus: {
-    fontSize: 10,
-    color: "#ffffff",
-    backgroundColor: "#22c55e",
-    padding: "4 8",
-    borderRadius: 4,
-    marginTop: 8,
-  },
-  invoiceStatusPending: {
-    backgroundColor: "#eab308",
-  },
-  section: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#374151",
-    marginBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-    paddingBottom: 4,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  label: {
-    color: "#6b7280",
-  },
-  value: {
-    fontWeight: "bold",
-  },
-  table: {
-    marginTop: 10,
-  },
-  tableHeader: {
-    flexDirection: "row",
-    backgroundColor: "#f3f4f6",
-    padding: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-  },
-  tableHeaderCell: {
-    fontWeight: "bold",
-    color: "#374151",
-  },
-  tableRow: {
-    flexDirection: "row",
-    padding: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
-  },
-  tableCell: {
-    color: "#4b5563",
-  },
-  colService: { flex: 2 },
-  colStaff: { flex: 1.5 },
-  colPrice: { flex: 1, textAlign: "right" },
-  colQty: { flex: 0.5, textAlign: "center" },
-  colTotal: { flex: 1, textAlign: "right" },
-  totalsSection: {
-    marginTop: 20,
-    paddingTop: 10,
-    borderTopWidth: 2,
-    borderTopColor: "#e5e7eb",
-  },
-  totalRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginBottom: 4,
-  },
-  totalLabel: {
-    width: 100,
-    textAlign: "right",
-    marginRight: 20,
-    color: "#6b7280",
-  },
-  totalValue: {
-    width: 80,
-    textAlign: "right",
-  },
-  grandTotal: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-  },
-  grandTotalLabel: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#374151",
-  },
-  grandTotalValue: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#7c3aed",
-  },
-  footer: {
-    position: "absolute",
-    bottom: 40,
-    left: 40,
-    right: 40,
-    textAlign: "center",
-    color: "#9ca3af",
-    fontSize: 9,
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-    paddingTop: 10,
-  },
-  clientSection: {
-    marginBottom: 20,
-    padding: 12,
-    backgroundColor: "#f9fafb",
-    borderRadius: 4,
-  },
-  paymentInfo: {
-    marginTop: 20,
-    padding: 12,
-    backgroundColor: "#f0fdf4",
-    borderRadius: 4,
-  },
-  loyaltyInfo: {
-    marginTop: 10,
-    padding: 8,
-    backgroundColor: "#fef3c7",
-    borderRadius: 4,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-});
+/** Statuses that still owe money — printed with the amber badge, never the green "settled" one. */
+const OUTSTANDING_STATUSES = ["PENDING", "PARTIALLY_PAID", "OVERDUE"];
+
+/** Badge colour by status: green (the base style) only for PAID, amber while money is owed, grey for cancelled/refunded. */
+export function statusBadgeStyle(
+  status: string
+): typeof styles.invoiceStatus | typeof styles.invoiceStatusPending | typeof styles.invoiceStatusNeutral {
+  if (status === "PAID") return styles.invoiceStatus;
+  return OUTSTANDING_STATUSES.includes(status) ? styles.invoiceStatusPending : styles.invoiceStatusNeutral;
+}
 
 export interface InvoicePDFData {
   invoiceNumber: string;
@@ -223,8 +59,11 @@ export interface InvoicePDFData {
   discount: number;
   tax: number;
   total: number;
+  amountPaid: number; // sum of payments — so the invoice shows Amount Paid / Balance Due, never a false "paid" look
+  amountRefunded?: number; // money returned — so a refunded invoice doesn't print as cleanly settled
+  taxNumber?: string | null; // business tax/VAT/GST registration number, shown under the salon header
+  footerNote?: string | null; // optional terms/footer note printed in the invoice footer
   loyaltyPointsEarned: number;
-  loyaltyPointsRedeemed: number;
 }
 
 interface InvoicePDFProps {
@@ -235,6 +74,12 @@ interface InvoicePDFProps {
 export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
   const formattedDate = formatInTz(data.createdAt, "MMMM d, yyyy", data.timezone);
   const formattedTime = formatInTz(data.createdAt, "h:mm a", data.timezone);
+
+  // Loyalty points redeemed at checkout reduce the total (before tax) but aren't in Subtotal/Discount.
+  // Show that value so the invoice foots: Subtotal − Discount − Loyalty + Tax = Total (0 if no points).
+  const loyaltyValue = impliedLoyaltyValue(data);
+  // Same cent-rounded balance the receipt prints, so the two documents never disagree.
+  const { balanceDue } = paymentStatus(data.total, data.amountPaid);
 
   return (
     <Document>
@@ -256,6 +101,9 @@ export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
             {data.salonEmail && (
               <Text style={styles.salonContact}>{data.salonEmail}</Text>
             )}
+            {data.taxNumber && (
+              <Text style={styles.salonContact}>Tax Reg. No. {data.taxNumber}</Text>
+            )}
           </View>
           <View style={styles.headerRight}>
             <Text style={styles.invoiceTitle}>INVOICE</Text>
@@ -263,10 +111,10 @@ export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
             <Text
               style={[
                 styles.invoiceStatus,
-                data.status === "PENDING" ? styles.invoiceStatusPending : {},
+                statusBadgeStyle(data.status),
               ]}
             >
-              {data.status}
+              {formatInvoiceStatus(data.status).toUpperCase()}
             </Text>
           </View>
         </View>
@@ -367,6 +215,15 @@ export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
             </View>
           )}
 
+          {loyaltyValue > 0 && (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Loyalty (points):</Text>
+              <Text style={[styles.totalValue, { color: "#22c55e" }]}>
+                -{formatCurrency(loyaltyValue, data.currencyCode)}
+              </Text>
+            </View>
+          )}
+
           {data.tax > 0 && (
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Tax ({data.taxRate}%):</Text>
@@ -384,25 +241,48 @@ export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
               {formatCurrency(data.total, data.currencyCode)}
             </Text>
           </View>
+
+          {/* Amount paid + balance due so an unpaid/partial invoice never looks settled. */}
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Amount Paid:</Text>
+            <Text style={styles.totalValue}>
+              {formatCurrency(data.amountPaid, data.currencyCode)}
+            </Text>
+          </View>
+          {(data.amountRefunded ?? 0) > 0 && (
+            // Surface refunds so a refunded invoice doesn't read as a clean settled bill.
+            <View style={styles.totalRow}>
+              <Text style={[styles.totalLabel, { color: "#b91c1c" }]}>Refunded:</Text>
+              <Text style={[styles.totalValue, { color: "#b91c1c" }]}>
+                -{formatCurrency(data.amountRefunded ?? 0, data.currencyCode)}
+              </Text>
+            </View>
+          )}
+          {balanceDue > 0 && (
+            // Emphasized (bold red) but NOT a second bordered "grand total" row — the Total above is the
+            // one grand-total; a matching border here would read as two competing totals.
+            <View style={styles.totalRow}>
+              <Text style={[styles.totalLabel, { fontWeight: "bold", color: "#b91c1c" }]}>
+                Balance Due:
+              </Text>
+              <Text style={[styles.totalValue, { fontWeight: "bold", color: "#b91c1c" }]}>
+                {formatCurrency(balanceDue, data.currencyCode)}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Loyalty Points */}
-        {(data.loyaltyPointsEarned > 0 || data.loyaltyPointsRedeemed > 0) && (
+        {/* Points redeemed are shown in the totals as the "Loyalty (points)" line, so only earned here. */}
+        {data.loyaltyPointsEarned > 0 && (
           <View style={styles.loyaltyInfo}>
-            <Text style={{ color: "#92400e", fontSize: 9 }}>
-              {data.loyaltyPointsEarned > 0 &&
-                `Points Earned: +${data.loyaltyPointsEarned}`}
-              {data.loyaltyPointsEarned > 0 &&
-                data.loyaltyPointsRedeemed > 0 &&
-                " | "}
-              {data.loyaltyPointsRedeemed > 0 &&
-                `Points Redeemed: -${data.loyaltyPointsRedeemed}`}
-            </Text>
+            <Text style={{ color: "#92400e", fontSize: 9 }}>Points Earned: +{data.loyaltyPointsEarned}</Text>
           </View>
         )}
 
-        {/* Payment Confirmation */}
-        {data.status === "PAID" && (
+        {/* Payment Confirmation — suppressed when any refund exists, so a cheery "Payment Received"
+            box never sits next to a Refunded row (a partial refund leaves status PAID). */}
+        {data.status === "PAID" && (data.amountRefunded ?? 0) === 0 && (
           <View style={styles.paymentInfo}>
             <Text style={{ color: "#166534", fontWeight: "bold" }}>
               Payment Received
@@ -416,6 +296,7 @@ export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
         {/* Footer */}
         <View style={styles.footer}>
           <Text>Thank you for choosing {data.salonName}!</Text>
+          {data.footerNote && <Text style={{ marginTop: 4 }}>{data.footerNote}</Text>}
           <Text style={{ marginTop: 4 }}>
             Generated on {formatInTz(new Date(), "MMMM d, yyyy 'at' h:mm a", data.timezone)}
           </Text>

@@ -927,12 +927,21 @@ model Settings {
   timezone                     String  @default("UTC") // IANA timezone e.g. "Asia/Karachi"
   currencyCode                 String  @default("USD") @db.VarChar(3) // ISO 4217 currency code
   taxRate                      Decimal @default(0) @db.Decimal(5, 2) // percentage
+  // Business tax/VAT/GST registration number shown on invoices & receipts (required for a compliant
+  // tax invoice where the salon is tax-registered). Free text; null = not set.
+  taxNumber                    String? @db.VarChar(50)
+  // Optional terms / footer note printed at the foot of sales receipts & invoices (e.g. a return
+  // policy or thank-you message). Free text; null = not shown.
+  receiptFooter                String? @db.VarChar(300)
   businessHoursStart           String  @default("09:00") // HH:mm format
   businessHoursEnd             String  @default("19:00") // HH:mm format
   appointmentInterval          Int     @default(30) // minutes
   allowOnlineBooking           Boolean @default(true)
   // Which mode the New-booking screen opens in by default: "WALK_IN" (here now) or "APPOINTMENT" (later).
   defaultBookingMode           String  @default("APPOINTMENT")
+  // Paper size for printed/downloaded customer receipts. One of RECEIPT_SIZES
+  // (lib/constants/receipt-sizes.ts): "THERMAL_80" | "THERMAL_58" | "A5" | "A4".
+  receiptSize                  String  @default("THERMAL_80")
   loyaltyProgramEnabled        Boolean @default(true)
   loyaltyPointsPerDollar       Int     @default(1)
 
