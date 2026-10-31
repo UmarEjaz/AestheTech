@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { RecurrencePattern, RecurrenceEndType } from "@prisma/client";
 import {
   parseTimeOfDay,
   setTimeOnDate,
+  getNextDayOfWeek,
   getNthWeekdayOfMonth,
   validateRecurrenceConfig,
   calculateRecurringDates,
@@ -12,10 +13,16 @@ import {
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 
+// Fixed "now" for every date-relative case below (a Wednesday). `future()` builds off this instead of
+// the real clock, so the suite — and the code paths it covers, hence the coverage numbers — are
+// identical on every day it runs. (Without this, `future(10)` landed on a different weekday each day
+// and `getNextDayOfWeek`'s wrap-around branch was hit on some days and not others.)
+const NOW = new Date("2026-10-28T12:00:00Z");
+
 // startDate a few days in the future so every counted occurrence is also emitted
 // (calculateRecurringDates only emits dates on/after "now").
-const future = (days: number) => {
-  const d = new Date();
+const future = (days: number): Date => {
+  const d = new Date(NOW);
   d.setUTCDate(d.getUTCDate() + days);
   return d;
 };
@@ -35,6 +42,21 @@ describe("setTimeOnDate", () => {
     const result = setTimeOnDate(new Date(2026, 7, 7), "09:30");
     expect(result.getHours()).toBe(9);
     expect(result.getMinutes()).toBe(30);
+  });
+});
+
+describe("getNextDayOfWeek", () => {
+  // Wed 2026-11-04 (local). Both branches of the "days until" math are pinned here on purpose, so the
+  // weekly-recurrence cases below don't have to hit them by luck of the start date.
+  const wednesday = new Date(2026, 10, 4);
+  it("returns the same day when the requested weekday is today", () => {
+    expect(getNextDayOfWeek(3, wednesday).getDate()).toBe(4);
+  });
+  it("moves forward within the same week when the weekday is still ahead", () => {
+    expect(getNextDayOfWeek(5, wednesday).getDate()).toBe(6); // Friday
+  });
+  it("wraps into next week when the weekday has already passed", () => {
+    expect(getNextDayOfWeek(1, wednesday).getDate()).toBe(9); // next Monday
   });
 });
 
@@ -92,6 +114,16 @@ describe("validateRecurrenceConfig", () => {
 });
 
 describe("calculateRecurringDates", () => {
+  beforeEach(() => {
+    // The function only emits dates on/after the real "now"; freeze it so results don't depend on
+    // when the suite runs.
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const base = (overrides: Partial<RecurringDateConfig>): RecurringDateConfig => ({
     pattern: "DAILY" as RecurrencePattern,
     startDate: future(10),
@@ -130,35 +162,31 @@ describe("calculateRecurringDates", () => {
     // The UTC cases above rely on a fixed 24h/7d delta. In a DST-observing zone that assumption breaks:
     // across the fall-back boundary two daily 10 AM occurrences are 25h apart, not 24h. This case is
     // what catches a regression in the salon-timezone (TZDate) math. Pin "now" just before the US
-    // 2026 fall-back (Sun Nov 1, 02:00) so the series deterministically spans it.
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-10-30T12:00:00Z"));
-      const tz = "America/New_York";
-      const dates = calculateRecurringDates(
-        base({
-          pattern: "DAILY" as RecurrencePattern,
-          startDate: new Date("2026-10-31T04:00:00Z"), // Oct 31, 00:00 EDT — before the transition
-          timeOfDay: "10:00",
-          endAfterCount: 4,
-          timeZone: tz,
-        })
-      );
-      expect(dates).toHaveLength(4);
-      // Every occurrence stays at 10:00 wall-clock in the salon zone, even across the DST boundary.
-      const fmt = new Intl.DateTimeFormat("en-US", {
+    // 2026 fall-back (Sun Nov 1, 02:00) so the series deterministically spans it. (Fake timers are
+    // already on from beforeEach; afterEach restores the real clock.)
+    vi.setSystemTime(new Date("2026-10-30T12:00:00Z"));
+    const tz = "America/New_York";
+    const dates = calculateRecurringDates(
+      base({
+        pattern: "DAILY" as RecurrencePattern,
+        startDate: new Date("2026-10-31T04:00:00Z"), // Oct 31, 00:00 EDT — before the transition
+        timeOfDay: "10:00",
+        endAfterCount: 4,
         timeZone: tz,
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
-      for (const d of dates) expect(fmt.format(d)).toBe("10:00");
-      // Which means the raw spacing is NOT a constant 24h across the fall-back (one gap is 25h) — the
-      // exact thing a fixed-millisecond implementation would get wrong.
-      const deltas = dates.slice(1).map((d, i) => d.getTime() - dates[i].getTime());
-      expect(deltas.some((ms) => ms !== DAY)).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+      })
+    );
+    expect(dates).toHaveLength(4);
+    // Every occurrence stays at 10:00 wall-clock in the salon zone, even across the DST boundary.
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    for (const d of dates) expect(fmt.format(d)).toBe("10:00");
+    // Which means the raw spacing is NOT a constant 24h across the fall-back (one gap is 25h) — the
+    // exact thing a fixed-millisecond implementation would get wrong.
+    const deltas = dates.slice(1).map((d, i) => d.getTime() - dates[i].getTime());
+    expect(deltas.some((ms) => ms !== DAY)).toBe(true);
   });
 });

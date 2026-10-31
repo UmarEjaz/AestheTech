@@ -122,7 +122,6 @@ export function AppointmentCalendar({
   useEffect(() => {
     if (!isLaneView) calendarApi()?.updateSize();
     // calendarApi reads a ref; only the view toggle should re-run this.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLaneView]);
   // Staff view supports only day/week spans (month has no lane form).
   const laneSpan: "day" | "week" = span === "week" ? "week" : "day";
@@ -231,7 +230,6 @@ export function AppointmentCalendar({
     } catch {
       /* ignore malformed / unavailable storage */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Skip the first run: on mount the restore effect above sets state, but this effect fires with the
   // still-default values first — writing them would clobber the saved preference before restore lands.

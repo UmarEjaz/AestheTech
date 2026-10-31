@@ -1,4 +1,4 @@
-   Ask me before making any changes.                                                                                                                Review all uncommitted changes before commit. Follow this process EXACTLY and THOROUGHLY.
+Review all uncommitted changes before commit. Follow this process EXACTLY and THOROUGHLY. (Asking before any change is the standing rule in CLAUDE.md § Working with Claude.)
 
 ## Step 1: Run Automated Checks
 Run these commands and report any errors:

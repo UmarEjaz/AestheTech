@@ -85,7 +85,7 @@ Or if executable:
 
 ## Continuous Integration
 
-These scripts are designed to be used in CI/CD pipelines (GitHub Actions). See `.github/workflows/test.yml` for CI configuration.
+These scripts are designed to be used in CI/CD pipelines (GitHub Actions). See `.github/workflows/ci.yml` for CI configuration.
 
 ## Test Coverage
 

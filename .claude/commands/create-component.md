@@ -10,6 +10,6 @@ The component should:
 6. Be properly documented with JSDoc comments
 7. Include a test file
 
-Place the component in the appropriate directory (src/components/) and follow the project's naming conventions.
+Place the component in the appropriate directory under `components/` and follow the project's naming conventions.
 
 If the component needs data, create the necessary server actions or API routes.

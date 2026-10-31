@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { StaffLaneGrid } from "./staff-lane-grid";
 import type { AppointmentListItem } from "@/lib/actions/appointment";
@@ -28,22 +28,46 @@ function makeAppt(over: Partial<AppointmentListItem> = {}): AppointmentListItem 
   } as unknown as AppointmentListItem;
 }
 
+interface BaseProps {
+  staff: Array<{ id: string; firstName: string; lastName: string }>;
+  date: Date;
+  span: "day";
+  businessHoursStart: string;
+  businessHoursEnd: string;
+  timezone: string;
+  onSelectAppointment: Mock<(id: string) => void>;
+}
+
 // Fresh props (with a NEW onSelectAppointment spy) per test, so one test never reads call history
 // left by another — no manual mockClear() needed.
-const makeBaseProps = () => ({
+const makeBaseProps = (): BaseProps => ({
   staff: [{ id: "stf_1", firstName: "Emma", lastName: "Wilson" }],
   date: DAY,
   span: "day" as const,
   businessHoursStart: "09:00",
   businessHoursEnd: "19:00",
   timezone: TZ,
-  onSelectAppointment: vi.fn(),
+  onSelectAppointment: vi.fn<(id: string) => void>(),
 });
 let baseProps = makeBaseProps();
 
 describe("StaffLaneGrid", () => {
   beforeEach(() => {
+    // Freeze the clock at 11:00 local on the fixture day. The grid reads the real clock to draw the
+    // "now" line, and only when "now" falls inside business hours — so without this, which branches
+    // run (and the coverage numbers) depended on the time of day the suite happened to run.
+    // Only Date is faked; RTL/fireEvent timers stay real.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-17T06:00:00Z"));
     baseProps = makeBaseProps();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("draws the 'now' line in today's column during business hours", () => {
+    const { container } = render(<StaffLaneGrid {...baseProps} appointments={[makeAppt()]} />);
+    expect(container.querySelector('[class~="bg-primary/70"]')).not.toBeNull();
   });
 
   it("shows the empty-state card when there are no appointments", () => {
@@ -99,7 +123,7 @@ describe("StaffLaneGrid", () => {
     // Overlaps in a single provider lane (only possible via cancelled/no-show rows in real data) are
     // collapsed to one visible block (earliest active) plus a "+N more" pill that reveals the rest.
     // The grid only reads firstName/lastName/isWalkIn from a client — cast a partial one for the fixture.
-    const client = (firstName: string, lastName: string) =>
+    const client = (firstName: string, lastName: string): AppointmentListItem["client"] =>
       ({ firstName, lastName, isWalkIn: false }) as AppointmentListItem["client"];
     const a = makeAppt({ id: "apt_a", client: client("Alice", "A") });
     const b = makeAppt({
@@ -127,10 +151,10 @@ describe("StaffLaneGrid", () => {
     // Two overlapping appointments in one lane: the EARLIER one (08:30–09:00) ends exactly at the
     // 09:00 open, so it's out of hours; the later one (08:45–09:15) runs into business hours. The
     // earliest is the natural "front" card — but dropping it must not drop the in-hours neighbour too.
-    const client = (firstName: string, lastName: string) =>
+    const client = (firstName: string, lastName: string): AppointmentListItem["client"] =>
       ({ firstName, lastName, isWalkIn: false }) as AppointmentListItem["client"];
     // The grid only reads duration/staff/service.name from a service row — cast a partial one.
-    const svc = (name: string) =>
+    const svc = (name: string): AppointmentListItem["services"][number] =>
       ({
         duration: 30,
         staff: { id: "stf_1", firstName: "Emma", lastName: "Wilson" },
@@ -211,8 +235,9 @@ describe("StaffLaneGrid — drag to reschedule", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  function renderDraggable() {
-    const onReschedule = vi.fn();
+  type OnReschedule = (apptId: string, staffId: string, startISO: string) => void;
+  function renderDraggable(): { onReschedule: Mock<OnReschedule>; block: HTMLElement } {
+    const onReschedule = vi.fn<OnReschedule>();
     render(
       <StaffLaneGrid
         {...baseProps}

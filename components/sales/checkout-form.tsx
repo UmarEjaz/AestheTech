@@ -404,7 +404,6 @@ export function CheckoutForm({
       // Corrupt/blocked storage — ignore and start fresh.
     }
     // Run once on mount for this checkout.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
   useEffect(() => {
     // Skip the first run so we never clobber saved data with the initial seed state.

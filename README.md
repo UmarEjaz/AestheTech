@@ -14,12 +14,12 @@ A comprehensive salon management system designed to automate and streamline salo
 
 ## Tech Stack
 
-- **Frontend**: Next.js 14+, React, TypeScript, ShadCN/UI, Tailwind CSS
+- **Frontend**: Next.js 15, React, TypeScript, ShadCN/UI, Tailwind CSS
 - **Backend**: Next.js API Routes, Server Actions, Prisma ORM
 - **Database**: PostgreSQL
 - **Authentication**: NextAuth.js with RBAC
 - **Validation**: Zod
-- **Testing**: Jest, React Testing Library
+- **Testing**: Vitest with React Testing Library (unit/component) + Playwright (E2E)
 - **Deployment**: Railway
 - **CI/CD**: GitHub Actions
 
@@ -27,7 +27,7 @@ A comprehensive salon management system designed to automate and streamline salo
 
 ### Prerequisites
 
-- Node.js 18+ (latest LTS recommended)
+- Node.js 24 (pinned in `.nvmrc`; run `nvm use` if you use nvm)
 - PostgreSQL 14+
 - npm or yarn
 
@@ -54,55 +54,65 @@ Edit `.env` and add your database URL and other required variables.
 4. **Set up the database**
 ```bash
 # Generate Prisma Client
-npx prisma generate
+npm run db:generate
 
-# Run migrations
-npx prisma migrate dev
+# Push the schema + apply constraints (dev path — no migrations)
+npm run db:push
 
 # Seed database (optional)
-npx prisma db seed
+npm run db:seed
 ```
 
-5. **Run the development server**
+5. **Install the git hooks (one-time)**
+
+```bash
+npm run hooks:install
+```
+
+This points git at `.githooks/` (it sets `core.hooksPath`, so any hooks you had in `.git/hooks/` stop running), and the pre-commit hook then runs the changed-line lint gate. Set `SKIP_LINT=1` to bypass it in an emergency.
+
+6. **Run the development server**
+
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view the application.
+Open [http://localhost:3001](http://localhost:3001) to view the application.
 
 ## Development
 
 ### Available Scripts
 
-- `npm run dev` - Start development server
+- `npm run dev` - Start development server (port 3001)
 - `npm run build` - Build for production
 - `npm run start` - Start production server
-- `npm run lint` - Run ESLint
+- `npm run lint` - Run ESLint across the repo (`eslint . --max-warnings 0`)
+- `npm run lint:changed` - Lint only the lines this branch changed
 - `npm run type-check` - Run TypeScript compiler check
-- `npm test` - Run tests
+- `npm test` - Run Vitest unit/component tests
 - `npm run test:watch` - Run tests in watch mode
-- `npm run test:coverage` - Generate test coverage report
+- `npm run test:coverage` - Generate test coverage report; when coverage improved it also raises the floor in `vitest.config.mts` (commit that change)
+- `npm run test:e2e` - Run Playwright end-to-end tests
+- `npm run hooks:install` - Point git at `.githooks/` (one-time, per clone)
 
 ### Project Structure
 
 ```
 AestheTech/
-├── docs/                    # Project documentation
-│   ├── PROJECT_OVERVIEW.md  # Detailed requirements and scope
+├── app/                    # Next.js App Router (routes, layouts, pages)
+├── components/             # React components
+├── lib/                    # Utility functions, server actions, shared code
+├── prisma/                 # Database schema, seed, constraints.sql
+├── e2e/                    # Playwright end-to-end specs
+├── docs/                   # Project documentation
+│   ├── PROJECT_OVERVIEW.md # Detailed requirements and scope
 │   ├── TASK_LIST.md        # Development task tracking
 │   └── ARCHITECTURE.md     # System architecture and design
 ├── scripts/                # Utility scripts
-│   └── testing/           # Test automation scripts
-├── src/
-│   ├── app/               # Next.js app directory (routes)
-│   ├── components/        # React components
-│   ├── lib/               # Utility functions
-│   ├── prisma/            # Database schema and migrations
-│   └── types/             # TypeScript type definitions
-├── public/                # Static assets
-├── tests/                 # Test files
-├── CLAUDE.md             # AI development context
-└── START_HERE.md         # Getting started guide
+│   └── testing/            # Test automation scripts
+├── public/                 # Static assets
+├── CLAUDE.md               # Working rules and quality gates
+└── START_HERE.md           # Getting started guide
 ```
 
 ## Documentation
@@ -112,7 +122,7 @@ Comprehensive documentation is available in the `/docs` directory:
 - **[PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)** - Complete project scope, features, and requirements
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, database design, and technical decisions
 - **[TASK_LIST.md](docs/TASK_LIST.md)** - Development task list with progress tracking
-- **[CLAUDE.md](CLAUDE.md)** - AI-assisted development context and guidelines
+- **[CLAUDE.md](CLAUDE.md)** - Working rules, quality gates and development guidelines
 - **[START_HERE.md](START_HERE.md)** - Initial setup guide and first steps
 
 ## Testing
@@ -133,21 +143,20 @@ bash scripts/testing/test-components.sh # Component tests
 
 ### Prisma Commands
 
+During development the database is disposable, so schema changes go through `db push` (which also applies `prisma/constraints.sql`). Migration files are not used until the app is live with real customer data — see the Database Guidelines in `CLAUDE.md`.
+
 ```bash
 # Generate Prisma Client
-npx prisma generate
+npm run db:generate
 
-# Create a migration
-npx prisma migrate dev --name migration_name
-
-# Apply migrations
-npx prisma migrate deploy
+# Push schema changes + apply constraints (the dev path)
+npm run db:push
 
 # Open Prisma Studio (database GUI)
-npx prisma studio
+npm run db:studio
 
-# Reset database (⚠️ deletes all data)
-npx prisma migrate reset
+# Rebuild the local database from scratch (⚠️ deletes all local data)
+npx prisma db push --force-reset && npm run db:constraints && npm run db:seed
 ```
 
 ## Deployment
@@ -197,7 +206,7 @@ See `/docs/ARCHITECTURE.md` for detailed deployment instructions.
 
 ## Contributing
 
-This project is developed with AI assistance (Claude Code). See `CLAUDE.md` for AI development guidelines.
+See `CLAUDE.md` for the working rules and the gates every PR must pass before it is merged.
 
 ## Security
 

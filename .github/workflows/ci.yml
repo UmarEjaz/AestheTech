@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: nothing here needs to write to the repo.
+permissions:
+  contents: read
+
+# Cancel a superseded run on the same PR instead of queueing it; never cancel a run on main.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # Pinned to a full commit SHA (not a moving tag) so CI always runs the reviewed code;
+        # Dependabot (.github/dependabot.yml) bumps these.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history (and origin/main) so the changed-line lint gate can diff against it.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Reads .nvmrc so CI runs the same Node major as local, and the coverage numbers (zero-slack
+          # floor) match.
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm ci` already runs `prisma generate` via postinstall; kept explicit so a postinstall change
+      # can't silently drop it, and so the step is visible in the log.
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
+      - name: TypeScript
+        run: npm run type-check
+
+      # Whole-repo gate (eslint . --max-warnings 0). On a push to main the changed-line step below is a
+      # no-op (merge-base == HEAD), so this is what actually guards main.
+      - name: Lint (whole repo)
+        run: npm run lint
+
+      - name: Lint (changed lines, incl. return-type ratchet)
+        run: npm run lint:changed
+
+      - name: Unit tests (with coverage floor)
+        run: npm run test:coverage
+
+      # `autoUpdate` rewrites vitest.config.mts in THIS checkout when coverage rose above the committed
+      # floor, then exits 0 — so without this step a PR that adds tests but forgets to commit the raised
+      # floor would pass green. A dirty config here means exactly that; fail and say what to do.
+      - name: Coverage floor was committed
+        run: |
+          git diff --exit-code -- vitest.config.mts || {
+            echo "::error::Coverage rose above the committed floor. Run 'npm run test:coverage' locally and commit vitest.config.mts (if a local run doesn't change it, copy the values from the diff above)."
+            exit 1
+          }
+
+      # The step above catches a floor that should have gone UP. This one catches a floor that was
+      # lowered by hand to match reduced coverage: every threshold must be >= the same file on the base
+      # (the PR's target branch; on a push to main, the tip of main before the push — exact even for
+      # multi-commit rebase merges, unlike HEAD~1).
+      - name: Coverage floor never decreases
+        run: node scripts/check-coverage-floor.mjs "$BASE_REF"
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
