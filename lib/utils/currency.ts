@@ -72,3 +72,8 @@ export function getCurrencyDecimals(currencyCode: string): number {
     return 2;
   }
 }
+
+/** Round a money amount to the cent, so sums of payments and refunds never carry float drift. */
+export function roundCents(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}

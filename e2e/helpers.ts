@@ -6,8 +6,8 @@ import type { PrismaClient } from "@prisma/client";
 // clicks reach it from today. Shared by the calendar-view and lane-drag specs so the date math lives
 // in one place. Returns the start instant and the day-step count.
 export function futureWeekdaySlot(tz: string, hour = 11): { start: Date; dayStepsFromToday: number } {
-  const dayISOInTz = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
-  const utcDayMs = (iso: string) => {
+  const dayISOInTz = (d: Date): string => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
+  const utcDayMs = (iso: string): number => {
     const [y, m, d] = iso.split("-").map(Number);
     return Date.UTC(y, m - 1, d);
   };
@@ -37,11 +37,21 @@ export function escapeRegExp(s: string): string {
 // effect. Use it only with an IDEMPOTENT trigger (a view/day button that sets a fixed state, or a
 // picker whose "settled" signal is the popover being open) so an extra retry can't undo the result.
 // It replaces the blind `waitForTimeout(...)` hydration waits with an observable readiness signal.
-export async function clickUntil(trigger: Locator, settled: () => Promise<void>, timeout = 30_000) {
+export async function clickUntil(trigger: Locator, settled: () => Promise<void>, timeout = 30_000): Promise<void> {
   await expect(async () => {
     await trigger.click();
     await settled();
   }).toPass({ timeout });
+}
+
+/** Open a dropdown menu, retrying until `item` shows (a click before hydration is dropped). Unlike
+ *  clickUntil, it clicks the trigger only while the item is hidden, so a retry never toggles an
+ *  already-open menu shut. */
+export async function openMenu(trigger: Locator, item: Locator): Promise<void> {
+  await expect(async () => {
+    if (!(await item.isVisible())) await trigger.click();
+    await expect(item).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 30_000 });
 }
 
 // A weekday ~14 days out at 12:00 UTC. Staff work Mon–Fri 09:00–17:00, so a weekday midday is inside
@@ -53,7 +63,7 @@ export async function clickUntil(trigger: Locator, settled: () => Promise<void>,
 // `tz` is REQUIRED (no default) so the caller passes the real salon timezone rather than silently
 // relying on a hardcoded one that could drift from the seed.
 export function futureWeekdayNoonUtc(tz: string): Date {
-  const salonWeekday = (d: Date) =>
+  const salonWeekday = (d: Date): number =>
     new Date(`${new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d)}T00:00:00Z`).getUTCDay();
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 14);
@@ -64,12 +74,22 @@ export function futureWeekdayNoonUtc(tz: string): Date {
   return d;
 }
 
+/** What a spec needs to know about the appointment seedAppointment created. */
+export interface SeededAppointment {
+  apptId: string;
+  tz: string;
+  staffId: string;
+  durationMin: number;
+  dayStepsFromToday: number;
+  clientName: string;
+}
+
 // Create a fresh appointment for a test to act on, scoped to the LOGGED-IN OWNER'S salon (so the
 // fixture is always one the test user can access), on a near-future weekday at `hour` local. Reuses a
 // seeded appointment's client/service/staff pairing. Shared by the calendar-view, lane-drag, and
 // edit specs; each passes a distinct hour so their fixtures can't collide on the same day. Returns
 // the ids/metadata each spec needs; the caller deletes the row + disconnects in afterAll.
-export async function seedAppointment(prisma: PrismaClient, hour: number) {
+export async function seedAppointment(prisma: PrismaClient, hour: number): Promise<SeededAppointment> {
   // Find a seeded appointment in ANY salon the logged-in owner belongs to (they're a member of more
   // than one), so the fixture is always one the test user can access — and take that salon's id.
   const seed = await prisma.appointment.findFirst({
@@ -124,7 +144,7 @@ export async function seedAppointment(prisma: PrismaClient, hour: number) {
 
 // Log in as the seeded owner. Before hydration React can re-mount and wipe our input, so instead of a
 // fixed sleep we re-fill until the value STICKS — that persistence is the signal the form is live.
-export async function login(page: Page) {
+export async function login(page: Page): Promise<void> {
   await page.goto("/login", { waitUntil: "domcontentloaded" });
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(async () => {

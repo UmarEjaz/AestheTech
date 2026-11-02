@@ -5,20 +5,25 @@ import { primaryStaff } from "@/lib/utils/appointment";
 import { checkAuthBasic } from "@/lib/auth-helpers";
 import { hasPermission } from "@/lib/permissions";
 import { subDays, startOfDay, endOfDay } from "date-fns";
-import { AppointmentStatus, Prisma } from "@prisma/client";
+import { AppointmentStatus } from "@prisma/client";
 import { getSettings } from "./settings";
 import {
   getNow,
   getTodayRange,
   getWeekRange,
   getMonthRange,
-  toSalonTz,
   formatInTz,
 } from "@/lib/utils/timezone";
 import { ActionResult } from "@/lib/types";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { getOrganizationSalonIds, getOrgRootSalonId } from "./branch";
-import { getDisabledModulesForSalon, isModuleEnabled } from "./modules";
+import { getDisabledModulesForSalon } from "./modules";
+import { loadRevenueAdjustments, type ReportAdjustment } from "@/lib/report-adjustments";
+import { costChange, itemChanges, revenueChange, sumOf } from "@/lib/utils/revenue-adjustments";
+
+// The reports action lives in ./report-data; its data shape is re-exported (as a type only, which
+// the "use server" build erases) so the report components keep importing it from here.
+export type { ReportData } from "./report-data";
 
 // Dashboard stats
 export interface DashboardStats {
@@ -184,6 +189,7 @@ export async function getDashboardStats(params?: {
       todaysSaleItemsData,
       todaysCollectedData,
       depositsHeldData,
+      adjustments,
     ] = await Promise.all([
       // Today's appointments (only if permitted)
       canViewAppointments
@@ -382,7 +388,24 @@ export async function getDashboardStats(params?: {
             _sum: { amount: true },
           })
         : Promise.resolve({ _sum: { amount: null } }),
+
+      // Refunds and cancellations since the earlier of this month and yesterday: they come off
+      // revenue on the day they happen (see lib/utils/revenue-adjustments.ts).
+      (canViewSales || canViewProfit || canViewStaff)
+        ? loadRevenueAdjustments(salonIds, {
+            gte: monthStart < yesterdayStart ? monthStart : yesterdayStart,
+            lt: todayEnd,
+          })
+        : Promise.resolve([] as ReportAdjustment[]),
     ]);
+    const adjustedBetween = (start: Date, end: Date): ReportAdjustment[] =>
+      adjustments.filter((a) => a.at >= start && a.at < end);
+    const todaysAdjustments = adjustedBetween(todayStart, todayEnd);
+    // Per service and per staff member, what this month's refunds and cancellations took off.
+    const monthItemChanges = adjustedBetween(monthStart, todayEnd).flatMap(itemChanges);
+    // Per unit, like the figures it is taken from (those sum each item's price, not price × quantity).
+    const monthChangeBy = (key: "serviceId" | "staffId", id: string | null): number =>
+      monthItemChanges.filter((c) => c.item[key] === id).reduce((sum, c) => sum + c.revenue / c.item.quantity, 0);
 
     // Process appointments data
     const appointmentsByStatus = todaysAppointmentsData.reduce(
@@ -399,8 +422,12 @@ export async function getDashboardStats(params?: {
     const remainingAppointments = totalAppointments - completedAppointments - cancelledAppointments;
 
     // Process revenue data
-    const todaysRevenue = todaysSales.reduce((sum, s) => sum + Number(s.finalAmount), 0);
-    const yesterdaysRevenue = yesterdaysSales.reduce((sum, s) => sum + Number(s.finalAmount), 0);
+    // Sales made that day, less that day's refunds and cancellations.
+    const todaysRevenue =
+      todaysSales.reduce((sum, s) => sum + Number(s.finalAmount), 0) + sumOf(todaysAdjustments, revenueChange);
+    const yesterdaysRevenue =
+      yesterdaysSales.reduce((sum, s) => sum + Number(s.finalAmount), 0) +
+      sumOf(adjustedBetween(yesterdayStart, yesterdayEnd), revenueChange);
     const revenueComparison = yesterdaysRevenue > 0
       ? ((todaysRevenue - yesterdaysRevenue) / yesterdaysRevenue) * 100
       : todaysRevenue > 0 ? 100 : 0;
@@ -418,7 +445,7 @@ export async function getDashboardStats(params?: {
     const topServices = topServicesData.map((item) => ({
       name: (item.serviceId && serviceMap.get(item.serviceId)) || "Unknown",
       count: item._count.id,
-      revenue: Number(item._sum.price) || 0,
+      revenue: (Number(item._sum.price) || 0) + monthChangeBy("serviceId", item.serviceId),
     }));
 
     // Process recent sales
@@ -455,7 +482,7 @@ export async function getDashboardStats(params?: {
         staffId: item.staffId ?? "",
         staffName: (item.staffId && staffMap.get(item.staffId)) || "Unknown",
         appointmentsCount: item._count.id,
-        revenue: Number(item._sum.price) || 0,
+        revenue: (Number(item._sum.price) || 0) + monthChangeBy("staffId", item.staffId),
       }))
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
@@ -496,7 +523,7 @@ export async function getDashboardStats(params?: {
         },
       }),
       ...(canViewPayroll && monthlyPayrollData.length > 0 && {
-        monthlyPayroll: (() => {
+        monthlyPayroll: ((): NonNullable<DashboardStats["monthlyPayroll"]> => {
           type PayrollGroup = { status: string; _sum: { netPay: unknown }; _count: { id: number } };
           const groups = monthlyPayrollData as PayrollGroup[];
           return {
@@ -511,14 +538,15 @@ export async function getDashboardStats(params?: {
         })(),
       }),
       ...(canViewProfit && {
-        todaysProfit: (() => {
+        todaysProfit: ((): NonNullable<DashboardStats["todaysProfit"]> => {
           type SaleItemCost = { quantity: number; costAtSale: unknown };
           const items = todaysSaleItemsData as SaleItemCost[];
           const revenue = todaysRevenue;
+          // Less the cost of products that came back into stock today (a full refund or a cancel).
           const totalCost = items.reduce((sum, item) => {
             if (item.costAtSale == null) return sum;
             return sum + Number(item.costAtSale) * item.quantity;
-          }, 0);
+          }, 0) + sumOf(todaysAdjustments, costChange);
           const grossProfit = revenue - totalCost;
           const margin = revenue > 0 ? Math.round((grossProfit / revenue) * 1000) / 10 : 0;
           return { revenue, cost: totalCost, grossProfit, margin };
@@ -545,457 +573,3 @@ export async function getDashboardStats(params?: {
   }
 }
 
-// Reports data
-export interface ReportData {
-  // Money-bearing arrays are optional. Server omits them when the caller lacks
-  // `reports:financial`. UI must check `capabilities.includes("reports:financial")`
-  // and either hide those sections or render an "access denied" placeholder —
-  // never fall back to `?? 0`/`?? []` which would silently lie ("revenue is $0").
-  revenueByDay?: { date: string; revenue: number; salesCount: number; expenses: number; cost?: number; profit?: number }[];
-  revenueByItem?: { item: string; revenue: number; percentage: number; cost?: number; profit?: number; margin?: number }[];
-  revenueByStaff?: { staff: string; revenue: number; appointments: number; cost?: number; profit?: number }[];
-  profitByClient?: { client: string; revenue: number; cost: number; profit: number; margin: number; salesCount: number }[];
-  appointmentsByStatus: { status: string; count: number }[];
-  clientGrowth: { date: string; newClients: number; totalClients: number }[];
-  peakHours: { hour: number; count: number }[];
-  expensesByCategory?: { category: string; color: string; amount: number }[];
-  totals: {
-    revenue?: number;
-    sales: number;
-    appointments: number;
-    newClients: number;
-    expenses?: number;
-    cost?: number;
-    grossProfit?: number;
-    profitMargin?: number;
-    netProfit?: number;
-  };
-  hasMissingCosts?: boolean;
-  capabilities: string[];
-  currencyCode: string;
-}
-
-export async function getReportData(params: {
-  startDate: Date;
-  endDate: Date;
-  branchFilter?: "current" | "all";
-}): Promise<ActionResult<ReportData>> {
-  const authResult = await checkAuthBasic();
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  // Module gate: Reports must be enabled for this salon (effective super admin
-  // "Enter salon" bypasses). checkAuthBasic skips the checkAuth module-fold, so
-  // enforce it explicitly here before any permission/data work.
-  if (!authResult.isSuperAdmin && !(await isModuleEnabled(authResult.salonId, "reports"))) {
-    return { success: false, error: "Reports is not enabled for this salon." };
-  }
-
-  if (!(await hasPermission(authResult.roleId, "reports:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId))) {
-    return { success: false, error: "You don't have permission to view reports" };
-  }
-
-  const { startDate, endDate, branchFilter = "current" } = params;
-  const canViewAllBranches = await hasPermission(authResult.roleId, "data:all-branches", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-
-  // `reports:financial` gates monetary fields (revenue, expenses, profit, etc.).
-  // A user with `reports:view` but not `reports:financial` still sees operational
-  // sections (appointments, client growth, peak hours) but with money fields redacted.
-  const canViewFinancial = await hasPermission(
-    authResult.roleId,
-    "reports:financial",
-    authResult.isSuperAdmin,
-    authResult.salonId,
-    authResult.userId
-  );
-
-  try {
-    // Determine which salon IDs to query (only users with data:all-branches can view across all branches)
-    let salonIds: string[];
-    if (branchFilter === "all" && canViewAllBranches) {
-      salonIds = await getOrganizationSalonIds(authResult.salonId);
-    } else {
-      salonIds = [authResult.salonId];
-    }
-    const salonFilter = { in: salonIds };
-
-    // Get settings for currency and timezone
-    const settingsResult = await getSettings();
-    const currencyCode = settingsResult.success ? settingsResult.data.currencyCode : "USD";
-    const tz = settingsResult.success ? settingsResult.data.timezone : "UTC";
-    const canViewProfit = await hasPermission(authResult.roleId, "profit:view", authResult.isSuperAdmin, authResult.salonId, authResult.userId);
-
-    // Check cache — use org root ID for org-wide queries so invalidation works correctly.
-    // `fin=${canViewFinancial}` separates cache entries for users with vs. without financial
-    // access so a financial-view user doesn't get served a redacted cached payload (or vice versa).
-    let cacheKey: string;
-    if (branchFilter === "all" && canViewAllBranches) {
-      const orgRootId = await getOrgRootSalonId(authResult.salonId);
-      cacheKey = `org:${orgRootId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:fin=${canViewFinancial}:${startDate.toISOString()}:${endDate.toISOString()}`;
-    } else {
-      cacheKey = `salon:${authResult.salonId}:reports:${tz}:${currencyCode}:pft=${canViewProfit}:fin=${canViewFinancial}:${startDate.toISOString()}:${endDate.toISOString()}`;
-    }
-    const cached = await cacheGet<ReportData>(cacheKey);
-    if (cached) {
-      return { success: true, data: cached };
-    }
-
-    // Fetch all report data in parallel. Money-bearing queries (sale, saleItem, expense
-     // full rows) are skipped for callers without `reports:financial` — the redacted
-     // response never reads them, so paying to fetch them is pure waste at scale.
-     // For non-financial callers we still need the SALES COUNT (for totals.sales), so
-     // we run a cheap `count` instead of the full findMany.
-    const salesWhere = {
-      salonId: salonFilter,
-      createdAt: { gte: startDate, lte: endDate },
-      invoice: { isNot: null },
-    };
-    const [
-      salesData,
-      appointmentsData,
-      clientsData,
-      saleItemsData,
-      expensesData,
-      redactedSalesCount,
-    ] = await Promise.all([
-      // Sales in date range — full rows only when financial.
-      canViewFinancial
-        ? prisma.sale.findMany({
-            where: salesWhere,
-            select: {
-              createdAt: true,
-              finalAmount: true,
-            },
-            orderBy: { createdAt: "asc" },
-          })
-        : Promise.resolve([] as { createdAt: Date; finalAmount: Prisma.Decimal }[]),
-
-      // Appointments in date range
-      prisma.appointment.findMany({
-        where: {
-          salonId: salonFilter,
-          startTime: { gte: startDate, lte: endDate },
-        },
-        select: { status: true, startTime: true },
-      }),
-
-      // Clients created in date range
-      prisma.client.findMany({
-        where: {
-          salonId: salonFilter,
-          createdAt: { gte: startDate, lte: endDate },
-        },
-        select: { createdAt: true },
-        orderBy: { createdAt: "asc" },
-      }),
-
-      // Sale items — fully skipped when not financial (only feeds money breakdowns).
-      canViewFinancial
-        ? prisma.saleItem.findMany({
-            where: {
-              salonId: salonFilter,
-              sale: {
-                createdAt: { gte: startDate, lte: endDate },
-                invoice: { isNot: null },
-              },
-            },
-            include: {
-              service: { select: { id: true, name: true } },
-              product: { select: { id: true, name: true } },
-              staff: { select: { id: true, firstName: true, lastName: true } },
-              sale: { select: { createdAt: true, clientId: true, client: { select: { firstName: true, lastName: true } } } },
-            },
-          })
-        : Promise.resolve([] as Prisma.SaleItemGetPayload<{
-            include: {
-              service: { select: { id: true; name: true } };
-              product: { select: { id: true; name: true } };
-              staff: { select: { id: true; firstName: true; lastName: true } };
-              sale: { select: { createdAt: true; clientId: true; client: { select: { firstName: true; lastName: true } } } };
-            };
-          }>[]),
-
-      // Expenses — fully skipped when not financial (only feeds money breakdowns).
-      canViewFinancial
-        ? prisma.expense.findMany({
-            where: {
-              salonId: salonFilter,
-              date: { gte: startDate, lte: endDate },
-            },
-            select: {
-              amount: true,
-              date: true,
-              category: { select: { name: true, color: true } },
-            },
-          })
-        : Promise.resolve([] as { amount: Prisma.Decimal; date: Date; category: { name: string; color: string } }[]),
-
-      // Cheap fallback: count of sales for redacted callers (so totals.sales is correct
-      // even though we didn't fetch full sale rows).
-      canViewFinancial
-        ? Promise.resolve(0)
-        : prisma.sale.count({ where: salesWhere }),
-    ]);
-
-    // Revenue by day
-    const revenueByDayMap = new Map<string, { revenue: number; salesCount: number }>();
-    salesData.forEach((sale) => {
-      const dateKey = formatInTz(sale.createdAt, "yyyy-MM-dd", tz);
-      const existing = revenueByDayMap.get(dateKey) || { revenue: 0, salesCount: 0 };
-      existing.revenue += Number(sale.finalAmount);
-      existing.salesCount += 1;
-      revenueByDayMap.set(dateKey, existing);
-    });
-
-    // Cost by day (from sale items with costAtSale, bucketed by sale.createdAt to match revenue)
-    const costByDayMap = new Map<string, number>();
-    saleItemsData.forEach((item) => {
-      if (item.costAtSale == null) return;
-      const dateKey = formatInTz(item.sale.createdAt, "yyyy-MM-dd", tz);
-      costByDayMap.set(dateKey, (costByDayMap.get(dateKey) || 0) + Number(item.costAtSale) * item.quantity);
-    });
-
-    // Expenses by day (use stored calendar date — @db.Date is midnight UTC)
-    const expensesByDayMap = new Map<string, number>();
-    expensesData.forEach((expense) => {
-      const dateKey = expense.date.toISOString().slice(0, 10);
-      expensesByDayMap.set(dateKey, (expensesByDayMap.get(dateKey) || 0) + Number(expense.amount));
-    });
-
-    // Merge revenue, expenses, and cost by day (include all dates from all maps)
-    const allDates = new Set([...revenueByDayMap.keys(), ...expensesByDayMap.keys(), ...costByDayMap.keys()]);
-    const revenueByDay = Array.from(allDates)
-      .map((date) => {
-        const revenue = revenueByDayMap.get(date)?.revenue || 0;
-        return {
-          date,
-          revenue,
-          salesCount: revenueByDayMap.get(date)?.salesCount || 0,
-          expenses: expensesByDayMap.get(date) || 0,
-          ...(canViewProfit && {
-            cost: costByDayMap.get(date) || 0,
-            profit: revenue - (costByDayMap.get(date) || 0),
-          }),
-        };
-      })
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    // Revenue by item (services + products) with cost tracking (keyed by type:id for stability)
-    const itemDataMap = new Map<string, { name: string; revenue: number; cost: number }>();
-    let totalItemRevenue = 0;
-    saleItemsData.forEach((saleItem) => {
-      const itemKey = saleItem.service?.id
-        ? `svc:${saleItem.service.id}`
-        : saleItem.product?.id
-          ? `prod:${saleItem.product.id}`
-          : `unknown:${saleItem.id}`;
-      const itemName = saleItem.service?.name || saleItem.product?.name || "Unknown";
-      const amount = Number(saleItem.price) * saleItem.quantity;
-      const itemCost = saleItem.costAtSale != null ? Number(saleItem.costAtSale) * saleItem.quantity : 0;
-      const existing = itemDataMap.get(itemKey) || { name: itemName, revenue: 0, cost: 0 };
-      existing.revenue += amount;
-      existing.cost += itemCost;
-      itemDataMap.set(itemKey, existing);
-      totalItemRevenue += amount;
-    });
-
-    const revenueByItem = Array.from(itemDataMap.values())
-      .map((data) => {
-        const profit = data.revenue - data.cost;
-        const margin = data.revenue > 0 ? Math.round((profit / data.revenue) * 1000) / 10 : 0;
-        return {
-          item: data.name,
-          revenue: data.revenue,
-          percentage: totalItemRevenue > 0 ? Math.round((data.revenue / totalItemRevenue) * 100) : 0,
-          ...(canViewProfit && { cost: data.cost, profit, margin }),
-        };
-      })
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10);
-
-    // Revenue by staff with cost tracking (keyed by staff ID for stability)
-    const staffRevenueMap = new Map<string, { name: string; revenue: number; cost: number; appointments: number }>();
-    saleItemsData.forEach((item) => {
-      if (!item.staff) return; // skip product-only items with no staff
-      const staffId = item.staff.id;
-      const staffName = `${item.staff.firstName} ${item.staff.lastName}`;
-      const amount = Number(item.price) * item.quantity;
-      const itemCost = item.costAtSale != null ? Number(item.costAtSale) * item.quantity : 0;
-      const existing = staffRevenueMap.get(staffId) || { name: staffName, revenue: 0, cost: 0, appointments: 0 };
-      existing.revenue += amount;
-      existing.cost += itemCost;
-      existing.appointments += 1;
-      staffRevenueMap.set(staffId, existing);
-    });
-
-    const revenueByStaff = Array.from(staffRevenueMap.values())
-      .map((data) => ({
-        staff: data.name,
-        revenue: data.revenue,
-        appointments: data.appointments,
-        ...(canViewProfit && { cost: data.cost, profit: data.revenue - data.cost }),
-      }))
-      .sort((a, b) => b.revenue - a.revenue);
-
-    // Profit by client (keyed by clientId for stability across name changes/duplicates)
-    let profitByClient: ReportData["profitByClient"];
-    if (canViewProfit) {
-      const clientProfitMap = new Map<string, { name: string; revenue: number; cost: number; saleIds: Set<string> }>();
-      saleItemsData.forEach((item) => {
-        const clientId = item.sale?.clientId ?? "unknown";
-        const clientName = item.sale?.client
-          ? `${item.sale.client.firstName} ${item.sale.client.lastName || ""}`.trim()
-          : "Unknown";
-        const amount = Number(item.price) * item.quantity;
-        const itemCost = item.costAtSale != null ? Number(item.costAtSale) * item.quantity : 0;
-        const existing = clientProfitMap.get(clientId) || { name: clientName, revenue: 0, cost: 0, saleIds: new Set<string>() };
-        existing.revenue += amount;
-        existing.cost += itemCost;
-        existing.saleIds.add(item.saleId);
-        clientProfitMap.set(clientId, existing);
-      });
-
-      profitByClient = Array.from(clientProfitMap.values())
-        .map((data) => {
-          const profit = data.revenue - data.cost;
-          const margin = data.revenue > 0 ? Math.round((profit / data.revenue) * 1000) / 10 : 0;
-          return {
-            client: data.name,
-            revenue: data.revenue,
-            cost: data.cost,
-            profit,
-            margin,
-            salesCount: data.saleIds.size,
-          };
-        })
-        .sort((a, b) => b.profit - a.profit);
-    }
-
-    // Appointments by status
-    const statusCountMap = new Map<string, number>();
-    appointmentsData.forEach((apt) => {
-      statusCountMap.set(apt.status, (statusCountMap.get(apt.status) || 0) + 1);
-    });
-
-    const appointmentsByStatus = Array.from(statusCountMap.entries())
-      .map(([status, count]) => ({ status, count }));
-
-    // Client growth (cumulative)
-    const clientGrowthMap = new Map<string, number>();
-    clientsData.forEach((client) => {
-      const dateKey = formatInTz(client.createdAt, "yyyy-MM-dd", tz);
-      clientGrowthMap.set(dateKey, (clientGrowthMap.get(dateKey) || 0) + 1);
-    });
-
-    // Get total clients before start date
-    const clientsBeforeStart = await prisma.client.count({
-      where: { salonId: salonFilter, createdAt: { lt: startDate } },
-    });
-
-    let runningTotal = clientsBeforeStart;
-    const clientGrowth = Array.from(clientGrowthMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, newClients]) => {
-        runningTotal += newClients;
-        return { date, newClients, totalClients: runningTotal };
-      });
-
-    // Peak hours
-    const hourCountMap = new Map<number, number>();
-    appointmentsData.forEach((apt) => {
-      const hour = toSalonTz(apt.startTime, tz).getHours();
-      hourCountMap.set(hour, (hourCountMap.get(hour) || 0) + 1);
-    });
-
-    const peakHours = Array.from(hourCountMap.entries())
-      .map(([hour, count]) => ({ hour, count }))
-      .sort((a, b) => a.hour - b.hour);
-
-    // Expenses by category
-    const expCatMap = new Map<string, { color: string; amount: number }>();
-    expensesData.forEach((expense) => {
-      const catName = expense.category.name;
-      const existing = expCatMap.get(catName);
-      if (existing) {
-        existing.amount += Number(expense.amount);
-      } else {
-        expCatMap.set(catName, {
-          color: expense.category.color || "#6B7280",
-          amount: Number(expense.amount),
-        });
-      }
-    });
-
-    const expensesByCategory = Array.from(expCatMap.entries())
-      .map(([category, data]) => ({ category, ...data }))
-      .sort((a, b) => b.amount - a.amount);
-
-    const totalExpenses = expensesData.reduce((sum, e) => sum + Number(e.amount), 0);
-
-    // Totals
-    const totalRevenue = salesData.reduce((sum, s) => sum + Number(s.finalAmount), 0);
-    const totals: ReportData["totals"] = {
-      revenue: totalRevenue,
-      // Financial users: salesData is the full sale rows so length is accurate.
-      // Redacted users: salesData was skipped; use the cheap count we ran instead.
-      sales: canViewFinancial ? salesData.length : redactedSalesCount,
-      appointments: appointmentsData.length,
-      newClients: clientsData.length,
-      expenses: totalExpenses,
-    };
-
-    let hasMissingCosts: boolean | undefined;
-
-    if (canViewProfit) {
-      const totalCost = saleItemsData.reduce((sum, item) => {
-        if (item.costAtSale == null) return sum;
-        return sum + Number(item.costAtSale) * item.quantity;
-      }, 0);
-      const grossProfit = totalRevenue - totalCost;
-      totals.cost = totalCost;
-      totals.grossProfit = grossProfit;
-      totals.profitMargin = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 1000) / 10 : 0;
-      totals.netProfit = grossProfit - totalExpenses;
-
-      hasMissingCosts = saleItemsData.some((item) => item.costAtSale == null);
-    }
-
-    // Redact monetary fields for users without `reports:financial`. Money-bearing fields
-    // are OMITTED (undefined), not zeroed — zeroing would lie to the UI ("$0 revenue" is
-    // a lie; "no access to revenue" is the truth). Non-financial operational sections
-    // (appointments-by-status, client growth, peak hours, counts) still ship so the page
-    // isn't empty for view-only roles.
-    const capabilities: string[] = [];
-    if (canViewProfit) capabilities.push("profit:view");
-    if (canViewFinancial) capabilities.push("reports:financial");
-
-    const redactedTotals: ReportData["totals"] = canViewFinancial
-      ? totals
-      : {
-          sales: totals.sales,
-          appointments: totals.appointments,
-          newClients: totals.newClients,
-        };
-
-    const data: ReportData = {
-      ...(canViewFinancial && { revenueByDay, revenueByItem, revenueByStaff }),
-      ...(canViewFinancial && profitByClient && { profitByClient }),
-      appointmentsByStatus,
-      clientGrowth,
-      peakHours,
-      ...(canViewFinancial && { expensesByCategory }),
-      totals: redactedTotals,
-      ...(canViewFinancial && canViewProfit && { hasMissingCosts }),
-      capabilities,
-      currencyCode,
-    };
-
-    await cacheSet(cacheKey, data, 600); // 10 min TTL
-
-    return { success: true, data };
-  } catch (error) {
-    console.error("Error fetching report data:", error);
-    return { success: false, error: "Failed to fetch report data" };
-  }
-}

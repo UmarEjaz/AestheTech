@@ -662,11 +662,11 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         });
       }
 
-      // If the deposit exceeded the (reduced) invoice total, refund the excess in cash.
-      // The invoice is still fully paid; net collected = total (deposit − refund).
+      // Deposit exceeded the (reduced) invoice total: refund the excess in cash (the bill stays fully paid).
       if (overpaidDepositCents > 0) {
         await tx.refund.create({
           data: {
+            salonId: authResult.salonId,
             invoiceId: invoice.id,
             amount: overpaidDepositCents / 100,
             reason: "Deposit exceeded the invoice total (services reduced) — excess refunded to the client",

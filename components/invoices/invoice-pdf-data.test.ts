@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildInvoicePdfData, buildPaymentReceipts, type InvoiceForDocuments } from "./invoice-pdf-data";
+import { buildInvoicePdfData, buildPaymentReceipts, invoiceBalanceDue, invoiceNotice, type InvoiceForDocuments } from "./invoice-pdf-data";
 import type { ReceiptSettings } from "@/components/sales/receipt-data";
 
 const settings: ReceiptSettings = {
@@ -60,6 +60,35 @@ describe("buildInvoicePdfData", () => {
       { id: "i1", service: { name: "Colour" }, staff: null, product: null, price: 83.33, quantity: 1, discount: 0, note: null },
     ]);
     expect(buildInvoicePdfData(invoice, settings).loyaltyPointsEarned).toBe(0);
+    // A cancelled invoice's points were taken back, so none print as earned.
+    const loyalty = { pointsEarned: 5, pointsBalance: 50 };
+    expect(buildInvoicePdfData({ ...invoice, status: "CANCELLED" }, settings, loyalty).loyaltyPointsEarned).toBe(0);
+  });
+});
+
+describe("invoiceBalanceDue", () => {
+  it("prints what is still owed, and nothing once the invoice is cancelled", () => {
+    expect(invoiceBalanceDue({ status: "PENDING", total: 100, amountPaid: 0 })).toBe(100);
+    expect(invoiceBalanceDue({ status: "PARTIALLY_PAID", total: 100, amountPaid: 30 })).toBe(70);
+    expect(invoiceBalanceDue({ status: "CANCELLED", total: 100, amountPaid: 0 })).toBe(0);
+    expect(invoiceBalanceDue({ status: "CANCELLED", total: 100, amountPaid: 30 })).toBe(0);
+  });
+});
+
+describe("invoiceNotice", () => {
+  const usd = { currencyCode: "USD", amountRefunded: 0 };
+  it("thanks the client on a cleanly paid invoice, and says nothing while money is owed", () => {
+    expect(invoiceNotice({ ...usd, status: "PAID", amountPaid: 100 })?.title).toBe("Payment Received");
+    expect(invoiceNotice({ ...usd, status: "PAID", amountPaid: 100, amountRefunded: 5 })).toBeNull();
+    expect(invoiceNotice({ ...usd, status: "PARTIALLY_PAID", amountPaid: 30 })).toBeNull();
+  });
+  it("on a cancelled invoice says what became of the money", () => {
+    expect(invoiceNotice({ ...usd, status: "CANCELLED", amountPaid: 30 })).toEqual({
+      tone: "cancelled",
+      title: "Invoice Cancelled",
+      body: "$30.00 kept as a cancellation fee.",
+    });
+    expect(invoiceNotice({ ...usd, status: "CANCELLED", amountPaid: 0 })?.body).toBe("Nothing was paid on this invoice.");
   });
 });
 
@@ -82,6 +111,12 @@ describe("buildPaymentReceipts", () => {
     const withDocs = buildPaymentReceipts(invoice, { ...settings, taxNumber: "GB123", receiptFooter: "Thanks!" });
     expect(withDocs.get("p1")).toMatchObject({ taxNumber: "GB123", footerNote: "Thanks!" });
     expect(receipts.get("p3")?.totalPaid).toBe(90); // still £10 short: that receipt says "Balance Due"
+  });
+
+  it("marks every payment receipt once the invoice is cancelled, with what became of the money", () => {
+    const cancelled = buildPaymentReceipts({ ...invoice, status: "CANCELLED", refunds: [{ amount: "90.00" }] }, settings);
+    expect(cancelled.get("p1")?.cancelledNote).toBe("This invoice was later cancelled. £90.00 refunded.");
+    expect(buildPaymentReceipts(invoice, settings).get("p1")?.cancelledNote).toBeNull();
   });
 
   it("is empty when nothing has been paid", () => {

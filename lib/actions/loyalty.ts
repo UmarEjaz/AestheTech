@@ -1,156 +1,31 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { hasPermission } from "@/lib/permissions";
-import { calculateTier } from "@/lib/utils/loyalty";
-import { getSettings } from "./settings";
+import { checkAuth } from "@/lib/auth-helpers";
+import { expirePoints, type ExpiryResult } from "@/lib/loyalty-expiry";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
 
 /**
- * Process expired loyalty points.
- * Finds EARNED/BONUS transactions with expiresAt < now,
- * deducts from client balances, creates EXPIRED transactions,
- * and nulls out expiresAt on processed records.
+ * Expire past-due loyalty points at the signed-in manager's own salon (see lib/loyalty-expiry.ts).
+ * Always checks sign-in; the nightly job calls expirePoints directly from the cron route instead.
  */
-export async function processExpiredPoints(options?: { skipAuth?: boolean }): Promise<ActionResult<{
-  clientsAffected: number;
-  totalPointsExpired: number;
-}>> {
-  let actorUserId: string | null = null;
-  let actorUserRole: string | null = null;
-
-  // Auth check unless called from cron
-  if (!options?.skipAuth) {
-    const session = await auth();
-    if (!session?.user) return { success: false, error: "Unauthorized" };
-    const isSuperAdmin = session.user.isSuperAdmin === true;
-    if (!session.user.salonRole && !isSuperAdmin) return { success: false, error: "Unauthorized" };
-    const roleId = session.user.salonRoleId ?? null;
-    if (!await hasPermission(roleId, "settings:manage", isSuperAdmin, session.user.salonId)) {
-      return { success: false, error: "Unauthorized" };
-    }
-    actorUserId = session.user.id;
-    actorUserRole = session.user.salonRole as string;
-  }
+export async function processExpiredPoints(): Promise<ActionResult<ExpiryResult>> {
+  const authResult = await checkAuth("settings:manage");
+  if (!authResult) return { success: false, error: "Unauthorized" };
 
   try {
-    const settingsResult = await getSettings();
-    if (!settingsResult.success) {
-      return { success: false, error: "Failed to fetch settings" };
-    }
-    const settings = settingsResult.data;
-    if (!settings.pointsExpiryEnabled) {
-      return { success: true, data: { clientsAffected: 0, totalPointsExpired: 0 } };
-    }
-
-    const thresholds = {
-      goldThreshold: settings.goldThreshold,
-      platinumThreshold: settings.platinumThreshold,
-    };
-
-    let totalPointsExpired = 0;
-    let clientsAffected = 0;
-
-    // Process inside a transaction with advisory lock to prevent concurrent runs
-    await prisma.$transaction(async (tx) => {
-      // Acquire advisory lock — blocks concurrent cron runs until this transaction commits
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(8675309)`;
-
-      // Find all transactions that have expired
-      const expiredTransactions = await tx.loyaltyTransaction.findMany({
-        where: {
-          expiresAt: { lt: new Date() },
-          type: { in: ["EARNED", "BONUS"] },
-        },
-        select: {
-          id: true,
-          clientId: true,
-          points: true,
-        },
-      });
-
-      if (expiredTransactions.length === 0) return;
-
-      // Group by client
-      const clientExpiry = new Map<string, { transactionIds: string[]; totalPoints: number }>();
-      for (const txn of expiredTransactions) {
-        const existing = clientExpiry.get(txn.clientId);
-        if (existing) {
-          existing.transactionIds.push(txn.id);
-          existing.totalPoints += txn.points;
-        } else {
-          clientExpiry.set(txn.clientId, {
-            transactionIds: [txn.id],
-            totalPoints: txn.points,
-          });
-        }
-      }
-
-      for (const [clientId, data] of clientExpiry) {
-        const loyaltyPoints = await tx.loyaltyPoints.findUnique({
-          where: { clientId },
-        });
-
-        if (!loyaltyPoints) continue;
-
-        const pointsToExpire = Math.min(data.totalPoints, loyaltyPoints.balance);
-        if (pointsToExpire <= 0) {
-          // Still null out expiresAt to prevent re-processing
-          await tx.loyaltyTransaction.updateMany({
-            where: { id: { in: data.transactionIds } },
-            data: { expiresAt: null },
-          });
-          continue;
-        }
-
-        const newBalance = loyaltyPoints.balance - pointsToExpire;
-        const newTier = calculateTier(newBalance, thresholds);
-
-        await tx.loyaltyPoints.update({
-          where: { clientId },
-          data: { balance: newBalance, tier: newTier },
-        });
-
-        await tx.loyaltyTransaction.create({
-          data: {
-            salonId: loyaltyPoints.salonId,
-            clientId,
-            points: -pointsToExpire,
-            type: "EXPIRED",
-            description: `${pointsToExpire} points expired`,
-          },
-        });
-
-        // Null out expiresAt on processed records (preserves history)
-        await tx.loyaltyTransaction.updateMany({
-          where: { id: { in: data.transactionIds } },
-          data: { expiresAt: null },
-        });
-
-        totalPointsExpired += pointsToExpire;
-        clientsAffected++;
-      }
-    });
-
-    if (totalPointsExpired > 0 && actorUserId && actorUserRole) {
+    const result = await expirePoints(authResult.salonId);
+    if (result.totalPointsExpired > 0) {
       await logAudit({
         action: "POINTS_EXPIRED",
         entityType: "LoyaltyPoints",
-        userId: actorUserId,
-        userRole: actorUserRole,
-        details: { clientsAffected, totalPointsExpired },
+        userId: authResult.userId,
+        userRole: authResult.role,
+        salonId: authResult.salonId,
+        details: { ...result },
       });
     }
-
-    return {
-      success: true,
-      data: {
-        clientsAffected,
-        totalPointsExpired,
-      },
-    };
+    return { success: true, data: result };
   } catch (error) {
     console.error("Error processing expired points:", error);
     return { success: false, error: "Failed to process expired points" };

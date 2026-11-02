@@ -42,7 +42,7 @@ const doc = StyleSheet.create({
 /** A5 / A4 document-style receipt PDF with a bordered items table, for regular printers. */
 export function DocumentReceiptPDF({ data, size }: { data: ReceiptData; size: DocumentSize }): ReactElement {
   const money = (n: number): string => formatCurrency(n, data.currencyCode);
-  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty } = receiptFigures(data);
+  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty, cancellationNote: cancelNote } = receiptFigures(data);
 
   return (
     <Document title={`Receipt ${data.receiptNumber}`}>
@@ -130,6 +130,7 @@ export function DocumentReceiptPDF({ data, size }: { data: ReceiptData; size: Do
         </View>
 
         <Text style={doc.status}>{`*** ${receiptStatusLabel(data)} ***`}</Text>
+        {cancelNote ? <Text style={doc.thanks}>{cancelNote}</Text> : null}
         {/* Loyalty — informational only, not part of the money totals above. */}
         {showLoyalty ? (
           <View style={{ marginTop: 6 }}>

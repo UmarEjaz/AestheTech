@@ -41,4 +41,16 @@ describe("estimateSlipHeight", () => {
     expect(threePayments).toBeGreaterThan(onePayment);
     expect(estimateSlipHeight({ ...base, amountRefunded: 5 })).toBeGreaterThan(onePayment);
   });
+
+  it("leaves no room for a points-earned line a cancelled bill doesn't print", () => {
+    const earned = { ...base, pointsEarned: 10, pointsBalance: 50 };
+    const cancelled = { ...earned, cancelled: true };
+    const cancelledNoPoints = { ...base, pointsEarned: 0, pointsBalance: 50, cancelled: true };
+    expect(estimateSlipHeight(cancelled)).toBe(estimateSlipHeight(cancelledNoPoints));
+  });
+
+  it("makes room for the money line on a cancelled bill", () => {
+    const refunded = { ...base, amountRefunded: 5 };
+    expect(estimateSlipHeight({ ...refunded, cancelled: true })).toBeGreaterThan(estimateSlipHeight(refunded));
+  });
 });

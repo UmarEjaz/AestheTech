@@ -151,6 +151,7 @@
 - [x] Send receipt via email (optional)
 - [x] Print / download the customer receipt (thermal 80/58mm slip or A5/A4 document) from the sale page, reached straight after checkout
 - [x] Per-payment receipts for deposits and partial payments (invoice page), with the balance as it stood at that payment
+- [x] Cancelling a part-paid bill asks whether to refund the money paid or keep it as a cancellation fee; every cancel takes back the loyalty points the bill earned (and any birthday bonus it triggered) and puts its products back in stock, and gives back points spent on it unless the salon keeps the money; receipts, payment receipts, the invoice PDF, both pages and both emails then say CANCELLED and what became of the money
 - [x] Create sale history view
 - [x] Add sale search and filtering
 - [x] Test sales flow end-to-end
@@ -172,6 +173,7 @@
 - [x] Attach an A4 PDF to receipt and invoice emails; invoice PDF shows amount paid, refunds, balance due, loyalty and the derived Overdue status
 - [x] Display invoice history for clients
 - [x] Implement refund functionality
+- [x] A refund's limit ignores change handed back at checkout on an overpaid deposit, and a refund is tied to its invoice's salon in the database
 - [x] Handle invoice cancellation
 - [x] Test invoice generation and management
 - [x] Add permission checks
@@ -223,6 +225,7 @@
 - [x] Add charts and visualizations (use recharts or similar)
 - [x] Cache report data for performance
 - [x] Test all reports
+- [x] Refunds and cancellations come off revenue (and restocked products off cost) on the day they happen, on the dashboard and every report breakdown; a kept cancellation fee stays as income
 - [x] Add permission checks
 
 ### Loyalty Points System
@@ -240,6 +243,8 @@
 - [x] Display points on invoice
 - [x] Add birthday bonus points
 - [x] Implement points expiration (optional)
+- [x] The points-expiry cron endpoint (`/api/cron/expire-points`) covers every salon by its own settings, in short batches (it could not load settings without a signed-in user before), and never takes off points a refund or cancel already took back
+- [x] A full refund undoes the sale's points like a cancel: earned points and any birthday bonus come back off, and points spent on the bill go back to the client
 - [x] Create loyalty dashboard for clients
 - [x] Test loyalty points flow
 - [x] Add permission checks

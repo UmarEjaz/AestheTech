@@ -9,7 +9,7 @@ import { DocMeta, Row } from "./receipt-parts";
 /** The wider document-style receipt, with a bordered items table, for A5 / A4 regular paper. */
 export function DocumentReceipt({ data, size }: { data: ReceiptData; size: ReceiptSize }): ReactElement {
   const money = (n: number): string => formatCurrency(n, data.currencyCode);
-  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty } = receiptFigures(data);
+  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty, cancellationNote: cancelNote } = receiptFigures(data);
 
   return (
     <div
@@ -109,6 +109,7 @@ export function DocumentReceipt({ data, size }: { data: ReceiptData; size: Recei
 
       {/* Status + thanks */}
       <div className="mt-5 text-center text-sm font-bold uppercase tracking-wide">{`*** ${receiptStatusLabel(data)} ***`}</div>
+      {cancelNote && <div className="mt-1 text-center text-sm">{cancelNote}</div>}
       {/* Loyalty — informational only, not part of the money totals above. */}
       {showLoyalty && (
         <div className="mt-3 text-center text-[11px] text-neutral-600">

@@ -103,7 +103,9 @@ describe("buildSaleReceiptData", () => {
 
   it("defaults to no loyalty figures and flags a refunded invoice by status or timestamp", () => {
     const plain = buildSaleReceiptData(receiptSale, settings);
-    expect(plain).toMatchObject({ pointsEarned: 0, pointsBalance: null, refunded: false });
+    expect(plain).toMatchObject({ pointsEarned: 0, pointsBalance: null, refunded: false, cancelled: false });
+    const cancelled = buildSaleReceiptData({ ...receiptSale, invoice: { ...receiptSale.invoice, status: "CANCELLED" } }, settings);
+    expect(cancelled?.cancelled).toBe(true);
     const byStatus = buildSaleReceiptData({ ...receiptSale, invoice: { ...receiptSale.invoice, status: "REFUNDED" } }, settings);
     expect(byStatus?.refunded).toBe(true);
     const byTimestamp = buildSaleReceiptData(
@@ -156,5 +158,10 @@ describe("buildSaleInvoicePdfData", () => {
     });
     expect(data?.status).toBe("OVERDUE");
     expect(data?.loyaltyPointsEarned).toBe(7);
+    // A cancelled bill's points were taken back, so none print as earned.
+    const cancelled = buildSaleInvoicePdfData({ ...sale, invoice: { ...sale.invoice!, status: "CANCELLED" } }, settings, {
+      loyalty: { pointsEarned: 7, pointsBalance: 99 },
+    });
+    expect(cancelled?.loyaltyPointsEarned).toBe(0);
   });
 });

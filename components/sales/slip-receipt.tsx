@@ -9,7 +9,7 @@ import { Divider, Row } from "./receipt-parts";
 /** The narrow monospace receipt for thermal till-roll printers (80mm / 58mm). */
 export function SlipReceipt({ data, size }: { data: ReceiptData; size: ReceiptSize }): ReactElement {
   const money = (n: number): string => formatCurrency(n, data.currencyCode);
-  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty } = receiptFigures(data);
+  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty, cancellationNote: cancelNote } = receiptFigures(data);
 
   return (
     <div
@@ -106,6 +106,7 @@ export function SlipReceipt({ data, size }: { data: ReceiptData; size: ReceiptSi
       <Divider />
       {/* Honest status so an unpaid/partial/refunded sale never reads as a clean paid sale. */}
       <div className="text-center font-bold uppercase">{`*** ${receiptStatusLabel(data)} ***`}</div>
+      {cancelNote && <div className="text-center">{cancelNote}</div>}
 
       {/* Loyalty — informational only, not part of the money totals above. */}
       {showLoyalty && (

@@ -23,29 +23,17 @@ import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatInTz } from "@/lib/utils/timezone";
-import { amountDue, formatInvoiceStatus } from "@/lib/utils/invoice-status";
+import { amountDue, formatInvoiceStatus, invoiceStatusVariant, netPaid, refundableLeft } from "@/lib/utils/invoice-status";
 import { InvoiceActions } from "@/components/invoices/invoice-actions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
 import { buildInvoicePdfData, buildPaymentReceipts } from "@/components/invoices/invoice-pdf-data";
+import { FALLBACK_RECEIPT_SETTINGS } from "@/components/sales/receipt-data";
+import { cancellationNote, clientLabel } from "@/components/sales/receipt-model";
 import { getSaleLoyaltySummary } from "@/lib/sale-loyalty-summary";
 import { PaymentReceiptButton } from "@/components/sales/payment-receipt-button";
 
 interface PageProps {
   params: Promise<{ id: string }>;
-}
-
-function statusVariant(status: string): "success" | "warning" | "destructive" | "secondary" {
-  switch (status) {
-    case "PAID":
-      return "success" as const;
-    case "PENDING":
-    case "PARTIALLY_PAID":
-      return "warning" as const;
-    case "OVERDUE":
-      return "destructive" as const;
-    default:
-      return "secondary" as const;
-  }
 }
 
 export default async function InvoiceDetailPage({ params }: PageProps): Promise<ReactElement> {
@@ -74,21 +62,7 @@ export default async function InvoiceDetailPage({ params }: PageProps): Promise<
     notFound();
   }
   const invoice = invoiceResult.data;
-  const settings = settingsResult.success
-    ? settingsResult.data
-    : {
-        currencyCode: "USD",
-        timezone: "UTC",
-        salonName: "Salon",
-        salonAddress: null,
-        salonPhone: null,
-        salonEmail: null,
-        salonLogo: null,
-        taxRate: 0,
-        taxNumber: null,
-        receiptFooter: null,
-        receiptSize: "THERMAL_80" as const,
-      };
+  const settings = settingsResult.success ? settingsResult.data : FALLBACK_RECEIPT_SETTINGS;
   const currency = settings.currencyCode;
   const tz = settings.timezone;
 
@@ -99,9 +73,16 @@ export default async function InvoiceDetailPage({ params }: PageProps): Promise<
   ]);
 
   const totalRefunded = invoice.refunds.reduce((s, r) => s + Number(r.amount), 0);
-  const maxRefundable = Number(invoice.total) - totalRefunded;
-  const canIssueRefund = canRefund && invoice.status === "PAID" && maxRefundable > 0;
   const totalPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
+  const maxRefundable = refundableLeft(Number(invoice.total), totalPaid, totalRefunded);
+  const canIssueRefund = canRefund && invoice.status === "PAID" && maxRefundable > 0;
+  // What became of the money on a cancelled bill (refunded / kept), as the receipts and PDF say it.
+  const cancelNote = cancellationNote({
+    cancelled: invoice.status === "CANCELLED",
+    amountPaid: totalPaid,
+    amountRefunded: totalRefunded,
+    currencyCode: currency,
+  });
 
   // Loyalty figures for the PDF's "Points Earned" box (informational). Only for a real client with
   // the loyalty program on.
@@ -132,7 +113,7 @@ export default async function InvoiceDetailPage({ params }: PageProps): Promise<
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-bold break-all">Invoice {invoice.invoiceNumber}</h1>
-              <Badge variant={statusVariant(invoice.status)}>{formatInvoiceStatus(invoice.status)}</Badge>
+              <Badge variant={invoiceStatusVariant(invoice.status)}>{formatInvoiceStatus(invoice.status)}</Badge>
             </div>
             <p className="text-muted-foreground">
               Issued {formatInTz(invoice.createdAt, "dd MMM yyyy, h:mm a", tz)}
@@ -153,6 +134,9 @@ export default async function InvoiceDetailPage({ params }: PageProps): Promise<
               maxRefundable={maxRefundable}
               currencyCode={currency}
               amountDue={amountDue(Number(invoice.total), invoice.payments)}
+              paidAmount={netPaid(totalPaid, totalRefunded)}
+              canRefundMoney={canRefund}
+              clientName={invoice.client.isWalkIn ? "the client" : clientLabel(invoice.client)}
             />
           </div>
         </div>
@@ -228,6 +212,13 @@ export default async function InvoiceDetailPage({ params }: PageProps): Promise<
                       <span>{formatCurrency(totalPaid, currency)}</span>
                     </div>
                   )}
+                  {totalRefunded > 0 && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Refunded</span>
+                      <span>−{formatCurrency(totalRefunded, currency)}</span>
+                    </div>
+                  )}
+                  {cancelNote && <p className="text-muted-foreground">Cancelled: {cancelNote}.</p>}
                   {(invoice.status === "PENDING" || invoice.status === "PARTIALLY_PAID" || invoice.status === "OVERDUE") && (
                     <div className="flex justify-between font-semibold text-destructive">
                       <span>Amount due</span>

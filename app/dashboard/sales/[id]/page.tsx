@@ -34,9 +34,10 @@ import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-bu
 import { RefundDialog } from "@/components/sales/refund-dialog";
 import { EmailReceiptButton, EmailInvoiceButton } from "@/components/sales/email-receipt-button";
 import { PrintReceiptButton } from "@/components/sales/print-receipt-button";
-import { buildSaleInvoicePdfData, buildSaleReceiptData, NO_LOYALTY } from "@/components/sales/receipt-data";
+import { buildSaleInvoicePdfData, buildSaleReceiptData, FALLBACK_RECEIPT_SETTINGS, NO_LOYALTY } from "@/components/sales/receipt-data";
+import { cancellationNote, clientLabel } from "@/components/sales/receipt-model";
 import { getSaleLoyaltySummary } from "@/lib/sale-loyalty-summary";
-import { effectiveInvoiceStatus } from "@/lib/utils/invoice-status";
+import { effectiveInvoiceStatus, formatInvoiceStatus, invoiceStatusVariant, netPaid, refundableLeft } from "@/lib/utils/invoice-status";
 import { salonOverdueCutoff } from "@/lib/invoice-overdue";
 import { PaymentMethodIcon, PAYMENT_METHOD_LABELS } from "@/lib/constants/payment-methods";
 
@@ -76,19 +77,7 @@ export default async function SaleDetailPage({
   }
 
   const sale = saleResult.data;
-  const settings = settingsResult.success ? settingsResult.data : {
-    currencyCode: "USD",
-    salonName: "AestheTech Salon",
-    salonAddress: null,
-    salonPhone: null,
-    salonEmail: null,
-    salonLogo: null,
-    taxRate: 0,
-    taxNumber: null,
-    receiptFooter: null,
-    timezone: "UTC",
-    receiptSize: "THERMAL_80" as const,
-  };
+  const settings = settingsResult.success ? settingsResult.data : FALLBACK_RECEIPT_SETTINGS;
   const tz = settings.timezone;
 
   // Loyalty figures for the receipt (informational only — not part of the money totals). Only for a
@@ -111,28 +100,12 @@ export default async function SaleDetailPage({
   const invoiceData = buildSaleInvoicePdfData(sale, settings, { loyalty, status: invoiceStatus ?? undefined });
   const receiptData = buildSaleReceiptData(sale, settings, loyalty);
 
-  const getStatusBadge = (status: string): ReactElement => {
-    switch (status) {
-      case "PAID":
-        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Paid</Badge>;
-      case "PENDING":
-        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">Pending</Badge>;
-      case "OVERDUE":
-        return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">Overdue</Badge>;
-      case "CANCELLED":
-        return <Badge variant="secondary">Cancelled</Badge>;
-      case "REFUNDED":
-        return <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">Refunded</Badge>;
-      default:
-        return <Badge variant="outline">Draft</Badge>;
-    }
-  };
-
   // Calculate refund information
   const canRefund = await hasPermission(userRoleId, "invoices:refund", isSuperAdmin, salonId, permUserId);
   const invoiceRefunds = sale.invoice?.refunds || [];
   const totalRefunded = invoiceRefunds.reduce((sum, r) => sum + Number(r.amount), 0);
-  const maxRefundable = sale.invoice ? Number(sale.invoice.total) - totalRefunded : 0;
+  const cancelNote = receiptData ? cancellationNote(receiptData) : null; // what became of the money, once cancelled
+  const maxRefundable = sale.invoice && receiptData ? refundableLeft(Number(sale.invoice.total), receiptData.amountPaid, totalRefunded) : 0;
   const canIssueRefund = canRefund && sale.invoice?.status === "PAID" && maxRefundable > 0;
 
   return (
@@ -161,6 +134,7 @@ export default async function SaleDetailPage({
                 invoiceNumber={sale.invoice.invoiceNumber}
                 maxRefundable={maxRefundable}
                 currencyCode={settings.currencyCode}
+                clientName={sale.client.isWalkIn ? "the client" : clientLabel(sale.client)}
               />
             )}
             {sale.invoice && invoiceData && receiptData && (
@@ -247,7 +221,9 @@ export default async function SaleDetailPage({
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Status</span>
-                    {getStatusBadge(invoiceStatus ?? sale.invoice.status)}
+                    <Badge variant={invoiceStatusVariant(invoiceStatus ?? sale.invoice.status)}>
+                      {formatInvoiceStatus(invoiceStatus ?? sale.invoice.status)}
+                    </Badge>
                   </div>
                   {sale.invoice.payments && sale.invoice.payments.length > 0 && (
                     <>
@@ -284,14 +260,16 @@ export default async function SaleDetailPage({
                       <Separator />
                       <div className="flex justify-between items-center text-red-600">
                         <span>Total Refunded</span>
-                        <span>-{formatCurrency(totalRefunded, settings.currencyCode)}</span>
+                        <span>−{formatCurrency(totalRefunded, settings.currencyCode)}</span>
                       </div>
+                      {/* What the salon kept: money paid less refunds (not the total, which may never have been paid). */}
                       <div className="flex justify-between items-center font-medium">
                         <span>Net Amount</span>
-                        <span>{formatCurrency(Number(sale.invoice.total) - totalRefunded, settings.currencyCode)}</span>
+                        <span>{formatCurrency(netPaid(receiptData?.amountPaid ?? 0, totalRefunded), settings.currencyCode)}</span>
                       </div>
                     </>
                   )}
+                  {cancelNote && <p className="text-sm text-muted-foreground">Cancelled: {cancelNote}.</p>}
                 </CardContent>
               </Card>
             )}
@@ -324,13 +302,15 @@ export default async function SaleDetailPage({
                             {formatInTz(refund.createdAt, "MMM d, yyyy h:mm a", tz)}
                           </TableCell>
                           <TableCell className="text-red-600 font-medium">
-                            -{formatCurrency(Number(refund.amount), settings.currencyCode)}
+                            −{formatCurrency(Number(refund.amount), settings.currencyCode)}
                           </TableCell>
+                          {/* The refund's share of the bill's points (the balance may have dropped by less if
+                              the client had already spent some; their points history shows the exact figure). */}
                           <TableCell>
                             {refund.pointsReversed > 0 ? (
-                              <span className="text-amber-600">-{refund.pointsReversed} pts</span>
+                              <span className="text-amber-700 dark:text-amber-400">−{refund.pointsReversed} pts</span>
                             ) : (
-                              <span className="text-muted-foreground">-</span>
+                              <span className="text-muted-foreground">—</span>
                             )}
                           </TableCell>
                           <TableCell>
@@ -407,7 +387,7 @@ export default async function SaleDetailPage({
                 {Number(sale.discount) > 0 && (
                   <div className="flex justify-between text-green-600">
                     <span>Discount</span>
-                    <span>-{formatCurrency(Number(sale.discount), settings.currencyCode)}</span>
+                    <span>−{formatCurrency(Number(sale.discount), settings.currencyCode)}</span>
                   </div>
                 )}
                 <Separator />

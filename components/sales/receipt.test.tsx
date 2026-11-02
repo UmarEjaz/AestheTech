@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Receipt, paymentStatus, receiptStatusLabel, type ReceiptData } from "./receipt";
+import { balanceOwed, cancellationNote, cancelledSummary } from "./receipt-model";
 import { baseReceipt as base } from "./receipt-test-data";
 
 // The slip layout's content is covered in slip-receipt.test.tsx; this file covers the size dispatch
@@ -23,6 +24,12 @@ describe("Receipt — A5/A4 document layout", () => {
   it("shows the points info on the A4 document layout too", () => {
     render(<Receipt data={{ ...base, size: "A4", pointsEarned: 47, pointsBalance: 320 }} />);
     expect(screen.getByText(/Points earned: \+47/)).toBeInTheDocument();
+    expect(screen.getByText(/Points balance: 320/)).toBeInTheDocument();
+  });
+
+  it("prints no points as earned on a cancelled bill (they were taken back)", () => {
+    render(<Receipt data={{ ...base, size: "A4", pointsEarned: 47, pointsBalance: 320, cancelled: true }} />);
+    expect(screen.queryByText(/Points earned/)).toBeNull();
     expect(screen.getByText(/Points balance: 320/)).toBeInTheDocument();
   });
 
@@ -60,6 +67,50 @@ describe("paymentStatus", () => {
   });
 });
 
+describe("balanceOwed", () => {
+  it("is the cent-rounded balance while the bill stands, and nothing once it is cancelled", () => {
+    expect(balanceOwed(20, 5, false)).toBe(15);
+    expect(balanceOwed(20, 5, true)).toBe(0);
+    expect(balanceOwed(20, 0, true)).toBe(0);
+  });
+});
+
+describe("cancellationNote", () => {
+  const cancelled = { cancelled: true, currencyCode: "USD" };
+  it("says what became of money paid on a cancelled bill", () => {
+    expect(cancellationNote({ ...cancelled, amountPaid: 30, amountRefunded: 30 })).toBe("$30.00 refunded");
+    expect(cancellationNote({ ...cancelled, amountPaid: 30 })).toBe("$30.00 kept as a cancellation fee");
+    expect(cancellationNote({ ...cancelled, amountPaid: 30, amountRefunded: 10 })).toBe(
+      "$10.00 refunded · $20.00 kept as a cancellation fee"
+    );
+  });
+  it("is empty when the bill stands or nothing was paid", () => {
+    expect(cancellationNote({ ...cancelled, cancelled: false, amountPaid: 30 })).toBeNull();
+    expect(cancellationNote({ ...cancelled, amountPaid: 0 })).toBeNull();
+  });
+});
+
+describe("Receipt — cancelled bill", () => {
+  it("prints what became of the money under the CANCELLED banner, on every layout", () => {
+    for (const size of ["THERMAL_80", "A4"] as const) {
+      const { unmount } = render(
+        <Receipt data={{ ...base, size, amountPaid: 30, amountRefunded: 30, cancelled: true }} />
+      );
+      expect(screen.getByText("$30.00 refunded")).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("prints CANCELLED and no Balance Due on every layout, even with nothing paid", () => {
+    for (const size of ["THERMAL_80", "A4"] as const) {
+      const { unmount } = render(<Receipt data={{ ...base, size, payments: [], amountPaid: 0, cancelled: true }} />);
+      expect(screen.getByText(/\*\*\* CANCELLED \*\*\*/)).toBeInTheDocument();
+      expect(screen.queryByText("Balance Due")).toBeNull();
+      unmount();
+    }
+  });
+});
+
 describe("receiptStatusLabel", () => {
   const paid: ReceiptData = { ...base, refunded: false };
   it("full refund wins over paid status", () => {
@@ -68,8 +119,28 @@ describe("receiptStatusLabel", () => {
   it("partial refund reads PARTIALLY REFUNDED, not PAID", () => {
     expect(receiptStatusLabel({ ...paid, amountRefunded: 1 })).toBe("PARTIALLY REFUNDED");
   });
+  it("a cancelled bill reads CANCELLED, never UNPAID or PARTIALLY PAID", () => {
+    expect(receiptStatusLabel({ ...paid, payments: [], amountPaid: 0, cancelled: true })).toBe("CANCELLED");
+    expect(receiptStatusLabel({ ...paid, amountPaid: 1, cancelled: true })).toBe("CANCELLED");
+  });
   it("falls back to the payment status when there is no refund", () => {
     expect(receiptStatusLabel(paid)).toBe("PAID");
     expect(receiptStatusLabel({ ...paid, payments: [], amountPaid: 0 })).toBe("UNPAID");
+  });
+});
+
+describe("cancelledSummary", () => {
+  const usd = { currencyCode: "USD", cancelled: true };
+  it("adds what became of the money after the lead sentence", () => {
+    expect(cancelledSummary("This bill was cancelled.", { ...usd, amountPaid: 30, amountRefunded: 30 })).toBe(
+      "This bill was cancelled. $30.00 refunded."
+    );
+    expect(cancelledSummary("This bill was cancelled.", { ...usd, amountPaid: 30 })).toBe(
+      "This bill was cancelled. $30.00 kept as a cancellation fee."
+    );
+  });
+  it("is just the lead when nothing was paid, and nothing at all while the bill stands", () => {
+    expect(cancelledSummary("This bill was cancelled.", { ...usd, amountPaid: 0 })).toBe("This bill was cancelled.");
+    expect(cancelledSummary("This bill was cancelled.", { ...usd, cancelled: false, amountPaid: 30 })).toBeNull();
   });
 });

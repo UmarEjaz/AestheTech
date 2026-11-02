@@ -172,6 +172,13 @@ export const styles = StyleSheet.create({
     backgroundColor: "#f0fdf4",
     borderRadius: 4,
   },
+  // Grey notice on a cancelled invoice: what became of any money paid.
+  cancelInfo: {
+    marginTop: 20,
+    padding: 12,
+    backgroundColor: "#f3f4f6",
+    borderRadius: 4,
+  },
   loyaltyInfo: {
     marginTop: 10,
     padding: 8,

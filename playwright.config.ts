@@ -1,12 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
-import { config as loadEnv } from "dotenv";
+import { assertE2eDatabaseSafe } from "./scripts/testing/e2e-db-check.mjs";
 
-// Resolve DATABASE_URL from the SAME source the guard (scripts/testing/guard-e2e-db.mjs) and the specs
-// use — dotenv's `.env`, with any real process.env value taking precedence. We then hand this exact
-// value to the test server below, so the DB the guard validates is provably the DB the server writes
-// to (Next.js would otherwise apply its own `.env.local`/`.env.production` precedence and could pick a
-// different — even production — database that the guard never checked).
-loadEnv();
+// The specs create and delete data, so refuse a production or unapproved remote database here, while
+// the config loads — before the server is built or any test runs, however Playwright was started.
+// The guard (scripts/testing/e2e-db-check.mjs) resolves DATABASE_URL from the SAME source the specs use
+// — dotenv's `.env`, with any real process.env value taking precedence — and leaves it in process.env.
+// We then hand this exact value to the test server below, so the DB the guard validates is provably the
+// DB the server writes to (Next.js would otherwise apply its own `.env.local`/`.env.production`
+// precedence and could pick a different — even production — database that the guard never checked).
+assertE2eDatabaseSafe();
 
 // End-to-end tests run against a PRODUCTION build of the app on :3001 with a seeded database.
 // A production build (`next build && next start`) serves every route pre-compiled, so navigations
@@ -60,7 +62,7 @@ export default defineConfig({
     // and write to an unchecked database. process.env is Next's highest-priority source, so this wins.
     env: {
       AUTH_TRUST_HOST: "true",
-      // `.env` (loaded above) may carry NODE_ENV=development; a production build/start must not inherit
+      // `.env` (loaded by the guard above) may carry NODE_ENV=development; a production build/start must not inherit
       // it — Next then emits a non-standard build whose error pages fail to prerender.
       NODE_ENV: "production",
       ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),

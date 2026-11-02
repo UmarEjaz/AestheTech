@@ -12,8 +12,11 @@ import { formatInTz } from "@/lib/utils/timezone";
 import { formatCurrency } from "@/lib/utils/currency";
 import { impliedLoyaltyValue } from "@/lib/utils/receipt-totals";
 import { formatInvoiceStatus } from "@/lib/utils/invoice-status";
-import { paymentStatus } from "@/components/sales/receipt-model";
+import { invoiceBalanceDue, invoiceNotice } from "./invoice-pdf-data";
 import { styles } from "./invoice-pdf-styles";
+
+/** Notice-box text colour: green on a paid invoice, grey on a cancelled one. */
+const NOTICE_TEXT = { paid: "#166534", cancelled: "#374151" } as const;
 
 /** Statuses that still owe money — printed with the amber badge, never the green "settled" one. */
 const OUTSTANDING_STATUSES = ["PENDING", "PARTIALLY_PAID", "OVERDUE"];
@@ -78,8 +81,9 @@ export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
   // Loyalty points redeemed at checkout reduce the total (before tax) but aren't in Subtotal/Discount.
   // Show that value so the invoice foots: Subtotal − Discount − Loyalty + Tax = Total (0 if no points).
   const loyaltyValue = impliedLoyaltyValue(data);
-  // Same cent-rounded balance the receipt prints, so the two documents never disagree.
-  const { balanceDue } = paymentStatus(data.total, data.amountPaid);
+  // Same balance the receipt prints (none once cancelled), so the two documents never disagree.
+  const balanceDue = invoiceBalanceDue(data);
+  const notice = invoiceNotice(data);
 
   return (
     <Document>
@@ -280,15 +284,14 @@ export function InvoicePDF({ data }: InvoicePDFProps): ReactElement {
           </View>
         )}
 
-        {/* Payment Confirmation — suppressed when any refund exists, so a cheery "Payment Received"
-            box never sits next to a Refunded row (a partial refund leaves status PAID). */}
-        {data.status === "PAID" && (data.amountRefunded ?? 0) === 0 && (
-          <View style={styles.paymentInfo}>
-            <Text style={{ color: "#166534", fontWeight: "bold" }}>
-              Payment Received
+        {/* "Payment Received" on a clean paid invoice, or what became of the money on a cancelled one. */}
+        {notice && (
+          <View style={notice.tone === "paid" ? styles.paymentInfo : styles.cancelInfo}>
+            <Text style={{ color: NOTICE_TEXT[notice.tone], fontWeight: "bold" }}>
+              {notice.title}
             </Text>
-            <Text style={{ color: "#166534", fontSize: 9, marginTop: 2 }}>
-              Thank you for your business!
+            <Text style={{ color: NOTICE_TEXT[notice.tone], fontSize: 9, marginTop: 2 }}>
+              {notice.body}
             </Text>
           </View>
         )}

@@ -6,7 +6,8 @@ import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
 import { ReportsCharts } from "@/components/reports/reports-charts";
 import { BranchFilter } from "@/components/dashboard/branch-filter";
-import { getReportData } from "@/lib/actions/dashboard";
+import type { ReactElement } from "react";
+import { getReportData, type ReportData } from "@/lib/actions/report-data";
 import { getTimezone } from "@/lib/actions/settings";
 import { getBranches } from "@/lib/actions/branch";
 import { getMonthRange } from "@/lib/utils/timezone";
@@ -15,7 +16,7 @@ export default async function ReportsPage({
   searchParams,
 }: {
   searchParams: Promise<{ branch?: string }>;
-}) {
+}): Promise<ReactElement> {
   const session = await auth();
 
   if (!session) {
@@ -74,7 +75,7 @@ export default async function ReportsPage({
     );
   }
 
-  async function handleDateRangeChange(startDate: Date, endDate: Date) {
+  async function handleDateRangeChange(startDate: Date, endDate: Date): Promise<ReportData | null> {
     "use server";
     const result = await getReportData({ startDate, endDate, branchFilter });
     return result.success ? result.data : null;

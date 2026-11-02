@@ -1,4 +1,4 @@
-import { impliedLoyaltyValue, type ReceiptData } from "./receipt-model";
+import { impliedLoyaltyValue, receiptFigures, type ReceiptData } from "./receipt-model";
 
 // Approx. characters an item name fits on one line before wrapping, by slip width (Courier 8pt, name
 // column is the left ~70% of the printable width). Narrower rolls wrap sooner.
@@ -35,11 +35,14 @@ export function estimateSlipHeight(
   h += 26; // Total Paid + Balance Due
   if ((data.amountRefunded ?? 0) > 0) h += 13; // Refunded row
   if (impliedLoyaltyValue(data) > 0) h += 13; // Loyalty (points) row
+  // The same figures the slip prints (no points earned on a cancelled bill: they were taken back).
+  const { pointsEarned, pointsBalance, showLoyalty, cancellationNote } = receiptFigures(data);
+  if (cancellationNote) h += 26; // what happened to the money on a cancelled bill (may wrap)
   // Informational loyalty block (divider + earned/balance rows) at the foot.
-  if ((data.pointsEarned ?? 0) > 0 || data.pointsBalance != null) {
+  if (showLoyalty) {
     h += 8; // divider
-    if ((data.pointsEarned ?? 0) > 0) h += 12;
-    if (data.pointsBalance != null) h += 12;
+    if (pointsEarned > 0) h += 12;
+    if (pointsBalance != null) h += 12;
   }
   return Math.max(340, h);
 }

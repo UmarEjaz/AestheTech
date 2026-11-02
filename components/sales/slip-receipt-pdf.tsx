@@ -30,7 +30,7 @@ const slip = StyleSheet.create({
 /** Thermal-slip PDF (80mm / 58mm): a variable-height page sized to the content, like a till roll. */
 export function SlipReceiptPDF({ data, size }: { data: ReceiptData; size: SlipSize }): ReactElement {
   const money = (n: number): string => formatCurrency(n, data.currencyCode);
-  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty } = receiptFigures(data);
+  const { balanceDue, amountRefunded, loyaltyValue, pointsEarned, pointsBalance, showLoyalty, cancellationNote: cancelNote } = receiptFigures(data);
 
   return (
     <Document title={`Receipt ${data.receiptNumber}`}>
@@ -103,6 +103,7 @@ export function SlipReceiptPDF({ data, size }: { data: ReceiptData; size: SlipSi
 
         <View style={slip.divider} />
         <Text style={[slip.center, slip.bold]}>{`*** ${receiptStatusLabel(data)} ***`}</Text>
+        {cancelNote ? <Text style={slip.center}>{cancelNote}</Text> : null}
 
         {/* Loyalty — informational only, not part of the money totals above. */}
         {showLoyalty ? (

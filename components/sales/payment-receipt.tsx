@@ -30,6 +30,7 @@ export interface PaymentReceiptData {
   invoiceTotal: number;
   totalPaid: number; // cumulative, including this payment
   size?: ReceiptSize; // paper size chosen in Settings; absent → thermal 80mm slip
+  cancelledNote?: string | null; // set once the invoice is cancelled: replaces the balance, says what became of the money
 }
 
 /** Print-optimized single-payment receipt. Narrow slip for thermal rolls (80/58mm) or a wider A5/A4
@@ -89,15 +90,17 @@ export function PaymentReceipt({ data }: { data: PaymentReceiptData }): ReactEle
       <div className="space-y-0.5">
         <Row label="Invoice Total" value={money(data.invoiceTotal)} />
         <Row label="Total Paid" value={money(data.totalPaid)} />
-        <div className="flex justify-between font-bold">
-          <span>{balance > 0 ? "Balance Due" : "Balance"}</span>
-          <span className="tabular-nums">{money(balance)}</span>
-        </div>
+        {!data.cancelledNote && (
+          <div className="flex justify-between font-bold">
+            <span>{balance > 0 ? "Balance Due" : "Balance"}</span>
+            <span className="tabular-nums">{money(balance)}</span>
+          </div>
+        )}
       </div>
 
       <Divider doc={isDocument} />
       <div className="text-center">
-        {balance > 0 ? "Partial payment received — thank you!" : "Paid in full — thank you!"}
+        {data.cancelledNote ?? (balance > 0 ? "Partial payment received — thank you!" : "Paid in full — thank you!")}
       </div>
       {data.footerNote && (
         <div className="mt-1 whitespace-pre-line text-center text-[10px] opacity-80">{data.footerNote}</div>

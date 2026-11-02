@@ -65,7 +65,7 @@ list query.
 **Rule** (see `CLAUDE.md` § Gates before every commit): new files stay under **500 lines**, new
 components under **200**. A file already over its limit must not grow — any PR that touches one either
 splits it or says why not. This is the list of current offenders to burn down over time; measured on
-`feature/customer-receipt-print` on 2026-10-31 (every source file under `app/`, `components/` and `lib/`;
+`feature/customer-receipt-print` on 2026-11-02 (every source file under `app/`, `components/` and `lib/`;
 tests, type declarations and the vendored `components/ui/*` primitives excluded).
 
 ### Non-component files over 500 lines
@@ -75,14 +75,14 @@ tests, type declarations and the vendored `components/ui/*` primitives excluded)
 | 1703 | `lib/actions/recurring-series.ts` |
 | 1471 | `lib/actions/appointment.ts` |
 | 1002 | `lib/actions/payroll.ts` |
-| 1001 | `lib/actions/dashboard.ts` |
 |  946 | `lib/actions/sale.ts` |
 |  839 | `lib/actions/user.ts` |
 |  741 | `lib/actions/schedule.ts` |
 |  717 | `lib/actions/permission.ts` |
-|  696 | `lib/actions/invoice.ts` |
 |  655 | `lib/actions/role.ts` |
 |  640 | `lib/actions/client.ts` |
+|  575 | `lib/actions/dashboard.ts` |
+|  540 | `lib/actions/invoice.ts` |
 |  532 | `lib/utils/recurring.ts` |
 |  517 | `lib/actions/salon.ts` |
 
@@ -102,8 +102,8 @@ tests, type declarations and the vendored `components/ui/*` primitives excluded)
 |  704 | `components/reports/reports-charts.tsx` |
 |  651 | `components/staff/staff-table.tsx` |
 |  485 | `components/clients/client-table.tsx` |
-|  451 | `app/dashboard/sales/[id]/page.tsx` |
 |  439 | `app/dashboard/clients/[id]/page.tsx` |
+|  431 | `app/dashboard/sales/[id]/page.tsx` |
 |  430 | `components/clients/client-form.tsx` |
 |  414 | `components/categories/category-manager.tsx` |
 |  413 | `components/dashboard/dashboard-widgets.tsx` |
@@ -112,11 +112,11 @@ tests, type declarations and the vendored `components/ui/*` primitives excluded)
 |  358 | `components/appointments/exception-dates-manager.tsx` |
 |  350 | `app/admin/page.tsx` |
 |  334 | `components/audit/audit-log-client.tsx` |
-|  329 | `app/dashboard/invoices/[id]/page.tsx` |
+|  320 | `app/dashboard/invoices/[id]/page.tsx` |
 |  318 | `components/appointments/conflict-resolution-ui.tsx` |
 |  317 | `components/reports/report-pdf.tsx` |
 |  308 | `components/clients/recurring-series-card.tsx` |
-|  307 | `components/invoices/invoice-pdf.tsx` |
+|  310 | `components/invoices/invoice-pdf.tsx` |
 |  305 | `components/staff/user-permissions-editor.tsx` |
 |  303 | `components/schedules/schedule-pdf.tsx` |
 |  300 | `components/payroll/payroll-run-list.tsx` |
@@ -126,15 +126,15 @@ tests, type declarations and the vendored `components/ui/*` primitives excluded)
 |  286 | `app/admin/salons/[id]/page.tsx` |
 |  286 | `components/schedules/schedule-month-view.tsx` |
 |  283 | `components/products/product-form.tsx` |
-|  266 | `components/invoices/invoice-actions.tsx` |
 |  262 | `components/clients/loyalty-dashboard.tsx` |
-|  260 | `components/sales/refund-dialog.tsx` |
+|  258 | `components/sales/refund-dialog.tsx` |
 |  257 | `app/dashboard/staff/[id]/page.tsx` |
-|  257 | `components/invoices/invoice-table.tsx` |
 |  253 | `components/services/service-form.tsx` |
 |  249 | `components/expenses/expense-list.tsx` |
 |  248 | `components/expenses/expense-form.tsx` |
+|  243 | `components/invoices/invoice-table.tsx` |
 |  243 | `components/payroll/salary-config-list.tsx` |
+|  241 | `components/invoices/invoice-actions.tsx` |
 |  239 | `app/admin/salons/new/create-salon-form.tsx` |
 |  234 | `components/admin/salon-admin-table.tsx` |
 |  234 | `components/payroll/payroll-run-form.tsx` |
@@ -182,10 +182,10 @@ forbidden.)
 ## Return-type backlog (ratcheted, not a sweep)
 
 `@typescript-eslint/explicit-function-return-type` is OFF in the whole-repo ESLint config because
-**442** existing functions lack a return type (measured 2026-10-31 on `feature/customer-receipt-print`,
-the way the gate measures it — see the command below; it was 489 when the gate landed two days
-earlier). It is enforced by `scripts/lint-changed.mjs` instead: required on every changed line (so
-this number never grows) and on every function of a touched file under `--whole-file` (so it shrinks
+**427** existing functions lack a return type (measured 2026-11-02 on `feature/customer-receipt-print`,
+the way the gate measures it — see the command below; it was 489 when the gate landed on 2026-10-28).
+It is enforced by `scripts/lint-changed.mjs` instead: required on every changed line (so this
+number never grows) and on every function of a touched file under `--whole-file` (so it shrinks
 per PR). This number only goes down; re-measure with:
 
 ```bash

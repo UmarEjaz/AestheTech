@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactElement } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatInTz } from "@/lib/utils/timezone";
@@ -26,24 +26,10 @@ import {
 import { InvoiceListItem } from "@/lib/actions/invoice";
 import { InvoiceSearchParams } from "@/lib/validations/invoice";
 import { formatCurrency } from "@/lib/utils/currency";
-import { amountDue, formatInvoiceStatus } from "@/lib/utils/invoice-status";
+import { amountDue, formatInvoiceStatus, invoiceStatusVariant } from "@/lib/utils/invoice-status";
 
 const STATUSES = ["PENDING", "PARTIALLY_PAID", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"] as const;
 type StatusFilter = "ALL" | (typeof STATUSES)[number];
-
-function statusVariant(status: string) {
-  switch (status) {
-    case "PAID":
-      return "success" as const;
-    case "PENDING":
-    case "PARTIALLY_PAID":
-      return "warning" as const;
-    case "OVERDUE":
-      return "destructive" as const;
-    default:
-      return "secondary" as const; // CANCELLED, REFUNDED
-  }
-}
 
 interface InvoiceTableProps {
   initialInvoices: InvoiceListItem[];
@@ -72,7 +58,7 @@ export function InvoiceTable({
   currencyCode,
   timezone,
   fetchInvoices,
-}: InvoiceTableProps) {
+}: InvoiceTableProps): ReactElement {
   const router = useRouter();
   const [invoices, setInvoices] = useState(initialInvoices);
   const [total, setTotal] = useState(initialTotal);
@@ -193,7 +179,7 @@ export function InvoiceTable({
                     {formatInTz(inv.createdAt, "dd MMM yyyy", timezone)}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={statusVariant(inv.status)}>{formatInvoiceStatus(inv.status)}</Badge>
+                    <Badge variant={invoiceStatusVariant(inv.status)}>{formatInvoiceStatus(inv.status)}</Badge>
                     {inv.dueDate && (inv.status === "PENDING" || inv.status === "PARTIALLY_PAID" || inv.status === "OVERDUE") && (
                       <div className="mt-1 text-xs text-muted-foreground">
                         Due {formatInTz(inv.dueDate, "dd MMM yyyy", timezone)}

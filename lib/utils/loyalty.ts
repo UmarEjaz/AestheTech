@@ -6,6 +6,9 @@ export interface TierThresholds {
   platinumThreshold: number;
 }
 
+/** The tier thresholds a salon starts with (and the fallback when its settings can't be read). */
+export const DEFAULT_TIER_THRESHOLDS: Readonly<TierThresholds> = Object.freeze({ goldThreshold: 500, platinumThreshold: 1000 });
+
 export interface TierMultipliers {
   memberMultiplier: number;
   goldMultiplier: number;

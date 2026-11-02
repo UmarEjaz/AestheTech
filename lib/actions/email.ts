@@ -17,6 +17,7 @@ import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/constants/payme
 import { ReceiptPDF } from "@/components/sales/receipt-pdf";
 import { InvoicePDF } from "@/components/invoices/invoice-pdf";
 import { buildSaleInvoicePdfData, buildSaleReceiptData, NO_LOYALTY } from "@/components/sales/receipt-data";
+import { cancelledSummary } from "@/components/sales/receipt-model";
 import { safeFilename, clientFileLabel } from "@/lib/utils/filename";
 
 /** Loyalty figures for a document, or none when the program is off or the client is a walk-in. */
@@ -91,6 +92,13 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
     const salonName = settings.salonName;
     const tz = settings.timezone;
 
+    // Attach an A4 PDF of the same receipt so the customer gets a saveable/printable copy. A4 (not the
+    // salon's thermal print size) because an email attachment is read on a screen / home printer.
+    const loyalty = await loyaltyFor(sale, settings.loyaltyProgramEnabled);
+    const receiptData = buildSaleReceiptData(sale, { ...settings, receiptSize: "A4" }, loyalty);
+    // A cancelled bill says so in the email body too, with what became of the money, not just in the PDF.
+    const statusNote = receiptData ? cancelledSummary("This bill was cancelled.", receiptData) : null;
+
     const html = receiptEmailHtml({
       salonName,
       clientName: sale.client.firstName,
@@ -112,12 +120,9 @@ export async function sendReceiptEmail(saleId: string): Promise<ActionResult<{ e
       paymentMethods: sale.invoice.payments.map(
         (p) => PAYMENT_METHOD_LABELS[p.method as PaymentMethod] ?? p.method
       ),
+      statusNote,
     });
 
-    // Attach an A4 PDF of the same receipt so the customer gets a saveable/printable copy. A4 (not the
-    // salon's thermal print size) because an email attachment is read on a screen / home printer.
-    const loyalty = await loyaltyFor(sale, settings.loyaltyProgramEnabled);
-    const receiptData = buildSaleReceiptData(sale, { ...settings, receiptSize: "A4" }, loyalty);
     const receiptFile = `${safeFilename(`${clientFileLabel(sale.client)} - Receipt ${sale.invoice.invoiceNumber}`)}.pdf`;
     // The builder only returns null without an invoice, which the guard above already rules out.
     const attachments = receiptData
@@ -202,6 +207,14 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
     const status = effectiveInvoiceStatus(sale.invoice.status, sale.invoice.dueDate, await salonOverdueCutoff(tz));
     const statusLabel = formatInvoiceStatus(status);
 
+    // Attach the formal invoice as a PDF (always A4) so the customer has a saveable/printable bill.
+    const loyalty = await loyaltyFor(sale, settings.loyaltyProgramEnabled);
+    const invoiceData = buildSaleInvoicePdfData(sale, settings, { loyalty, status, createdAt: sale.invoice.createdAt });
+    // A cancelled invoice says so in the email body too, with what became of the money.
+    const statusNote = invoiceData
+      ? cancelledSummary("This invoice was cancelled.", { ...invoiceData, cancelled: status === "CANCELLED" })
+      : null;
+
     const html = invoiceEmailHtml({
       salonName,
       salonAddress: settings.salonAddress,
@@ -225,11 +238,9 @@ export async function sendInvoiceEmail(saleId: string): Promise<ActionResult<{ e
       tax: Number(sale.invoice.tax),
       total: Number(sale.invoice.total),
       currencyCode: settings.currencyCode,
+      statusNote,
     });
 
-    // Attach the formal invoice as a PDF (always A4) so the customer has a saveable/printable bill.
-    const loyalty = await loyaltyFor(sale, settings.loyaltyProgramEnabled);
-    const invoiceData = buildSaleInvoicePdfData(sale, settings, { loyalty, status, createdAt: sale.invoice.createdAt });
     const invoiceFile = `${safeFilename(`${clientFileLabel(sale.client)} - Invoice ${sale.invoice.invoiceNumber}`)}.pdf`;
     // The builder only returns null without an invoice, which the guard above already rules out.
     const attachments = invoiceData

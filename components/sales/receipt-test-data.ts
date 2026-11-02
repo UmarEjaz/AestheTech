@@ -23,4 +23,5 @@ export const baseReceipt: ReceiptData = {
   payments: [{ method: "CARD", amount: 25.35 }],
   amountPaid: 25.35,
   refunded: false,
+  cancelled: false,
 };

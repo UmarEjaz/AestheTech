@@ -13,6 +13,15 @@ describe("ReceiptPDF renders a real PDF for every size", () => {
     });
   }
 
+  it("renders a cancelled, refunded bill for every size", async () => {
+    for (const size of RECEIPT_SIZES) {
+      const buf = await renderToBuffer(
+        <ReceiptPDF data={{ ...base, size, cancelled: true, amountPaid: 30, amountRefunded: 30 }} />
+      );
+      expect(buf.subarray(0, 5).toString()).toBe("%PDF-");
+    }
+  });
+
   it("renders with no items (edge case) without throwing", async () => {
     const buf = await renderToBuffer(
       <ReceiptPDF

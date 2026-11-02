@@ -61,6 +61,13 @@ describe("PaymentReceipt", () => {
     }
   });
 
+  it("on a cancelled invoice says so and what became of the money, instead of a balance due", () => {
+    render(<PaymentReceipt data={{ ...base, cancelledNote: "This invoice was later cancelled. $40.00 refunded." }} />);
+    expect(screen.getByText("This invoice was later cancelled. $40.00 refunded.")).toBeInTheDocument();
+    expect(screen.queryByText("Balance Due")).toBeNull();
+    expect(screen.queryByText(/Partial payment received/i)).toBeNull();
+  });
+
   it("leaves the tax number and footer out when not set", () => {
     render(<PaymentReceipt data={base} />);
     expect(screen.queryByText(/Tax Reg\. No\./)).toBeNull();

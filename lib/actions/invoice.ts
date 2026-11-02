@@ -13,9 +13,8 @@ import {
   AddPaymentInput,
   CreateRefundInput,
 } from "@/lib/validations/invoice";
-import { Prisma, InvoiceStatus, LoyaltyTransactionType } from "@prisma/client";
-import { getSettings } from "./settings";
-import { calculateTier } from "@/lib/utils/loyalty";
+import { Prisma, InvoiceStatus } from "@prisma/client";
+import { INVOICE_CHANGED, recordRefund, refundInvoiceInclude, RefundRefusal, refundSettings } from "@/lib/refund-core";
 import { salonOverdueCutoff } from "@/lib/invoice-overdue";
 import { ActionResult } from "@/lib/types";
 import { logAudit } from "./audit";
@@ -343,6 +342,7 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
       entityId: invoiceId,
       userId: authResult.userId,
       userRole: authResult.role,
+      salonId: authResult.salonId,
       details: { amount, method, invoiceNumber: updatedInvoice?.invoiceNumber },
     });
 
@@ -363,70 +363,6 @@ export async function addPaymentToInvoice(data: AddPaymentInput): Promise<Action
     }
     console.error("Error adding payment:", error);
     return { success: false, error: "Failed to add payment" };
-  }
-}
-
-// Cancel invoice
-export async function cancelInvoice(id: string): Promise<ActionResult<InvoiceListItem>> {
-  const authResult = await checkAuth("invoices:delete");
-  if (!authResult) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  try {
-    // Atomic cancel: the predicate on `status` is evaluated together with the
-    // UPDATE, so a concurrent payment that marks the invoice PAID can't be
-    // overwritten by this cancel.
-    const result = await prisma.invoice.updateMany({
-      where: {
-        id,
-        salonId: authResult.salonId,
-        status: { notIn: [InvoiceStatus.PAID, InvoiceStatus.CANCELLED, InvoiceStatus.REFUNDED] },
-      },
-      data: { status: InvoiceStatus.CANCELLED },
-    });
-
-    if (result.count === 0) {
-      // Diagnose which precondition failed so we can give a specific error.
-      const invoice = await prisma.invoice.findFirst({
-        where: { id, salonId: authResult.salonId },
-        select: { status: true },
-      });
-      if (!invoice) {
-        return { success: false, error: "Invoice not found" };
-      }
-      if (invoice.status === InvoiceStatus.PAID) {
-        return { success: false, error: "Cannot cancel a paid invoice" };
-      }
-      if (invoice.status === InvoiceStatus.CANCELLED) {
-        return { success: false, error: "Invoice is already cancelled" };
-      }
-      if (invoice.status === InvoiceStatus.REFUNDED) {
-        return { success: false, error: "Cannot cancel a refunded invoice" };
-      }
-      return { success: false, error: "Cannot cancel this invoice" };
-    }
-
-    const updatedInvoice = await prisma.invoice.findUnique({
-      where: { id },
-      include: invoiceListInclude,
-    });
-
-    await logAudit({
-      action: "INVOICE_CANCELLED",
-      entityType: "Invoice",
-      entityId: id,
-      userId: authResult.userId,
-      userRole: authResult.role,
-      details: { invoiceNumber: updatedInvoice?.invoiceNumber },
-    });
-
-    revalidatePath("/dashboard/invoices");
-    await invalidateDashboardCache(authResult.salonId);
-    return { success: true, data: updatedInvoice! };
-  } catch (error) {
-    console.error("Error cancelling invoice:", error);
-    return { success: false, error: "Failed to cancel invoice" };
   }
 }
 
@@ -512,7 +448,9 @@ export async function getInvoiceStats(): Promise<ActionResult<{
 // Create refund for an invoice
 export async function createRefund(data: CreateRefundInput): Promise<ActionResult<{
   refundId: string;
-  pointsReversed: number;
+  pointsReversed: number; // the refund's share of the bill's points
+  pointsTaken: number; // what actually came off the client's balance (less if they had spent some)
+  pointsReturned: number; // on a full refund, points the client had spent on the bill, given back
 }>> {
   const authResult = await checkAuth("invoices:refund");
   if (!authResult) {
@@ -528,146 +466,46 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
 
   try {
     // Fetch settings outside transaction since they're static configuration
-    const settingsResult = await getSettings();
-    const thresholds = {
-      goldThreshold: settingsResult.success ? settingsResult.data.goldThreshold : 500,
-      platinumThreshold: settingsResult.success ? settingsResult.data.platinumThreshold : 1000,
-    };
+    const { thresholds, currencyCode } = await refundSettings();
 
     // Execute transaction with Serializable isolation to prevent race conditions
     const result = await prisma.$transaction(async (tx) => {
-      // Get the invoice with sale and loyalty transaction info (inside transaction)
       const invoice = await tx.invoice.findFirst({
         where: { id: invoiceId, salonId: authResult.salonId },
-        include: {
-          sale: {
-            include: {
-              items: {
-                where: { productId: { not: null } },
-                select: { productId: true, quantity: true },
-              },
-              loyaltyTransactions: {
-                where: { type: LoyaltyTransactionType.EARNED },
-              },
-            },
-          },
-          refunds: true,
-        },
+        include: refundInvoiceInclude,
       });
 
       if (!invoice) {
-        throw new Error("Invoice not found");
+        throw new RefundRefusal("Invoice not found");
       }
 
       if (invoice.status !== InvoiceStatus.PAID) {
-        throw new Error("Only paid invoices can be refunded");
+        throw new RefundRefusal("Only paid invoices can be refunded");
       }
 
-      // Calculate total already refunded (inside transaction for atomicity)
-      const totalRefunded = invoice.refunds.reduce((sum, r) => sum + Number(r.amount), 0);
-      const remainingRefundable = Number(invoice.total) - totalRefunded;
-
-      if (amount > remainingRefundable + 0.01) {
-        throw new Error(`Refund amount exceeds remaining refundable balance of ${remainingRefundable.toFixed(2)}`);
-      }
-
-      // Check if this will be a full refund (remaining becomes 0 or negative)
-      const newTotalRefunded = totalRefunded + amount;
-      const isFullRefund = newTotalRefunded >= Number(invoice.total) - 0.01;
-
-      // Calculate points to reverse (proportional to refund amount)
-      const totalPointsEarned = invoice.sale.loyaltyTransactions.reduce(
-        (sum, t) => sum + t.points,
-        0
-      );
-      const pointsAlreadyReversed = invoice.refunds.reduce(
-        (sum, r) => sum + r.pointsReversed,
-        0
-      );
-
-      // If full refund, reverse all remaining points to avoid rounding loss
-      // Otherwise use proportional calculation
-      let pointsToReverse: number;
-      if (isFullRefund) {
-        pointsToReverse = totalPointsEarned - pointsAlreadyReversed;
-      } else {
-        const refundRatio = amount / Number(invoice.total);
-        pointsToReverse = Math.floor(totalPointsEarned * refundRatio);
-      }
-
-      // Create refund record
-      const refund = await tx.refund.create({
-        data: {
-          invoiceId,
-          amount,
-          reason,
-          refundedById: authResult.userId,
-          pointsReversed: pointsToReverse,
-        },
+      const refund = await recordRefund(tx, {
+        invoice,
+        amount,
+        reason,
+        userId: authResult.userId,
+        salonId: authResult.salonId,
+        thresholds,
+        currencyCode,
       });
 
       // Update invoice status if fully refunded
-      if (isFullRefund) {
+      if (refund.isFullRefund) {
         await tx.invoice.update({
           where: { id: invoiceId },
-          data: {
-            status: InvoiceStatus.REFUNDED,
-            refundedAt: new Date(),
-          },
+          data: { status: InvoiceStatus.REFUNDED, refundedAt: new Date() },
         });
       }
 
-      // Reverse loyalty points if any
-      if (pointsToReverse > 0) {
-        // Get current loyalty points balance
-        const loyaltyPoints = await tx.loyaltyPoints.findUnique({
-          where: { clientId: invoice.sale.clientId },
-        });
-
-        if (loyaltyPoints) {
-          const newBalance = Math.max(0, loyaltyPoints.balance - pointsToReverse);
-          const newTier = calculateTier(newBalance, thresholds);
-
-          await tx.loyaltyPoints.update({
-            where: { clientId: invoice.sale.clientId },
-            data: { balance: newBalance, tier: newTier },
-          });
-
-          // Record the adjustment transaction
-          await tx.loyaltyTransaction.create({
-            data: {
-              salonId: authResult.salonId,
-              clientId: invoice.sale.clientId,
-              saleId: invoice.saleId,
-              points: -pointsToReverse,
-              type: LoyaltyTransactionType.ADJUSTMENT,
-              description: `Points reversed due to refund on invoice ${invoice.invoiceNumber}`,
-            },
-          });
-        }
-      }
-
-      // Restore product stock on full refund
-      if (isFullRefund) {
-        for (const item of invoice.sale.items) {
-          if (item.productId) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
-          }
-        }
-      }
-
-      return {
-        refundId: refund.id,
-        pointsReversed: pointsToReverse,
-        saleId: invoice.saleId,
-        clientId: invoice.sale.clientId,
-      };
+      return { refund, saleId: invoice.saleId, clientId: invoice.sale.clientId };
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
+    const { refund, saleId, clientId } = result;
 
     await logAudit({
       action: "REFUND_CREATED",
@@ -675,22 +513,28 @@ export async function createRefund(data: CreateRefundInput): Promise<ActionResul
       entityId: invoiceId,
       userId: authResult.userId,
       userRole: authResult.role,
-      details: { amount, reason, pointsReversed: result.pointsReversed, refundId: result.refundId },
+      salonId: authResult.salonId,
+      details: { amount, reason, pointsReversed: refund.pointsReversed, pointsReturned: refund.pointsReturned, refundId: refund.refundId },
     });
 
     revalidatePath("/dashboard/invoices");
     revalidatePath("/dashboard/sales");
-    revalidatePath(`/dashboard/sales/${result.saleId}`);
-    revalidatePath(`/dashboard/clients/${result.clientId}`);
+    revalidatePath(`/dashboard/sales/${saleId}`);
+    revalidatePath(`/dashboard/clients/${clientId}`);
+    if (refund.isFullRefund) revalidatePath("/dashboard/products"); // stock went back up
     await invalidateDashboardCache(authResult.salonId);
 
-    return { success: true, data: { refundId: result.refundId, pointsReversed: result.pointsReversed } };
+    const { refundId, pointsReversed, pointsTaken, pointsReturned } = refund;
+    return { success: true, data: { refundId, pointsReversed, pointsTaken, pointsReturned } };
   } catch (error) {
-    console.error("Error creating refund:", error);
-    // Return the error message if it's a known validation error
-    if (error instanceof Error) {
+    // Only refusals the person can act on are shown as-is; database errors stay generic.
+    if (error instanceof RefundRefusal) {
       return { success: false, error: error.message };
     }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      return { success: false, error: INVOICE_CHANGED };
+    }
+    console.error("Error creating refund:", error);
     return { success: false, error: "Failed to create refund" };
   }
 }

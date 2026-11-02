@@ -16,16 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -39,7 +29,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { addPaymentToInvoice, cancelInvoice } from "@/lib/actions/invoice";
+import { addPaymentToInvoice } from "@/lib/actions/invoice";
+import { CancelInvoiceDialog } from "./cancel-invoice-dialog";
 import { RefundDialog } from "@/components/sales/refund-dialog";
 import { formatCurrency } from "@/lib/utils/currency";
 import { PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS, type PaymentMethod } from "@/lib/constants/payment-methods";
@@ -59,6 +50,11 @@ interface InvoiceActionsProps {
   currencyCode: string;
   /** Remaining balance owed (drives the Add Payment dialog hint + prefill). */
   amountDue: number;
+  /** Money already paid, less refunds: when above zero, cancelling asks whether to refund or keep it. */
+  paidAmount: number;
+  /** Has the refund permission, so a cancel can give the paid money back. */
+  canRefundMoney: boolean;
+  clientName: string;
 }
 
 export function InvoiceActions({
@@ -71,6 +67,9 @@ export function InvoiceActions({
   maxRefundable,
   currencyCode,
   amountDue,
+  paidAmount,
+  canRefundMoney,
+  clientName,
 }: InvoiceActionsProps): ReactElement {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -111,24 +110,6 @@ export function InvoiceActions({
       } catch (e) {
         console.error("Failed to add payment:", e);
         toast.error("Failed to add payment. Please try again.");
-      }
-    });
-  }
-
-  function cancel(): void {
-    startTransition(async () => {
-      try {
-        const res = await cancelInvoice(invoiceId);
-        if (!res.success) {
-          toast.error(res.error);
-          return;
-        }
-        toast.success("Invoice cancelled");
-        setCancelOpen(false);
-        router.refresh();
-      } catch (e) {
-        console.error("Failed to cancel invoice:", e);
-        toast.error("Failed to cancel invoice. Please try again.");
       }
     });
   }
@@ -231,23 +212,16 @@ export function InvoiceActions({
         </DialogContent>
       </Dialog>
 
-      {/* Cancel confirmation */}
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel invoice {invoiceNumber}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This marks the invoice as cancelled. This can&apos;t be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep invoice</AlertDialogCancel>
-            <AlertDialogAction onClick={cancel} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Cancel invoice
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <CancelInvoiceDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        invoiceId={invoiceId}
+        invoiceNumber={invoiceNumber}
+        clientName={clientName}
+        currencyCode={currencyCode}
+        paidAmount={paidAmount}
+        canRefundMoney={canRefundMoney}
+      />
 
       {/* Refund dialog (triggered from the overflow menu) */}
       {showRefund && (
@@ -256,6 +230,7 @@ export function InvoiceActions({
           invoiceNumber={invoiceNumber}
           maxRefundable={maxRefundable}
           currencyCode={currencyCode}
+          clientName={clientName}
           open={refundOpen}
           onOpenChange={setRefundOpen}
           hideTrigger

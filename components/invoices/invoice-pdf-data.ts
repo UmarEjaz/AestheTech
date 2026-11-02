@@ -7,6 +7,7 @@ import {
   type ReceiptSaleItem,
   type ReceiptSettings,
 } from "@/components/sales/receipt-data";
+import { balanceOwed, cancellationNote, cancelledSummary } from "@/components/sales/receipt-model";
 import type { InvoicePDFData } from "./invoice-pdf";
 
 // Pure mappers from a loaded invoice to the flat data the PDF / payment-receipt renderers take. Kept
@@ -73,8 +74,36 @@ export function buildInvoicePdfData(
     total: Number(invoice.total),
     amountPaid: sumAmounts(invoice.payments),
     amountRefunded: sumAmounts(invoice.refunds),
-    loyaltyPointsEarned: loyalty.pointsEarned,
+    // A cancelled bill's earned points were taken back, so it no longer prints any as earned.
+    loyaltyPointsEarned: invoice.status === "CANCELLED" ? 0 : loyalty.pointsEarned,
   };
+}
+
+/** The Balance Due the invoice PDF prints: the same figure the receipt shows, and none once cancelled. */
+export function invoiceBalanceDue(data: Pick<InvoicePDFData, "status" | "total" | "amountPaid">): number {
+  return balanceOwed(data.total, data.amountPaid, data.status === "CANCELLED");
+}
+
+/** What the invoice PDF's notice box says (see invoiceNotice). */
+export interface InvoiceNotice {
+  tone: "paid" | "cancelled";
+  title: string;
+  body: string;
+}
+
+/** The box under the totals: "Payment Received" on a cleanly paid invoice, or what became of the money
+ *  on a cancelled one. Never shown next to a refund on a paid invoice (a partial refund leaves it PAID). */
+export function invoiceNotice(
+  data: Pick<InvoicePDFData, "status" | "amountPaid" | "amountRefunded" | "currencyCode">
+): InvoiceNotice | null {
+  if (data.status === "PAID" && (data.amountRefunded ?? 0) === 0) {
+    return { tone: "paid", title: "Payment Received", body: "Thank you for your business!" };
+  }
+  if (data.status === "CANCELLED") {
+    const note = cancellationNote({ ...data, cancelled: true });
+    return { tone: "cancelled", title: "Invoice Cancelled", body: note ? `${note}.` : "Nothing was paid on this invoice." };
+  }
+  return null;
 }
 
 /**
@@ -83,6 +112,13 @@ export function buildInvoicePdfData(
  * payment.
  */
 export function buildPaymentReceipts(invoice: InvoiceForDocuments, settings: ReceiptSettings): Map<string, PaymentReceiptData> {
+  // A reprint after the bill was cancelled says so, and what became of the money, instead of a balance.
+  const cancelledNote = cancelledSummary("This invoice was later cancelled.", {
+    cancelled: invoice.status === "CANCELLED",
+    amountPaid: sumAmounts(invoice.payments),
+    amountRefunded: sumAmounts(invoice.refunds),
+    currencyCode: settings.currencyCode,
+  });
   let runningPaid = 0;
   return new Map(
     invoice.payments.map((p) => {
@@ -110,6 +146,7 @@ export function buildPaymentReceipts(invoice: InvoiceForDocuments, settings: Rec
           invoiceTotal: Number(invoice.total),
           totalPaid: runningPaid,
           size: settings.receiptSize,
+          cancelledNote,
         },
       ];
     })

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactElement } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, RotateCcw } from "lucide-react";
@@ -28,13 +28,16 @@ import {
 import { createRefund } from "@/lib/actions/invoice";
 import { formatCurrency, getCurrencyDecimals } from "@/lib/utils/currency";
 import { getCurrencySymbol } from "@/lib/currencies";
+import { pointsLabel } from "@/lib/utils/points-label";
 
 function getMinAmount(currencyCode: string): number {
   const decimals = getCurrencyDecimals(currencyCode);
   return decimals === 0 ? 1 : Number(Math.pow(10, -decimals).toFixed(decimals));
 }
 
-function createRefundSchema(currencyCode: string) {
+function createRefundSchema(
+  currencyCode: string
+): z.ZodObject<{ amount: z.ZodNumber; reason: z.ZodOptional<z.ZodString> }> {
   const minAmount = getMinAmount(currencyCode);
   const decimals = getCurrencyDecimals(currencyCode);
   return z.object({
@@ -57,6 +60,8 @@ interface RefundDialogProps {
   invoiceNumber: string;
   maxRefundable: number;
   currencyCode: string;
+  /** Named in the success message, e.g. "Refund of $20.00 processed for Jennifer Smith." */
+  clientName: string;
   /** Controlled open state (used when the trigger lives elsewhere, e.g. a menu). */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -69,10 +74,11 @@ export function RefundDialog({
   invoiceNumber,
   maxRefundable,
   currencyCode,
+  clientName,
   open: controlledOpen,
   onOpenChange,
   hideTrigger = false,
-}: RefundDialogProps) {
+}: RefundDialogProps): ReactElement {
   const router = useRouter();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -106,7 +112,7 @@ export function RefundDialog({
   const currentAmount = watch("amount") || 0;
   const isFullRefund = currentAmount > maxRefundable - minAmount;
 
-  const onSubmit = async (data: RefundFormData) => {
+  const onSubmit = async (data: RefundFormData): Promise<void> => {
     if (data.amount > maxRefundable) {
       toast.error(`Refund amount cannot exceed ${formatCurrency(maxRefundable, currencyCode)}`);
       return;
@@ -122,10 +128,11 @@ export function RefundDialog({
       });
 
       if (result.success) {
-        const message = result.data.pointsReversed > 0
-          ? `Refund of ${formatCurrency(data.amount, currencyCode)} processed. ${result.data.pointsReversed} loyalty points reversed.`
-          : `Refund of ${formatCurrency(data.amount, currencyCode)} processed successfully.`;
-        toast.success(message);
+        // The points that actually came off (and came back), matching the client's points history.
+        const parts = [`Refund of ${formatCurrency(data.amount, currencyCode)} processed for ${clientName}.`];
+        if (result.data.pointsTaken > 0) parts.push(`${pointsLabel(result.data.pointsTaken)} taken back.`);
+        if (result.data.pointsReturned > 0) parts.push(`${pointsLabel(result.data.pointsReturned)} spent on it returned to ${clientName}.`);
+        toast.success(parts.join(" "));
         setOpen(false);
         reset();
         router.refresh();
@@ -139,18 +146,9 @@ export function RefundDialog({
     }
   };
 
-  const handleOpenChange = (newOpen: boolean) => {
+  const handleOpenChange = (newOpen: boolean): void => {
     setOpen(newOpen);
-    if (!newOpen) {
-      reset({
-        amount: maxRefundable,
-        reason: "",
-      });
-    }
-  };
-
-  const handleFullRefund = () => {
-    setValue("amount", maxRefundable);
+    if (!newOpen) reset({ amount: maxRefundable, reason: "" });
   };
 
   return (
@@ -186,7 +184,7 @@ export function RefundDialog({
                   variant="link"
                   size="sm"
                   className="h-auto p-0 text-xs"
-                  onClick={handleFullRefund}
+                  onClick={() => setValue("amount", maxRefundable)}
                 >
                   Full refund
                 </Button>
@@ -210,8 +208,8 @@ export function RefundDialog({
                 <p className="text-sm text-destructive">{errors.amount.message}</p>
               )}
               {isFullRefund && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  This will be a full refund and will mark the invoice as refunded.
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  This will be a full refund and will mark the invoice as refunded. Points it earned come off the client; any points they spent on it go back.
                 </p>
               )}
             </div>

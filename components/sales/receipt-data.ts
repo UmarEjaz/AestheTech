@@ -62,6 +62,21 @@ export interface ReceiptSettings {
   receiptSize: ReceiptSize;
 }
 
+/** Document settings to print with when the salon's settings can't be loaded. Frozen: it is shared. */
+export const FALLBACK_RECEIPT_SETTINGS: Readonly<ReceiptSettings> = Object.freeze({
+  currencyCode: "USD",
+  timezone: "UTC",
+  salonName: "Salon",
+  salonAddress: null,
+  salonPhone: null,
+  salonEmail: null,
+  salonLogo: null,
+  taxRate: 0,
+  taxNumber: null,
+  receiptFooter: null,
+  receiptSize: "THERMAL_80",
+});
+
 /** "No loyalty figures" (program off, or a walk-in). Frozen: it is shared as a default argument. */
 export const NO_LOYALTY: Readonly<SaleLoyaltySummary> = Object.freeze({ pointsEarned: 0, pointsBalance: null });
 
@@ -122,7 +137,8 @@ export function buildSaleInvoicePdfData(
     total: Number(sale.invoice.total),
     amountPaid: sumAmounts(sale.invoice.payments),
     amountRefunded: sumAmounts(sale.invoice.refunds),
-    loyaltyPointsEarned: loyalty.pointsEarned,
+    // A cancelled bill's earned points were taken back, so it no longer prints any as earned.
+    loyaltyPointsEarned: sale.invoice.status === "CANCELLED" ? 0 : loyalty.pointsEarned,
   };
 }
 
@@ -164,6 +180,7 @@ export function buildSaleReceiptData(
     payments: sale.invoice.payments.map((p) => ({ method: p.method, amount: Number(p.amount) })),
     amountPaid: sumAmounts(sale.invoice.payments),
     refunded: sale.invoice.status === "REFUNDED" || Boolean(sale.invoice.refundedAt),
+    cancelled: sale.invoice.status === "CANCELLED",
     amountRefunded: sumAmounts(sale.invoice.refunds),
     pointsEarned: loyalty.pointsEarned,
     pointsBalance: loyalty.pointsBalance,
