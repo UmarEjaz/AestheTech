@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { safeFilename, clientFileLabel } from "@/lib/utils/filename";
 import { InvoicePDF, InvoicePDFData } from "./invoice-pdf";
 
 interface InvoiceDownloadButtonProps {
@@ -16,10 +17,10 @@ interface InvoiceDownloadButtonProps {
 export function InvoiceDownloadButton({
   invoiceData,
   variant = "outline",
-}: InvoiceDownloadButtonProps) {
+}: InvoiceDownloadButtonProps): ReactElement {
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleDownload = async () => {
+  const handleDownload = async (): Promise<void> => {
     setIsGenerating(true);
 
     try {
@@ -30,7 +31,7 @@ export function InvoiceDownloadButton({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${invoiceData.invoiceNumber}.pdf`;
+      link.download = `${safeFilename(`${clientFileLabel(invoiceData.client)} - Invoice ${invoiceData.invoiceNumber}`)}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

@@ -76,6 +76,7 @@ const saleListInclude = Prisma.validator<Prisma.SaleInclude>()({
       total: true,
       tax: true,
       refundedAt: true,
+      dueDate: true, // the sale page derives OVERDUE from it (never stored)
       payments: {
         select: {
           id: true,
@@ -533,9 +534,8 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
     const totalWithTax = amountAfterPoints + tax;
 
     // Compare payment vs invoice total using integer-cents to avoid float drift.
-    // Partial / pay-later are allowed (under-payment); only an
-    // over-payment is rejected. The invoice status is derived from the amount paid.
-    const toIntCents = (n: number) => Math.round(n * 100);
+    // Partial / pay-later are allowed (under-payment); only an over-payment is rejected. Status derives from amount paid.
+    const toIntCents = (n: number): number => Math.round(n * 100);
     const invoiceTotalCents = toIntCents(totalWithTax);
     // A deposit can exceed the (possibly reduced) invoice total — e.g. a service was
     // removed after the deposit was taken. Apply only up to the total toward the invoice;
@@ -662,11 +662,11 @@ export async function completeSale(data: CompleteSaleInput): Promise<ActionResul
         });
       }
 
-      // If the deposit exceeded the (reduced) invoice total, refund the excess in cash.
-      // The invoice is still fully paid; net collected = total (deposit − refund).
+      // Deposit exceeded the (reduced) invoice total: refund the excess in cash (the bill stays fully paid).
       if (overpaidDepositCents > 0) {
         await tx.refund.create({
           data: {
+            salonId: authResult.salonId,
             invoiceId: invoice.id,
             amount: overpaidDepositCents / 100,
             reason: "Deposit exceeded the invoice total (services reduced) — excess refunded to the client",

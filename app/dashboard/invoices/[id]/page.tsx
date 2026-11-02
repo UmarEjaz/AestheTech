@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ReactElement } from "react";
 import { getInvoice } from "@/lib/actions/invoice";
 import { getSettings } from "@/lib/actions/settings";
 import { hasPermission } from "@/lib/permissions";
@@ -22,30 +23,20 @@ import { redirectAccessDenied } from "@/lib/redirect-access-denied";
 import { requireModule } from "@/lib/require-module";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatInTz } from "@/lib/utils/timezone";
-import { amountDue, formatInvoiceStatus } from "@/lib/utils/invoice-status";
+import { amountDue, formatInvoiceStatus, invoiceStatusVariant, netPaid, refundableLeft } from "@/lib/utils/invoice-status";
 import { InvoiceActions } from "@/components/invoices/invoice-actions";
 import { InvoiceDownloadButton } from "@/components/invoices/invoice-download-button";
-import { InvoicePDFData } from "@/components/invoices/invoice-pdf";
+import { buildInvoicePdfData, buildPaymentReceipts } from "@/components/invoices/invoice-pdf-data";
+import { FALLBACK_RECEIPT_SETTINGS } from "@/components/sales/receipt-data";
+import { cancellationNote, clientLabel } from "@/components/sales/receipt-model";
+import { getSaleLoyaltySummary } from "@/lib/sale-loyalty-summary";
+import { PaymentReceiptButton } from "@/components/sales/payment-receipt-button";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-function statusVariant(status: string) {
-  switch (status) {
-    case "PAID":
-      return "success" as const;
-    case "PENDING":
-    case "PARTIALLY_PAID":
-      return "warning" as const;
-    case "OVERDUE":
-      return "destructive" as const;
-    default:
-      return "secondary" as const;
-  }
-}
-
-export default async function InvoiceDetailPage({ params }: PageProps) {
+export default async function InvoiceDetailPage({ params }: PageProps): Promise<ReactElement> {
   const session = await auth();
   if (!session) {
     redirect("/login");
@@ -71,18 +62,7 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
     notFound();
   }
   const invoice = invoiceResult.data;
-  const settings = settingsResult.success
-    ? settingsResult.data
-    : {
-        currencyCode: "USD",
-        timezone: "UTC",
-        salonName: "Salon",
-        salonAddress: null,
-        salonPhone: null,
-        salonEmail: null,
-        salonLogo: null,
-        taxRate: 0,
-      };
+  const settings = settingsResult.success ? settingsResult.data : FALLBACK_RECEIPT_SETTINGS;
   const currency = settings.currencyCode;
   const tz = settings.timezone;
 
@@ -93,46 +73,27 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
   ]);
 
   const totalRefunded = invoice.refunds.reduce((s, r) => s + Number(r.amount), 0);
-  const maxRefundable = Number(invoice.total) - totalRefunded;
-  const canIssueRefund = canRefund && invoice.status === "PAID" && maxRefundable > 0;
   const totalPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
-
-  const pdfData: InvoicePDFData = {
-    invoiceNumber: invoice.invoiceNumber,
-    status: invoice.status,
-    createdAt: invoice.createdAt.toISOString(),
-    salonName: settings.salonName,
-    salonAddress: settings.salonAddress,
-    salonPhone: settings.salonPhone,
-    salonEmail: settings.salonEmail,
-    salonLogo: settings.salonLogo,
+  const maxRefundable = refundableLeft(Number(invoice.total), totalPaid, totalRefunded);
+  const canIssueRefund = canRefund && invoice.status === "PAID" && maxRefundable > 0;
+  // What became of the money on a cancelled bill (refunded / kept), as the receipts and PDF say it.
+  const cancelNote = cancellationNote({
+    cancelled: invoice.status === "CANCELLED",
+    amountPaid: totalPaid,
+    amountRefunded: totalRefunded,
     currencyCode: currency,
-    taxRate: settings.taxRate,
-    timezone: tz,
-    client: {
-      firstName: invoice.client.firstName,
-      lastName: invoice.client.lastName,
-      email: invoice.client.email,
-      phone: invoice.client.phone,
-      isWalkIn: invoice.client.isWalkIn,
-    },
-    items: invoice.sale.items.map((item) => ({
-      id: item.id,
-      service: item.service ? { name: item.service.name } : null,
-      staff: item.staff ? { firstName: item.staff.firstName, lastName: item.staff.lastName } : null,
-      product: item.product ? { name: item.product.name } : null,
-      price: Number(item.price),
-      quantity: item.quantity,
-      discount: Number(item.discount),
-      note: item.note ?? null,
-    })),
-    subtotal: Number(invoice.sale.totalAmount),
-    discount: Number(invoice.sale.discount),
-    tax: Number(invoice.tax),
-    total: Number(invoice.total),
-    loyaltyPointsEarned: 0,
-    loyaltyPointsRedeemed: 0,
-  };
+  });
+
+  // Loyalty figures for the PDF's "Points Earned" box (informational). Only for a real client with
+  // the loyalty program on.
+  const loyaltyEnabled = settingsResult.success ? settingsResult.data.loyaltyProgramEnabled : false;
+  const loyalty =
+    loyaltyEnabled && !invoice.client.isWalkIn
+      ? await getSaleLoyaltySummary(invoice.sale.id, invoice.client.id)
+      : undefined;
+  const pdfData = buildInvoicePdfData(invoice, settings, loyalty);
+  // One printable receipt per payment, each with the balance as it stood at that payment.
+  const paymentReceiptById = buildPaymentReceipts(invoice, settings);
 
   return (
     <>
@@ -152,7 +113,7 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-bold break-all">Invoice {invoice.invoiceNumber}</h1>
-              <Badge variant={statusVariant(invoice.status)}>{formatInvoiceStatus(invoice.status)}</Badge>
+              <Badge variant={invoiceStatusVariant(invoice.status)}>{formatInvoiceStatus(invoice.status)}</Badge>
             </div>
             <p className="text-muted-foreground">
               Issued {formatInTz(invoice.createdAt, "dd MMM yyyy, h:mm a", tz)}
@@ -173,6 +134,9 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
               maxRefundable={maxRefundable}
               currencyCode={currency}
               amountDue={amountDue(Number(invoice.total), invoice.payments)}
+              paidAmount={netPaid(totalPaid, totalRefunded)}
+              canRefundMoney={canRefund}
+              clientName={invoice.client.isWalkIn ? "the client" : clientLabel(invoice.client)}
             />
           </div>
         </div>
@@ -248,6 +212,13 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
                       <span>{formatCurrency(totalPaid, currency)}</span>
                     </div>
                   )}
+                  {totalRefunded > 0 && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Refunded</span>
+                      <span>−{formatCurrency(totalRefunded, currency)}</span>
+                    </div>
+                  )}
+                  {cancelNote && <p className="text-muted-foreground">Cancelled: {cancelNote}.</p>}
                   {(invoice.status === "PENDING" || invoice.status === "PARTIALLY_PAID" || invoice.status === "OVERDUE") && (
                     <div className="flex justify-between font-semibold text-destructive">
                       <span>Amount due</span>
@@ -268,14 +239,20 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
                   <p className="text-sm text-muted-foreground">No payments recorded.</p>
                 ) : (
                   <div className="space-y-2">
-                    {invoice.payments.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">
-                          {p.method.replace("_", " ")} · {formatInTz(p.paidAt, "dd MMM yyyy", tz)}
-                        </span>
-                        <span className="font-medium">{formatCurrency(Number(p.amount), currency)}</span>
-                      </div>
-                    ))}
+                    {invoice.payments.map((p) => {
+                      const receipt = paymentReceiptById.get(p.id);
+                      return (
+                        <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-muted-foreground">
+                            {p.method.replace("_", " ")} · {formatInTz(p.paidAt, "dd MMM yyyy", tz)}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="font-medium">{formatCurrency(Number(p.amount), currency)}</span>
+                            {receipt && <PaymentReceiptButton data={receipt} />}
+                          </div>
+                        </div>
+                      );
+                    })}
                     <Separator className="my-1" />
                     <div className="flex items-center justify-between text-sm font-semibold">
                       <span>Total paid</span>

@@ -6,7 +6,14 @@ import {
   Receipt,
   Star,
 } from "lucide-react";
-import { PaymentMethod } from "@prisma/client";
+import type { ReactElement } from "react";
+import type { PaymentMethod as PrismaPaymentMethod } from "@prisma/client";
+
+// Browser-safe payment-method constants. The TYPE is Prisma's own enum type (a type-only import is
+// erased at build time, so no Prisma runtime code reaches the browser); the VALUES are plain strings.
+// `Record<PaymentMethod, …>` below makes the compiler fail if the Prisma enum ever gains or loses a
+// member, so this list can't drift from the schema.
+export type PaymentMethod = PrismaPaymentMethod;
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH: "Cash",
@@ -27,13 +34,7 @@ const METHOD_ICONS: Record<PaymentMethod, React.ComponentType<{ className?: stri
 };
 
 /** Payment methods available for selection in checkout (excludes LOYALTY_POINTS, which is handled separately via point redemption). */
-export const SELECTABLE_PAYMENT_METHODS: PaymentMethod[] = [
-  PaymentMethod.CASH,
-  PaymentMethod.CARD,
-  PaymentMethod.BANK_TRANSFER,
-  PaymentMethod.DIGITAL_WALLET,
-  PaymentMethod.OTHER,
-];
+export const SELECTABLE_PAYMENT_METHODS: PaymentMethod[] = ["CASH", "CARD", "BANK_TRANSFER", "DIGITAL_WALLET", "OTHER"];
 
 export function PaymentMethodIcon({
   method,
@@ -41,7 +42,7 @@ export function PaymentMethodIcon({
 }: {
   method: string;
   className?: string;
-}) {
+}): ReactElement {
   const Icon = (method in METHOD_ICONS)
     ? METHOD_ICONS[method as PaymentMethod]
     : Receipt;

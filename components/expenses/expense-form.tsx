@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,7 +37,7 @@ interface ExpenseFormProps {
   currencyCode?: string;
 }
 
-export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }: ExpenseFormProps) {
+export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }: ExpenseFormProps): ReactElement {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -75,7 +75,7 @@ export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }:
   const otherCategories = categories
     .filter((c) => c.id !== originalCategoryId && c.isActive !== false);
 
-  const onSubmit = async (data: CreateExpenseInput) => {
+  const onSubmit = async (data: CreateExpenseInput): Promise<void> => {
     setIsSubmitting(true);
 
     try {
@@ -118,7 +118,7 @@ export function ExpenseForm({ expense, mode, categories, currencyCode = "USD" }:
                 value={categoryId}
                 onValueChange={(value) => setValue("categoryId", value, { shouldValidate: true })}
               >
-                <SelectTrigger>
+                <SelectTrigger id="categoryId">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>

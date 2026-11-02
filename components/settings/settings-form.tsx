@@ -1,12 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { BOOKING_MODES, BOOKING_MODE_LABELS, type BookingMode } from "@/lib/constants/booking-modes";
-import { useMemo } from "react";
 import { Loader2, Building2, Clock, DollarSign, Star, Globe, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 
@@ -40,70 +38,8 @@ import { Switch } from "@/components/ui/switch";
 import { SettingsData, updateSettings } from "@/lib/actions/settings";
 import { CURRENCIES } from "@/lib/currencies";
 import { getTimezoneOptions } from "@/lib/utils/timezone-options";
-
-const CURRENCY_CODES = new Set(CURRENCIES.map((c) => c.code));
-
-const settingsSchema = z.object({
-  salonName: z.string().min(1, "Salon name is required").max(100),
-  salonAddress: z.string().max(200).optional().nullable(),
-  salonPhone: z.string().max(20).optional().nullable(),
-  salonEmail: z.string().email().optional().or(z.literal("")).nullable(),
-  timezone: z.string().min(1, "Timezone is required"),
-  currencyCode: z.string().refine((code) => CURRENCY_CODES.has(code), { message: "Unsupported currency code" }),
-  taxRate: z.coerce.number().min(0).max(100),
-  businessHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
-  businessHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format"),
-  appointmentInterval: z.coerce.number().min(15).max(120),
-  defaultBookingMode: z.enum(BOOKING_MODES),
-  loyaltyProgramEnabled: z.boolean(),
-  loyaltyPointsPerDollar: z.coerce.number().min(0).max(100),
-  goldThreshold: z.coerce.number().int().min(1, "Must be at least 1"),
-  platinumThreshold: z.coerce.number().int().min(2, "Must be at least 2"),
-  memberMultiplier: z.coerce.number().min(0.1).max(10),
-  goldMultiplier: z.coerce.number().min(0.1).max(10),
-  platinumMultiplier: z.coerce.number().min(0.1).max(10),
-  pointsPerDollar: z.coerce.number().int().min(1, "Must be at least 1"),
-  birthdayBonusEnabled: z.boolean(),
-  birthdayBonusPoints: z.coerce.number().int().min(1, "Must be at least 1"),
-  pointsExpiryEnabled: z.boolean(),
-  pointsExpiryMonths: z.coerce.number().int().min(1, "Must be at least 1 month").max(120, "Maximum 120 months"),
-  allowPartialPayment: z.boolean(),
-  allowPayLater: z.boolean(),
-}).refine((data) => data.platinumThreshold > data.goldThreshold, {
-  message: "Platinum threshold must be greater than Gold threshold",
-  path: ["platinumThreshold"],
-}).refine((data) => data.memberMultiplier <= data.goldMultiplier && data.goldMultiplier <= data.platinumMultiplier, {
-  message: "Multipliers must be in ascending order (Member <= Gold <= Platinum)",
-  path: ["platinumMultiplier"],
-});
-
-type SettingsFormData = {
-  salonName: string;
-  salonAddress?: string | null;
-  salonPhone?: string | null;
-  salonEmail?: string | null;
-  timezone: string;
-  currencyCode: string;
-  taxRate: number;
-  businessHoursStart: string;
-  businessHoursEnd: string;
-  appointmentInterval: number;
-  defaultBookingMode: BookingMode;
-  loyaltyProgramEnabled: boolean;
-  loyaltyPointsPerDollar: number;
-  goldThreshold: number;
-  platinumThreshold: number;
-  memberMultiplier: number;
-  goldMultiplier: number;
-  platinumMultiplier: number;
-  pointsPerDollar: number;
-  birthdayBonusEnabled: boolean;
-  birthdayBonusPoints: number;
-  pointsExpiryEnabled: boolean;
-  pointsExpiryMonths: number;
-  allowPartialPayment: boolean;
-  allowPayLater: boolean;
-};
+import { settingsSchema, type SettingsFormData } from "./settings-form-schema";
+import { ReceiptSettingsCard } from "./receipt-settings-card";
 
 interface SettingsFormProps {
   settings: SettingsData;
@@ -111,7 +47,7 @@ interface SettingsFormProps {
 }
 
 // Generate time options in 30-minute intervals
-function generateTimeOptions() {
+function generateTimeOptions(): { value: string; label: string }[] {
   const options = [];
   for (let hour = 0; hour < 24; hour++) {
     for (let minute = 0; minute < 60; minute += 30) {
@@ -131,7 +67,7 @@ function generateTimeOptions() {
 
 const timeOptions = generateTimeOptions();
 
-export function SettingsForm({ settings, canManage }: SettingsFormProps) {
+export function SettingsForm({ settings, canManage }: SettingsFormProps): ReactElement {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -152,10 +88,13 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
       timezone: settings.timezone,
       currencyCode: settings.currencyCode,
       taxRate: settings.taxRate,
+      taxNumber: settings.taxNumber || "",
+      receiptFooter: settings.receiptFooter || "",
       businessHoursStart: settings.businessHoursStart,
       businessHoursEnd: settings.businessHoursEnd,
       appointmentInterval: settings.appointmentInterval,
       defaultBookingMode: settings.defaultBookingMode === "WALK_IN" ? "WALK_IN" : "APPOINTMENT",
+      receiptSize: settings.receiptSize,
       loyaltyProgramEnabled: settings.loyaltyProgramEnabled,
       loyaltyPointsPerDollar: settings.loyaltyPointsPerDollar,
       goldThreshold: settings.goldThreshold,
@@ -182,7 +121,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
 
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
-  const onSubmit = async (data: SettingsFormData) => {
+  const onSubmit = async (data: SettingsFormData): Promise<void> => {
     if (!canManage) {
       toast.error("You don't have permission to update settings");
       return;
@@ -203,6 +142,8 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
         salonAddress: data.salonAddress || null,
         salonPhone: data.salonPhone || null,
         salonEmail: data.salonEmail || null,
+        taxNumber: data.taxNumber?.trim() || null,
+        receiptFooter: data.receiptFooter?.trim() || null,
       });
 
       if (result.success) {
@@ -286,7 +227,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               onValueChange={(value) => setValue("timezone", value, { shouldDirty: true })}
               disabled={!canManage}
             >
-              <SelectTrigger>
+              <SelectTrigger id="timezone">
                 <SelectValue placeholder="Select timezone" />
               </SelectTrigger>
               <SelectContent>
@@ -335,7 +276,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
                 onValueChange={(value) => setValue("businessHoursStart", value, { shouldDirty: true })}
                 disabled={!canManage}
               >
-                <SelectTrigger>
+                <SelectTrigger id="businessHoursStart">
                   <SelectValue placeholder="Select opening time" />
                 </SelectTrigger>
                 <SelectContent>
@@ -357,7 +298,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
                 onValueChange={(value) => setValue("businessHoursEnd", value, { shouldDirty: true })}
                 disabled={!canManage}
               >
-                <SelectTrigger>
+                <SelectTrigger id="businessHoursEnd">
                   <SelectValue placeholder="Select closing time" />
                 </SelectTrigger>
                 <SelectContent>
@@ -380,7 +321,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               onValueChange={(value) => setValue("appointmentInterval", parseInt(value), { shouldDirty: true })}
               disabled={!canManage}
             >
-              <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectTrigger id="appointmentInterval" className="w-full sm:w-[200px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -402,7 +343,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               }
               disabled={!canManage}
             >
-              <SelectTrigger className="w-full sm:w-[220px]">
+              <SelectTrigger id="defaultBookingMode" className="w-full sm:w-[220px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -436,6 +377,7 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               <Popover open={currencyOpen} onOpenChange={setCurrencyOpen}>
                 <PopoverTrigger asChild>
                   <Button
+                    id="currencyCode"
                     variant="outline"
                     role="combobox"
                     aria-expanded={currencyOpen}
@@ -489,8 +431,32 @@ export function SettingsForm({ settings, canManage }: SettingsFormProps) {
               )}
             </div>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="taxNumber">Tax / VAT / GST number</Label>
+            <Input
+              id="taxNumber"
+              placeholder="e.g. GB123456789"
+              {...register("taxNumber")}
+              disabled={!canManage}
+            />
+            <p className="text-sm text-muted-foreground">
+              Your business tax registration number. Shown on invoices and receipts — required for a
+              valid tax invoice where your salon is tax-registered. Leave blank if not applicable.
+            </p>
+            {errors.taxNumber && (
+              <p className="text-sm text-destructive">{errors.taxNumber.message}</p>
+            )}
+          </div>
         </CardContent>
       </Card>
+
+      <ReceiptSettingsCard
+        canManage={canManage}
+        receiptSize={watch("receiptSize")}
+        onReceiptSizeChange={(size) => setValue("receiptSize", size, { shouldDirty: true })}
+        footerField={register("receiptFooter")}
+        footerError={errors.receiptFooter?.message}
+      />
 
       {/* Loyalty Program */}
       <Card>

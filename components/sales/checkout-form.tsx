@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactElement } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -91,8 +91,7 @@ import {
 import { cn } from "@/lib/utils";
 import { quickSale } from "@/lib/actions/sale";
 import { getActiveProducts } from "@/lib/actions/product";
-import { PaymentMethod } from "@prisma/client";
-import { PaymentMethodIcon, PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS } from "@/lib/constants/payment-methods";
+import { PaymentMethodIcon, PAYMENT_METHOD_LABELS, SELECTABLE_PAYMENT_METHODS, type PaymentMethod } from "@/lib/constants/payment-methods";
 import { formatCurrency } from "@/lib/utils/currency";
 import { getCurrencySymbol } from "@/lib/currencies";
 
@@ -202,7 +201,7 @@ function ComboBox({
   placeholder: string;
   searchPlaceholder: string;
   emptyText?: string;
-}) {
+}): ReactElement {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
   return (
@@ -303,7 +302,7 @@ export function CheckoutForm({
   allowPayLater = false,
   appointmentContext,
   canDiscount = false,
-}: CheckoutFormProps) {
+}: CheckoutFormProps): ReactElement {
   const router = useRouter();
   // Deferred-payment availability (full pay-later implies partial is allowed too).
   const canPartial = allowPartialPayment || allowPayLater;
@@ -366,7 +365,7 @@ export function CheckoutForm({
 
   // A sale uses ONE discount approach at a time to avoid ambiguity: the whole bill, or per line.
   const [discountMode, setDiscountMode] = useState<"whole" | "item">("whole");
-  const switchDiscountMode = (mode: "whole" | "item") => {
+  const switchDiscountMode = (mode: "whole" | "item"): void => {
     setDiscountMode(mode);
     if (mode === "whole") {
       // Leaving per-item mode clears any per-line discounts so they can't apply invisibly.
@@ -379,7 +378,7 @@ export function CheckoutForm({
 
   // Per-line discount/note reveal state (which line has its discount/note editor open).
   const [lineUI, setLineUI] = useState<Record<string, { discount?: boolean; note?: boolean }>>({});
-  const setLineUIOpen = (id: string, key: "discount" | "note", open: boolean) =>
+  const setLineUIOpen = (id: string, key: "discount" | "note", open: boolean): void =>
     setLineUI((prev) => ({ ...prev, [id]: { ...prev[id], [key]: open } }));
 
   // Persist the in-progress checkout (cart, per-line notes/discounts, discount mode, redeemed
@@ -421,9 +420,9 @@ export function CheckoutForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cart, discount, discountType, discountMode, redeemPoints]);
-  const setLineDiscount = (id: string, val: number) =>
+  const setLineDiscount = (id: string, val: number): void =>
     setCart((c) => c.map((it) => (it.id === id ? { ...it, discount: Math.max(0, Math.min(val, it.price * it.quantity)) } : it)));
-  const setLineNote = (id: string, val: string) =>
+  const setLineNote = (id: string, val: string): void =>
     setCart((c) => c.map((it) => (it.id === id ? { ...it, note: val } : it)));
 
   // Split payment state — each row is inline-editable.
@@ -437,14 +436,14 @@ export function CheckoutForm({
   const [payLaterMode, setPayLaterMode] = useState(false);
   // Format/compare due dates against the user's LOCAL calendar day. Using
   // toISOString() (UTC) here would shift the day by one near timezone boundaries.
-  const formatLocalDate = (d: Date) => {
+  const formatLocalDate = (d: Date): string => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   };
-  const todayStr = () => formatLocalDate(new Date());
-  const defaultDueDateStr = () => {
+  const todayStr = (): string => formatLocalDate(new Date());
+  const defaultDueDateStr = (): string => {
     const d = new Date();
     d.setDate(d.getDate() + 7);
     return formatLocalDate(d);
@@ -481,7 +480,7 @@ export function CheckoutForm({
 
   // Staff is chosen at add-time (like the appointment form) and baked into the line, so the cart
   // shows "by <staff>" as plain text — no per-line dropdown cluttering the cart.
-  const addServiceToCart = (service: Service, staffId: string) => {
+  const addServiceToCart = (service: Service, staffId: string): void => {
     const existingItem = cart.find(
       (item) => item.type === "service" && item.serviceId === service.id && item.staffId === staffId
     );
@@ -514,7 +513,7 @@ export function CheckoutForm({
     toast.success(`${service.name} added to cart`);
   };
 
-  const addProductToCart = (product: Product, qty = 1) => {
+  const addProductToCart = (product: Product, qty = 1): void => {
     if (product.stock <= 0) return;
 
     const existingItem = cart.find(
@@ -552,13 +551,13 @@ export function CheckoutForm({
   };
 
   // "Add" button handlers for the pick-then-add rows.
-  const addPendingService = () => {
+  const addPendingService = (): void => {
     const svc = services.find((s) => s.id === pendingService);
     if (!svc || !pendingStaff) return;
     addServiceToCart(svc, pendingStaff);
     setPendingService("");
   };
-  const addPendingProduct = () => {
+  const addPendingProduct = (): void => {
     const prod = products.find((p) => p.id === pendingProduct);
     if (!prod) return;
     addProductToCart(prod, pendingQty);
@@ -566,7 +565,7 @@ export function CheckoutForm({
     setPendingQty(1);
   };
 
-  const updateQuantity = (itemId: string, delta: number) => {
+  const updateQuantity = (itemId: string, delta: number): void => {
     setCart(
       cart
         .map((item) => {
@@ -583,7 +582,7 @@ export function CheckoutForm({
     );
   };
 
-  const removeItem = (itemId: string) => {
+  const removeItem = (itemId: string): void => {
     setCart(cart.filter((item) => item.id !== itemId));
   };
 
@@ -609,34 +608,34 @@ export function CheckoutForm({
   const isSplitComplete = Math.abs(splitRemaining) < 0.01 && splitTotal > 0;
 
   // Add an editable row, pre-filled with whatever balance is left (or empty).
-  const addSplitRow = () => {
+  const addSplitRow = (): void => {
     const nextId = splitIdCounter + 1;
     setSplitIdCounter(nextId);
     setSplitPayments((rows) => [
       ...rows,
       {
         id: nextId,
-        method: PaymentMethod.CASH,
+        method: "CASH",
         amount: splitRemaining > 0 ? splitRemaining.toFixed(2) : "",
       },
     ]);
   };
 
-  const updateSplitRow = (id: number, patch: Partial<Omit<SplitPayment, "id">>) => {
+  const updateSplitRow = (id: number, patch: Partial<Omit<SplitPayment, "id">>): void => {
     setSplitPayments((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   };
 
-  const removeSplitRow = (id: number) => {
+  const removeSplitRow = (id: number): void => {
     setSplitPayments((rows) => rows.filter((r) => r.id !== id));
   };
 
   // Same normalized rows used for the balance check above — one source of truth.
-  const splitPaymentsForSubmit = () => normalizedSplitRows;
+  const splitPaymentsForSubmit = (): { method: PaymentMethod; amount: number }[] => normalizedSplitRows;
 
   const submitPayment = async (
     payments: { method: PaymentMethod; amount: number }[],
     saleDueDate?: Date
-  ) => {
+  ): Promise<void> => {
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
@@ -707,7 +706,8 @@ export function CheckoutForm({
           toast.success(`Happy Birthday! ${result.data.birthdayBonus} bonus points awarded!`);
         }
         setIsPaymentOpen(false);
-        router.push(`/dashboard/sales`);
+        // Land on the completed sale: the receipt (Print / Email / Download) is wanted right after paying.
+        router.push(`/dashboard/sales/${result.data.sale.id}`);
       } else {
         toast.error(result.error);
       }
@@ -719,19 +719,19 @@ export function CheckoutForm({
     }
   };
 
-  const handleSinglePayment = (method: PaymentMethod) => {
+  const handleSinglePayment = (method: PaymentMethod): void => {
     setSubmittingMethod(method);
     submitPayment([{ method, amount: payableNow }]);
   };
 
-  const handleSplitComplete = () => {
+  const handleSplitComplete = (): void => {
     if (!isSplitComplete) return;
     submitPayment(splitPaymentsForSubmit());
   };
 
   // Partial / pay-later: submit with the partial (or empty) payments + a due date
   // for the remaining balance.
-  const handlePartialComplete = () => {
+  const handlePartialComplete = (): void => {
     if (!dueDate) {
       toast.error("Pick a due date for the remaining balance");
       return;
@@ -753,21 +753,21 @@ export function CheckoutForm({
 
   // Enter "Split Payment": pay the full total across methods. Seed the two most
   // common tenders (Cash + Card) with empty amounts for the cashier to fill in.
-  const startSplit = () => {
+  const startSplit = (): void => {
     setIsSplitMode(true);
     setPayLaterMode(false);
     const id1 = splitIdCounter + 1;
     const id2 = splitIdCounter + 2;
     setSplitIdCounter(id2);
     setSplitPayments([
-      { id: id1, method: PaymentMethod.CASH, amount: "" },
-      { id: id2, method: PaymentMethod.CARD, amount: "" },
+      { id: id1, method: "CASH", amount: "" },
+      { id: id2, method: "CARD", amount: "" },
     ]);
   };
 
   // Enter "Partial payment or pay later": start with no rows (full balance due); the user
   // can add a partial-payment row. Default the due date to +7 days.
-  const startPayLater = () => {
+  const startPayLater = (): void => {
     setIsSplitMode(true);
     setPayLaterMode(true);
     setSplitPayments([]);
@@ -775,7 +775,7 @@ export function CheckoutForm({
   };
 
   // Refresh stock for product cart items before opening payment modal
-  const handleProceedToPayment = async () => {
+  const handleProceedToPayment = async (): Promise<void> => {
     const productItems = cart.filter((item) => item.type === "product" && item.productId);
     if (productItems.length > 0) {
       const result = await getActiveProducts();
@@ -805,7 +805,7 @@ export function CheckoutForm({
     setIsPaymentOpen(true);
   };
 
-  const getInitials = (firstName: string, lastName: string | null) => {
+  const getInitials = (firstName: string, lastName: string | null): string => {
     return `${firstName[0] || ""}${lastName?.[0] || ""}`.toUpperCase();
   };
 
@@ -1393,7 +1393,7 @@ export function CheckoutForm({
                         value={discountType}
                         onValueChange={(v) => setDiscountType(v as "fixed" | "percentage")}
                       >
-                        <SelectTrigger className="w-24">
+                        <SelectTrigger className="w-24" aria-label="Discount type">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1644,7 +1644,7 @@ export function CheckoutForm({
                         value={row.method}
                         onValueChange={(v) => updateSplitRow(row.id, { method: v as PaymentMethod })}
                       >
-                        <SelectTrigger className="h-9">
+                        <SelectTrigger className="h-9" aria-label="Payment method">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

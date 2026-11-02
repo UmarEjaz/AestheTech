@@ -19,6 +19,8 @@ interface ReceiptEmailData {
   total: number;
   currencyCode: string;
   paymentMethods: string[];
+  /** Set on a cancelled bill, e.g. "This bill was cancelled. $30.00 refunded." — replaces the thank-you line. */
+  statusNote?: string | null;
 }
 
 interface InvoiceEmailData {
@@ -38,9 +40,12 @@ interface InvoiceEmailData {
   tax: number;
   total: number;
   currencyCode: string;
+  /** Set on a cancelled invoice, e.g. "This invoice was cancelled. $30.00 refunded." — replaces the intro line. */
+  statusNote?: string | null;
 }
 
 import { formatCurrencyHtml } from "@/lib/utils/currency";
+import { formatInvoiceStatus } from "@/lib/utils/invoice-status";
 
 function escapeHtml(str: string): string {
   return str
@@ -85,7 +90,7 @@ export function receiptEmailHtml(data: ReceiptEmailData): string {
         <tr>
           <td style="padding: 32px 32px 16px;">
             <p style="margin: 0; font-size: 16px; color: #111827;">Hi ${escapeHtml(data.clientName)},</p>
-            <p style="margin: 8px 0 0; font-size: 14px; color: #6b7280;">Thank you for your visit! Here&rsquo;s your receipt.</p>
+            <p style="margin: 8px 0 0; font-size: 14px; color: #6b7280;">${data.statusNote ? escapeHtml(data.statusNote) : "Thank you for your visit! Here&rsquo;s your receipt."}</p>
           </td>
         </tr>
 
@@ -168,11 +173,12 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
     PAID: "#16a34a",
     OVERDUE: "#dc2626",
     PENDING: "#d97706",
+    PARTIALLY_PAID: "#d97706",
     CANCELLED: "#6b7280",
     REFUNDED: "#2563eb",
   };
   const statusColor = statusColors[data.status] ?? "#d97706";
-  const statusLabel = data.status.charAt(0) + data.status.slice(1).toLowerCase();
+  const statusLabel = formatInvoiceStatus(data.status); // "PARTIALLY_PAID" → "Partially Paid", same as the subject line
 
   return `
 <!DOCTYPE html>
@@ -194,7 +200,7 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
         <tr>
           <td style="padding: 32px 32px 16px;">
             <p style="margin: 0; font-size: 16px; color: #111827;">Hi ${escapeHtml(data.clientName)},</p>
-            <p style="margin: 8px 0 0; font-size: 14px; color: #6b7280;">Please find your invoice details below.</p>
+            <p style="margin: 8px 0 0; font-size: 14px; color: #6b7280;">${data.statusNote ? escapeHtml(data.statusNote) : "Please find your invoice details below."}</p>
           </td>
         </tr>
 

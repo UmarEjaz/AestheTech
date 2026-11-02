@@ -140,6 +140,7 @@ model Salon {
   sales                      Sale[]
   saleItems                  SaleItem[]
   invoices                   Invoice[]
+  refunds                    Refund[]
   schedules                  Schedule[]
   loyaltyPoints              LoyaltyPoints[]
   loyaltyTransactions        LoyaltyTransaction[]
@@ -507,6 +508,7 @@ model Invoice {
   dueDate       DateTime?
   paidAt        DateTime?
   refundedAt    DateTime?
+  cancelledAt   DateTime? // when it was cancelled: reports take the unpaid part off revenue on this day
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -518,10 +520,12 @@ model Invoice {
   refunds  Refund[]
 
   @@unique([salonId, invoiceNumber])
+  @@unique([id, salonId]) // target of Refund's same-salon link below
   @@index([salonId])
   @@index([clientId])
   @@index([status])
   @@index([salonId, status, dueDate]) // supports overdue/outstanding lookups
+  @@index([salonId, cancelledAt]) // reports: bills cancelled in a date range
   @@map("invoices")
 }
 
@@ -550,6 +554,7 @@ model Payment {
 // Refund model
 model Refund {
   id             String   @id @default(cuid())
+  salonId        String
   invoiceId      String
   amount         Decimal  @db.Decimal(10, 2)
   reason         String?
@@ -558,10 +563,14 @@ model Refund {
   createdAt      DateTime @default(now())
 
   // Relations
-  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  salon      Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  // Linked by invoice AND salon, so a refund can only ever sit in its invoice's salon (reports find a
+  // salon's refunds by salonId).
+  invoice    Invoice @relation(fields: [invoiceId, salonId], references: [id, salonId], onDelete: Cascade, onUpdate: Cascade)
   refundedBy User    @relation(fields: [refundedById], references: [id], onDelete: Restrict)
 
   @@index([invoiceId])
+  @@index([salonId, createdAt]) // reports: a salon's refunds in a date range
   @@map("refunds")
 }
 
@@ -615,6 +624,7 @@ model LoyaltyTransaction {
   type        LoyaltyTransactionType
   description String?
   expiresAt   DateTime?
+  expiredAt   DateTime? // when the expiry job took these points off, so a later cancel or refund doesn't too
   createdAt   DateTime               @default(now())
 
   // Relations
@@ -624,7 +634,8 @@ model LoyaltyTransaction {
 
   @@index([salonId])
   @@index([clientId])
-  @@index([expiresAt])
+  @@index([saleId]) // refunds and cancels read a sale's points
+  @@index([salonId, expiresAt]) // the expiry job, a salon at a time
   @@map("loyalty_transactions")
 }
 
@@ -927,12 +938,21 @@ model Settings {
   timezone                     String  @default("UTC") // IANA timezone e.g. "Asia/Karachi"
   currencyCode                 String  @default("USD") @db.VarChar(3) // ISO 4217 currency code
   taxRate                      Decimal @default(0) @db.Decimal(5, 2) // percentage
+  // Business tax/VAT/GST registration number shown on invoices & receipts (required for a compliant
+  // tax invoice where the salon is tax-registered). Free text; null = not set.
+  taxNumber                    String? @db.VarChar(50)
+  // Optional terms / footer note printed at the foot of sales receipts & invoices (e.g. a return
+  // policy or thank-you message). Free text; null = not shown.
+  receiptFooter                String? @db.VarChar(300)
   businessHoursStart           String  @default("09:00") // HH:mm format
   businessHoursEnd             String  @default("19:00") // HH:mm format
   appointmentInterval          Int     @default(30) // minutes
   allowOnlineBooking           Boolean @default(true)
   // Which mode the New-booking screen opens in by default: "WALK_IN" (here now) or "APPOINTMENT" (later).
   defaultBookingMode           String  @default("APPOINTMENT")
+  // Paper size for printed/downloaded customer receipts. One of RECEIPT_SIZES
+  // (lib/constants/receipt-sizes.ts): "THERMAL_80" | "THERMAL_58" | "A5" | "A4".
+  receiptSize                  String  @default("THERMAL_80")
   loyaltyProgramEnabled        Boolean @default(true)
   loyaltyPointsPerDollar       Int     @default(1)
 

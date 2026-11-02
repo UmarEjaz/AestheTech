@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { userSchema, UserFormData, UserFormInput, UserUpdateData } from "@/lib/validations/user";
 import { createUser, updateUser } from "@/lib/actions/user";
-import { useRoles } from "@/lib/roles-context";
+import { useRoles, type RoleInfo } from "@/lib/roles-context";
 import { SYSTEM_ROLES, SYSTEM_ROLE_HIERARCHY } from "@/lib/roles";
 
 interface StaffFormProps {
@@ -44,7 +44,7 @@ interface StaffFormProps {
   isSelf?: boolean;
 }
 
-export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false, isSelf = false }: StaffFormProps) {
+export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false, isSelf = false }: StaffFormProps): ReactElement {
   const router = useRouter();
   const roles = useRoles();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,7 +60,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false, i
   const [isServiceProvider, setIsServiceProvider] = useState(user?.isServiceProvider ?? false);
 
   // Filter available roles based on current user's role hierarchy
-  const getAvailableRoles = () => {
+  const getAvailableRoles = (): RoleInfo[] => {
     // Super admins can assign any role
     if (isSuperAdmin) return roles;
     if (!currentUserRole) return [];
@@ -109,7 +109,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false, i
     },
   });
 
-  const onSubmit = async (data: UserFormData) => {
+  const onSubmit = async (data: UserFormData): Promise<void> => {
     setIsSubmitting(true);
 
     try {
@@ -236,7 +236,7 @@ export function StaffForm({ user, mode, currentUserRole, isSuperAdmin = false, i
                   value={selectedRole}
                   onValueChange={(value) => setSelectedRole(value)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="role">
                     <SelectValue placeholder="Select a role" />
                   </SelectTrigger>
                   <SelectContent>
